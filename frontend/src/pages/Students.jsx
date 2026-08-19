@@ -1,0 +1,983 @@
+import React, { useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
+import api from '../services/api'
+
+const emptyForm = () => ({
+  student_name: '',
+  date_of_birth: '',
+  school_name: '',
+  programme_id: '',
+  academic_year_id: '',
+  grade: '',
+  mother_name: '',
+  mother_phone: '',
+  mother_email: '',
+  father_name: '',
+  father_phone: '',
+  father_email: '',
+  gender: 'OTHER',
+  address: '',
+  emergency_contact_name: '',
+  emergency_contact_phone: '',
+  medical_notes: '',
+  student_email: '',
+  library_access: true
+})
+
+function Students() {
+  const { user, hasPermission } = useAuth()
+  const [students, setStudents] = useState([])
+  const [programmes, setProgrammes] = useState([])
+  const [academicYears, setAcademicYears] = useState([])
+  const [form, setForm] = useState(emptyForm())
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  // State for Re-enrollment modal
+  const [reEnrollStudent, setReEnrollStudent] = useState(null)
+  const [showEnrollmentDialog, setShowEnrollmentDialog] = useState(false)
+  const [existingSearch, setExistingSearch] = useState('')
+  const [existingMatches, setExistingMatches] = useState([])
+  const [showImport, setShowImport] = useState(false)
+  const [studentExcelFile, setStudentExcelFile] = useState(null)
+  const [importYear, setImportYear] = useState('')
+  const [importProgramme, setImportProgramme] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [reEnrollForm, setReEnrollForm] = useState({
+    academic_year_id: '',
+    programme_id: '',
+    grade: '',
+    section: ''
+  })
+
+  // Additional Filter States
+  const [filterYear, setFilterYear] = useState('')
+  const [filterProgramme, setFilterProgramme] = useState('')
+  const [filterGrade, setFilterGrade] = useState('')
+  const [filterSchool, setFilterSchool] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterLibraryAccess, setFilterLibraryAccess] = useState('')
+  const [filterSubStatus, setFilterSubStatus] = useState('')
+
+  const canCreate = user?.role === 'ADMIN' || hasPermission('student.create')
+  const canEdit = user?.role === 'ADMIN' || hasPermission('student.edit')
+  const canDelete = user?.role === 'ADMIN' || hasPermission('student.delete')
+
+  const handleResetAll = async () => {
+    const confirmation = window.prompt(
+      '⚠️ WARNING: This will permanently DELETE ALL student records, enrollments, deposit accounts, and reset all roll numbers to 0001!\n\nType "RESET" to confirm:'
+    )
+    if (confirmation !== 'RESET') return
+    try {
+      setResetting(true)
+      setError('')
+      setSuccess('')
+      const res = await api.post('/students/reset-all')
+      setSuccess(`✅ ${res.data?.message || 'All student data cleared and roll numbers reset to 0001 successfully.'}`)
+      await load()
+      setTimeout(() => setSuccess(''), 5000)
+    } catch (e) {
+      setError(e.data?.error || e.response?.data?.error || e.message || 'Could not reset student data.')
+    } fontFinally: {
+      setResetting(false)
+    }
+  }
+
+  const load = async () => {
+    try {
+      const [s, p, y] = await Promise.all([
+        api.get('/students/'),
+        api.get('/students/programmes'),
+        api.get('/students/academic-years')
+      ])
+      setStudents(s.data || [])
+      setProgrammes(p.data || [])
+      setAcademicYears(y.data || [])
+    } catch (e) {
+      setError(e.data?.error || e.message || 'Could not load student master data.')
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+
+  const toggleLibraryAccess = async (student) => {
+    try {
+      const newAccess = !student.library_access
+      await api.put(`/students/${student.student_id}`, {
+        library_access: newAccess
+      })
+      setSuccess(`✅ Library access ${newAccess ? 'ENABLED' : 'DISABLED'} for ${student.student_name}`)
+      await load()
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError(err.data?.error || 'Failed to update library access.')
+    }
+  }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    try {
+      setError('')
+      setSuccess('')
+      if (editing) {
+        await api.put(`/students/${editing}`, form)
+        setSuccess('✅ Student updated successfully.')
+      } else {
+        await api.post('/students/', form)
+        setSuccess('✅ Student created successfully.')
+      }
+      setShowForm(false)
+      setEditing(null)
+      setForm(emptyForm())
+      await load()
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (e) {
+      setError(e.data?.error || e.response?.data?.error || e.message || 'Could not save student.')
+    }
+  }
+
+  const handleReEnroll = async (e) => {
+    e.preventDefault()
+    if (!reEnrollStudent) return
+    if (!reEnrollForm.academic_year_id || !reEnrollForm.programme_id) {
+      setError('Please select an Academic Year and Programme.')
+      return
+    }
+    try {
+      setError('')
+      setSuccess('')
+      await api.post('/students/enrollments', {
+        student_id: reEnrollStudent.student_id,
+        ...reEnrollForm
+      })
+      setSuccess(`✅ ${reEnrollStudent.student_name} enrolled successfully!`)
+      setReEnrollStudent(null)
+      setShowEnrollmentDialog(false)
+      setReEnrollForm({ academic_year_id: '', programme_id: '', grade: '', section: '' })
+      await load()
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (e) {
+      setError(e.data?.error || e.response?.data?.error || e.message || 'Could not create new enrollment.')
+    }
+  }
+
+  const searchExistingStudents = async () => {
+    const query = existingSearch.trim()
+    if (!query) return setExistingMatches([])
+    try {
+      setError('')
+      const response = await api.get(`/students/search?q=${encodeURIComponent(query)}`)
+      setExistingMatches(response.data || [])
+    } catch (e) {
+      setError(e.data?.error || e.response?.data?.error || 'Could not search students.')
+    }
+  }
+
+  const selectExistingStudent = (student) => {
+    const activeEnrollment = student.enrollments?.find((entry) => entry.status === 'ACTIVE') || student.current_enrollment
+    const defaultYear = academicYears.find((year) => year.is_current)?.academic_year_id || academicYears[0]?.academic_year_id || ''
+    setReEnrollStudent(student)
+    setReEnrollForm({
+      academic_year_id: defaultYear,
+      programme_id: activeEnrollment?.programme?.programme_id || programmes[0]?.programme_id || '',
+      grade: activeEnrollment?.grade || '',
+      section: activeEnrollment?.section || ''
+    })
+    setExistingMatches([])
+  }
+
+  const importStudentSpreadsheet = async (event) => {
+    event.preventDefault()
+    if (!studentExcelFile || !importYear) {
+      setError('Please choose a student Excel/CSV file and select the academic year.')
+      return
+    }
+    const body = new FormData()
+    body.append('file', studentExcelFile)
+    body.append('academic_year_id', importYear)
+    try {
+      setImporting(true)
+      setError('')
+      body.append('default_programme_id', importProgramme)
+      const response = await api.post('/students/import-students', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const summary = response.data
+      let msg = `✅ Imported ${summary.enrollments_created} enrollment(s): ${summary.new_students} new student(s), ${summary.existing_students} existing student(s).`
+      if (summary.skipped?.length) {
+        const skippedNotes = summary.skipped.map(s => `Row ${s.row}: ${s.reason}`).join('; ')
+        msg += ` (${summary.skipped.length} row(s) skipped: ${skippedNotes})`
+      }
+      setSuccess(msg)
+      setShowImport(false)
+      setStudentExcelFile(null)
+      await load()
+    } catch (e) {
+      setError(e.data?.error || e.response?.data?.error || 'Could not import student spreadsheet.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const availableGrades = Array.from(new Set(
+    students.flatMap((s) => (s.enrollments || []).map((e) => e.grade).filter(Boolean))
+  )).sort()
+
+  const availableSchools = Array.from(new Set(
+    students.map((s) => s.school_name).filter(Boolean)
+  )).sort()
+
+  const filtered = students.filter((s) => {
+    const searchLower = search.toLowerCase().trim()
+    const allRolls = (s.enrollments || []).map((e) => e.roll_number).filter(Boolean).join(' ')
+    const matchesSearch = !searchLower ||
+      `${s.student_name} ${s.student_uid} ${allRolls} ${s.school_name || ''} ${s.mother_name || ''} ${s.father_name || ''} ${s.mother_phone || ''} ${s.father_phone || ''}`
+        .toLowerCase()
+        .includes(searchLower)
+
+    const matchesYear = !filterYear || (s.enrollments || []).some((e) =>
+      String(e.academic_year_id || e.academic_year?.academic_year_id) === String(filterYear)
+    )
+
+    const matchesProgramme = !filterProgramme || (s.enrollments || []).some((e) =>
+      String(e.programme_id || e.programme?.programme_id) === String(filterProgramme)
+    )
+
+    const matchesGrade = !filterGrade || (s.enrollments || []).some((e) => e.grade === filterGrade)
+    const matchesSchool = !filterSchool || s.school_name === filterSchool
+    const matchesStatus = !filterStatus || (filterStatus === 'ACTIVE' ? s.is_active : !s.is_active)
+
+    const matchesLibraryAccess = !filterLibraryAccess || (
+      filterLibraryAccess === 'ENABLED' ? s.library_access : !s.library_access
+    )
+
+    const matchesSubStatus = !filterSubStatus || (
+      filterSubStatus === 'ACTIVE' ? Boolean(s.active_subscription) : !s.active_subscription
+    )
+
+    return matchesSearch && matchesYear && matchesProgramme && matchesGrade && matchesSchool && matchesStatus && matchesLibraryAccess && matchesSubStatus
+  })
+
+  const hasActiveFilters = Boolean(
+    search || filterYear || filterProgramme || filterGrade || filterSchool || filterStatus || filterLibraryAccess || filterSubStatus
+  )
+
+  const resetFilters = () => {
+    setSearch('')
+    setFilterYear('')
+    setFilterProgramme('')
+    setFilterGrade('')
+    setFilterSchool('')
+    setFilterStatus('')
+    setFilterLibraryAccess('')
+    setFilterSubStatus('')
+  }
+
+  const textFields = [
+    ['student_name', 'Student name'],
+    ['date_of_birth', 'Date of birth', 'date'],
+    ['school_name', 'School name'],
+    ['grade', 'Grade'],
+    ['mother_name', "Mother's name"],
+    ['mother_phone', "Mother's phone number", 'tel'],
+    ['mother_email', "Mother's email", 'email', true],
+    ['father_name', "Father's name"],
+    ['father_phone', "Father's phone number", 'tel'],
+    ['father_email', "Father's email", 'email', true],
+    ['student_email', 'Student email', 'email', true]
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Students & Library Memberships</h2>
+          <p className="text-gray-500 dark:text-gray-400">Manage student profiles, roll numbers, deposit balances, and library access privileges.</p>
+        </div>
+        {canCreate && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                setForm(emptyForm())
+                setEditing(null)
+                setShowForm((v) => !v)
+              }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-sm transition-all"
+            >
+              {showForm ? '✕ Cancel' : '+ New Student'}
+            </button>
+            <button
+              onClick={() => {
+                setError('')
+                setExistingSearch('')
+                setExistingMatches([])
+                setReEnrollStudent(null)
+                setShowEnrollmentDialog(true)
+              }}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition-all"
+            >
+              Existing / Old Student
+            </button>
+            <button
+              onClick={() => {
+                setImportYear(academicYears.find((year) => year.is_current)?.academic_year_id || academicYears[0]?.academic_year_id || '')
+                setImportProgramme('')
+                setShowImport(true)
+              }}
+              className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold shadow-sm transition-all"
+            >
+              Import Excel
+            </button>
+            {canDelete && (
+              <button
+                onClick={handleResetAll}
+                disabled={resetting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-sm transition-all disabled:opacity-50"
+              >
+                {resetting ? 'Resetting…' : '🗑 Reset All'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {error && <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-sm font-semibold">{error}</div>}
+      {success && <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-sm font-semibold">{success}</div>}
+
+      {/* CREATE / EDIT FORM */}
+      {showForm && (
+        <form onSubmit={submit} className="bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-sm space-y-4">
+          <h3 className="font-bold text-gray-900 dark:text-white text-lg">{editing ? 'Edit Student Master Record' : 'Create New Student'}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {textFields.filter(([key]) => !editing || key !== 'grade').map(([key, label, type, optional]) => (
+              <label key={key} className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                {label}{optional ? '' : ' *'}
+                <input
+                  required={!optional}
+                  type={type || 'text'}
+                  value={form[key]}
+                  onChange={(e) => set(key, e.target.value)}
+                  className="mt-1 w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </label>
+            ))}
+
+            {!editing && (
+              <>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                  Programme *
+                  <select
+                    required
+                    value={form.programme_id}
+                    onChange={(e) => set('programme_id', e.target.value)}
+                    className="mt-1 w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select programme</option>
+                    {programmes.map((p) => (
+                      <option key={p.programme_id} value={p.programme_id}>
+                        {p.programme_code || p.programme_name} - {p.programme_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                  Academic year *
+                  <select
+                    required
+                    value={form.academic_year_id}
+                    onChange={(e) => set('academic_year_id', e.target.value)}
+                    className="mt-1 w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select academic year</option>
+                    {academicYears.map((y) => (
+                      <option key={y.academic_year_id} value={y.academic_year_id}>
+                        {y.year_code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+
+            <div className="flex items-center gap-3 pt-4">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.library_access}
+                  onChange={(e) => set('library_access', e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                />
+                Enable Library Borrowing Privileges
+              </label>
+            </div>
+          </div>
+
+          <button className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
+            {editing ? 'Update Student' : 'Save Student'}
+          </button>
+        </form>
+      )}
+
+      {/* FILTER BAR */}
+      <div className="bg-white dark:bg-[#17172a] rounded-2xl p-5 border border-gray-200 dark:border-[#292944] shadow-sm space-y-3">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by Name, STU ID, Roll No, Phone..."
+            className="w-full md:w-80 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+
+          {hasActiveFilters && (
+            <button onClick={resetFilters} className="text-xs font-semibold text-rose-500 hover:underline">
+              Clear All Filters
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {/* Year Filter */}
+          <select
+            value={filterYear}
+            onChange={(e) => setFilterYear(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+          >
+            <option value="">All Academic Years</option>
+            {academicYears.map((y) => (
+              <option key={y.academic_year_id} value={y.academic_year_id}>
+                {y.year_code}
+              </option>
+            ))}
+          </select>
+
+          {/* Programme Filter */}
+          <select
+            value={filterProgramme}
+            onChange={(e) => setFilterProgramme(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+          >
+            <option value="">All Programmes</option>
+            {programmes.map((p) => (
+              <option key={p.programme_id} value={p.programme_id}>
+                {p.programme_code || p.programme_name}
+              </option>
+            ))}
+          </select>
+
+          {/* Grade Filter */}
+          <select
+            value={filterGrade}
+            onChange={(e) => setFilterGrade(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+          >
+            <option value="">All Grades</option>
+            {availableGrades.map((g) => (
+              <option key={g} value={g}>
+                Grade: {g}
+              </option>
+            ))}
+          </select>
+
+          {/* Library Access Filter */}
+          <select
+            value={filterLibraryAccess}
+            onChange={(e) => setFilterLibraryAccess(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+          >
+            <option value="">Library Access (All)</option>
+            <option value="ENABLED">Library Access: Enabled</option>
+            <option value="DISABLED">Library Access: Disabled</option>
+          </select>
+
+          {/* Subscription Filter */}
+          <select
+            value={filterSubStatus}
+            onChange={(e) => setFilterSubStatus(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+          >
+            <option value="">Subscription (All)</option>
+            <option value="ACTIVE">Active Plan</option>
+            <option value="EXPIRED">No / Expired Plan</option>
+          </select>
+
+          {/* Status Filter */}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+          >
+            <option value="">Status (All)</option>
+            <option value="ACTIVE">Active Students</option>
+            <option value="INACTIVE">Inactive Students</option>
+          </select>
+        </div>
+      </div>
+
+      {/* STUDENT TABLE */}
+      <div className="overflow-x-auto bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
+            <tr>
+              <th className="px-4 py-3">Roll & STU ID</th>
+              <th className="px-4 py-3">Student Name</th>
+              <th className="px-4 py-3">Programme / Grade</th>
+              <th className="px-4 py-3 text-center">Library Access</th>
+              <th className="px-4 py-3">Deposit & Fines</th>
+              <th className="px-4 py-3">Subscription</th>
+              <th className="px-4 py-3">Parents</th>
+              <th className="px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
+            {filtered.map((s) => {
+              const activeEnc = s.enrollments?.find((e) => e.status === 'ACTIVE') || s.current_enrollment
+              const activeSub = s.active_subscription
+              return (
+                <tr key={s.student_id} className="hover:bg-blue-50/20 dark:hover:bg-[#19192e] transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-bold text-blue-600 dark:text-blue-400 font-mono">
+                      {activeEnc?.roll_number || '—'}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{s.student_uid}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-bold text-gray-900 dark:text-white">{s.student_name}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{s.school_name || 'N/A'}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 dark:text-white">{activeEnc?.programme?.programme_name || '—'}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Grade: {activeEnc?.grade || '—'}</div>
+                  </td>
+
+                  {/* Library Access Toggle Button */}
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => toggleLibraryAccess(s)}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all shadow-xs ${
+                        s.library_access
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-200'
+                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 hover:bg-rose-200'
+                      }`}
+                      title="Click to toggle library access"
+                    >
+                      {s.library_access ? '✓ Enabled' : '✕ Disabled'}
+                    </button>
+                  </td>
+
+                  {/* Deposit & Outstanding Unpaid Balance */}
+                  <td className="px-4 py-3 text-xs">
+                    <div>Deposit: <strong>₹{Number(s.deposit_balance || 0).toFixed(2)}</strong></div>
+                    {s.outstanding_balance > 0 ? (
+                      <div className="text-rose-500 font-bold">Unpaid: ₹{Number(s.outstanding_balance).toFixed(2)}</div>
+                    ) : (
+                      <div className="text-gray-400">No Fines</div>
+                    )}
+                  </td>
+
+                  {/* Subscription Plan & Limit */}
+                  <td className="px-4 py-3 text-xs">
+                    {activeSub ? (
+                      <div>
+                        <div className="font-bold text-emerald-600 dark:text-emerald-400">{activeSub.plan?.plan_name}</div>
+                        <div className="text-gray-500">
+                          Limit: {s.current_books_issued}/{s.max_books_allowed} books
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-amber-500 font-semibold">No Active Plan</span>
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300">
+                    <div>{s.mother_name} ({s.mother_phone})</div>
+                    <div className="text-gray-500">{s.father_name} ({s.father_phone})</div>
+                  </td>
+
+                  <td className="px-4 py-3 text-right space-x-2 text-xs font-semibold">
+                    {canEdit && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditing(s.student_id)
+                            setError('')
+                            setSuccess('')
+                            const enc = activeEnc
+                            setForm({
+                              student_name: s.student_name || '',
+                              date_of_birth: s.date_of_birth ? s.date_of_birth.split('T')[0] : '',
+                              gender: s.gender || 'OTHER',
+                              school_name: s.school_name || '',
+                              student_email: s.student_email || '',
+                              programme_id: enc?.programme_id || enc?.programme?.programme_id || '',
+                              academic_year_id: enc?.academic_year_id || enc?.academic_year?.academic_year_id || '',
+                              grade: enc?.grade || '',
+                              mother_name: s.mother_name || '',
+                              mother_phone: s.mother_phone || '',
+                              mother_email: s.mother_email || '',
+                              father_name: s.father_name || '',
+                              father_phone: s.father_phone || '',
+                              father_email: s.father_email || '',
+                              address: s.address || '',
+                              emergency_contact_name: s.emergency_contact_name || '',
+                              emergency_contact_phone: s.emergency_contact_phone || '',
+                              medical_notes: s.medical_notes || '',
+                              library_access: s.library_access ?? true
+                            })
+                            setShowForm(true)
+                          }}
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            selectExistingStudent(s)
+                            setShowEnrollmentDialog(true)
+                          }}
+                          className="text-emerald-600 dark:text-emerald-400 hover:underline"
+                        >
+                          + Re-Enroll
+                        </button>
+                      </>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={async () => {
+                          if (window.confirm(`Delete student ${s.student_name}?`)) {
+                            try {
+                              setError('')
+                              await api.delete(`/students/${s.student_id}`)
+                              await load()
+                              setSuccess('Student deleted successfully.')
+                              setTimeout(() => setSuccess(''), 3000)
+                            } catch (err) {
+                              setError(err.data?.error || err.response?.data?.error || err.message || 'Could not delete student.')
+                            }
+                          }
+                        }}
+                        className="text-rose-600 dark:text-rose-400 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan="8" className="p-8 text-center text-gray-500 dark:text-gray-400">
+                  No students match your filter criteria.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* EXCEL IMPORT MODAL DIALOG */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-lg w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative">
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
+                  <span>📊</span> Import Students from Excel / CSV
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImport(false)
+                  setStudentExcelFile(null)
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={importStudentSpreadsheet} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                  Target Academic Year *
+                </label>
+                <select
+                  required
+                  value={importYear}
+                  onChange={(e) => setImportYear(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                >
+                  <option value="">Select Target Academic Year</option>
+                  {academicYears.map((y) => (
+                    <option key={y.academic_year_id} value={y.academic_year_id}>
+                      {y.year_code} {y.is_current ? '(Current Active Year)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                  Fallback Default Programme (Optional)
+                </label>
+                <select
+                  value={importProgramme}
+                  onChange={(e) => setImportProgramme(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                >
+                  <option value="">Auto-detect from Excel / Auto-create missing</option>
+                  {programmes.map((p) => (
+                    <option key={p.programme_id} value={p.programme_id}>
+                      {p.programme_code || p.programme_name} - {p.programme_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">If the spreadsheet does not specify a programme for a student, this fallback programme will be assigned.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                  Select Excel (.xlsx) or CSV (.csv) File *
+                </label>
+                <input
+                  required
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={(e) => setStudentExcelFile(e.target.files[0] || null)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-gray-900 dark:text-white file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700 cursor-pointer"
+                />
+                {studentExcelFile && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
+                    Selected file: {studentExcelFile.name} ({(studentExcelFile.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowImport(false)
+                    setStudentExcelFile(null)
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={importing || !studentExcelFile || !importYear}
+                  className="px-5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  {importing ? 'Processing & Importing Data…' : 'Start Bulk Import'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EXISTING / OLD STUDENT RE-ENROLLMENT MODAL DIALOG */}
+      {showEnrollmentDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-xl w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
+                  <span>🎓</span> Re-Enroll Existing / Old Student
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Search for an existing student record to enroll them into a new academic year.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEnrollmentDialog(false)
+                  setReEnrollStudent(null)
+                  setExistingMatches([])
+                  setExistingSearch('')
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {!reEnrollStudent ? (
+              /* SEARCH STEP */
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={existingSearch}
+                    onChange={(e) => setExistingSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchExistingStudents())}
+                    placeholder="Enter Student Name, STU ID, or Phone Number..."
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={searchExistingStudents}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
+                  >
+                    Search
+                  </button>
+                </div>
+
+                {existingMatches.length > 0 && (
+                  <div className="space-y-2 border border-gray-200 dark:border-gray-800 rounded-xl p-3 max-h-60 overflow-y-auto bg-gray-50 dark:bg-[#10101d]">
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Matching Students ({existingMatches.length}):</div>
+                    {existingMatches.map((st) => (
+                      <div
+                        key={st.student_id}
+                        onClick={() => selectExistingStudent(st)}
+                        className="p-3 bg-white dark:bg-[#17172a] hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-gray-200 dark:border-gray-800 rounded-xl cursor-pointer transition-all flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="font-bold text-sm text-gray-900 dark:text-white">{st.student_name} <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">({st.student_uid})</span></div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            DOB: {st.date_of_birth || 'N/A'} | Mother: {st.mother_name || 'N/A'} ({st.mother_phone || '—'})
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="px-3 py-1 bg-emerald-600 text-white font-bold text-xs rounded-lg hover:bg-emerald-700 cursor-pointer"
+                        >
+                          Select
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {existingSearch && existingMatches.length === 0 && (
+                  <div className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
+                    No matching student found. Double-check search query or create a new student record.
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* ENROLLMENT FORM STEP */
+              <form onSubmit={handleReEnroll} className="space-y-4">
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="font-bold text-sm text-emerald-900 dark:text-emerald-200">
+                      Selected: {reEnrollStudent.student_name}
+                    </div>
+                    <div className="text-xs text-emerald-700 dark:text-emerald-400 font-mono">
+                      ID: {reEnrollStudent.student_uid} | DOB: {reEnrollStudent.date_of_birth || 'N/A'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReEnrollStudent(null)}
+                    className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+                  >
+                    Change Student
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                      Academic Year *
+                    </label>
+                    <select
+                      required
+                      value={reEnrollForm.academic_year_id}
+                      onChange={(e) => setReEnrollForm((f) => ({ ...f, academic_year_id: e.target.value }))}
+                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    >
+                      <option value="">Select Academic Year</option>
+                      {academicYears.map((y) => (
+                        <option key={y.academic_year_id} value={y.academic_year_id}>
+                          {y.year_code} {y.is_current ? '(Current Active Year)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                      Programme *
+                    </label>
+                    <select
+                      required
+                      value={reEnrollForm.programme_id}
+                      onChange={(e) => setReEnrollForm((f) => ({ ...f, programme_id: e.target.value }))}
+                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    >
+                      <option value="">Select Programme</option>
+                      {programmes.map((p) => (
+                        <option key={p.programme_id} value={p.programme_id}>
+                          {p.programme_code || p.programme_name} - {p.programme_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                      Grade / Class
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Nursery, LKG, Grade 1"
+                      value={reEnrollForm.grade}
+                      onChange={(e) => setReEnrollForm((f) => ({ ...f, grade: e.target.value }))}
+                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                      Section
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. A, B, Main"
+                      value={reEnrollForm.section}
+                      onChange={(e) => setReEnrollForm((f) => ({ ...f, section: e.target.value }))}
+                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEnrollmentDialog(false)
+                      setReEnrollStudent(null)
+                      setExistingMatches([])
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+                  >
+                    Complete Re-Enrollment
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default Students
