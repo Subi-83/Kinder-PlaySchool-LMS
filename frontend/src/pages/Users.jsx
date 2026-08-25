@@ -19,6 +19,8 @@ function Users() {
     is_active: true,
     permissions: []
   })
+  const [selectedTab, setSelectedTab] = useState('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const canCreate = hasPermission('user.create') || user?.role === 'ADMIN'
   const canEdit = hasPermission('user.edit') || user?.role === 'ADMIN'
@@ -108,6 +110,38 @@ function Users() {
         : prev.permissions.filter((code) => !codes.includes(code))
     }))
   }
+
+  const getModuleIcon = (moduleName) => {
+    const name = (moduleName || '').toLowerCase()
+    if (name.includes('student')) return '👨‍🎓'
+    if (name.includes('book')) return '📚'
+    if (name.includes('sub')) return '📋'
+    if (name.includes('lib')) return '📖'
+    if (name.includes('dep')) return '💰'
+    if (name.includes('rep')) return '📈'
+    if (name.includes('user')) return '👥'
+    if (name.includes('set')) return '⚙️'
+    if (name.includes('master') || name.includes('prog')) return '🗂️'
+    if (name.includes('audit')) return '📜'
+    return '🔐'
+  }
+
+  const filteredModules = Object.entries(permissionsByModule).reduce((acc, [module, modulePerms]) => {
+    if (selectedTab !== 'ALL' && module !== selectedTab) return acc
+
+    const matched = modulePerms.filter(p =>
+      !searchQuery ||
+      p.permission_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.permission_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      module.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+
+    if (matched.length > 0) {
+      acc[module] = matched
+    }
+    return acc
+  }, {})
 
   if (loading) {
     return (
@@ -216,49 +250,198 @@ function Users() {
                 <option value="ADMIN">Admin</option>
               </select>
             </div>
+
             {formData.role === 'STAFF' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  What can this staff member do?
-                </label>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Choose the screens and actions they need. You can select a whole section or individual actions.</p>
-                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                  {Object.entries(permissionsByModule).map(([module, modulePermissions]) => {
-                    const allSelected = modulePermissions.every((permission) => formData.permissions.includes(permission.permission_code))
+              <div className="mt-6 border-t border-gray-200 dark:border-[#2a2a4a] pt-5 space-y-4">
+                {/* Header & Global Control Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 p-4 rounded-xl border border-blue-500/20 dark:border-blue-500/30">
+                  <div>
+                    <h4 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                      <span>🛡️</span> Staff Module Permissions
+                    </h4>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
+                      Grant or revoke access to specific app modules. Select individual permissions or entire sections.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-3 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold text-xs rounded-full border border-blue-500/20">
+                      {formData.permissions.length} of {permissions.length} Granted
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, permissions: permissions.map(p => p.permission_code) }))}
+                      className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
+                    >
+                      ✓ Allow All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, permissions: [] }))}
+                      className="px-3 py-1.5 text-xs font-semibold bg-gray-200 dark:bg-[#2a2a4a] hover:bg-gray-300 dark:hover:bg-[#3a3a5a] text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+                    >
+                      ✕ Clear All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Module Category Filter Tabs & Quick Search */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTab('ALL')}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${
+                        selectedTab === 'ALL'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'bg-gray-100 dark:bg-[#1a1a2e] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-[#2a2a4a]'
+                      }`}
+                    >
+                      All Modules ({Object.keys(permissionsByModule).length})
+                    </button>
+                    {Object.entries(permissionsByModule).map(([mod, modPerms]) => {
+                      const count = modPerms.filter(p => formData.permissions.includes(p.permission_code)).length
+                      return (
+                        <button
+                          key={mod}
+                          type="button"
+                          onClick={() => setSelectedTab(mod)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                            selectedTab === mod
+                              ? 'bg-blue-600 text-white shadow-sm'
+                              : 'bg-gray-100 dark:bg-[#1a1a2e] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-[#2a2a4a]'
+                          }`}
+                        >
+                          <span>{getModuleIcon(mod)}</span>
+                          <span>{mod}</span>
+                          {count > 0 && (
+                            <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-bold ${
+                              selectedTab === mod ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                            }`}>
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="relative min-w-[200px]">
+                    <input
+                      type="text"
+                      placeholder="Filter permissions..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-gray-50 dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <span className="absolute left-2.5 top-2 text-xs text-gray-400">🔍</span>
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1.5 text-xs text-gray-400 hover:text-gray-600"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Module Cards Responsive Grid - NO nested scroll container */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
+                  {Object.entries(filteredModules).map(([module, modulePermissions]) => {
+                    const selectedInModule = modulePermissions.filter(p => formData.permissions.includes(p.permission_code)).length
+                    const allSelected = selectedInModule === modulePermissions.length
+
                     return (
-                      <section key={module} className="rounded-xl border border-gray-200 dark:border-[#2a2a4a] overflow-hidden">
-                        <div className="flex items-center justify-between gap-3 px-3 py-2 bg-gray-50 dark:bg-[#0f0f1a]">
-                          <div>
-                            <h4 className="text-sm font-bold text-gray-900 dark:text-white">{module}</h4>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{modulePermissions.length} available actions</p>
+                      <div
+                        key={module}
+                        className={`rounded-xl border transition-all duration-200 flex flex-col justify-between ${
+                          selectedInModule > 0
+                            ? 'border-blue-300 dark:border-blue-800/60 bg-white dark:bg-[#16162a] shadow-sm'
+                            : 'border-gray-200 dark:border-[#2a2a4a] bg-gray-50/50 dark:bg-[#0f0f1a]/50 opacity-90'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-gray-100/70 dark:bg-[#1a1a2e] rounded-t-xl border-b border-gray-200 dark:border-[#2a2a4a]">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{getModuleIcon(module)}</span>
+                              <div>
+                                <h5 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                                  {module}
+                                </h5>
+                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                  {selectedInModule} / {modulePermissions.length} selected
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setModulePermissions(modulePermissions, !allSelected)}
+                              className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                                allSelected
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200'
+                                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200'
+                              }`}
+                            >
+                              {allSelected ? 'Clear Section' : 'Select All'}
+                            </button>
                           </div>
-                          <button type="button" onClick={() => setModulePermissions(modulePermissions, !allSelected)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200">
-                            {allSelected ? 'Clear section' : 'Allow all'}
-                          </button>
+
+                          <div className="p-3 space-y-2">
+                            {modulePermissions.map((permission) => {
+                              const isChecked = formData.permissions.includes(permission.permission_code)
+                              return (
+                                <div
+                                  key={permission.permission_id}
+                                  onClick={() => togglePermission(permission.permission_code)}
+                                  className={`group p-2.5 rounded-lg border text-left cursor-pointer transition-all duration-150 flex items-start gap-2.5 ${
+                                    isChecked
+                                      ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40 dark:border-blue-600/80 shadow-xs'
+                                      : 'border-gray-200 dark:border-[#2a2a4a] bg-white dark:bg-[#121225] hover:border-gray-300 dark:hover:border-gray-600'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {}}
+                                    className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className={`text-xs font-semibold ${
+                                        isChecked ? 'text-blue-900 dark:text-blue-200' : 'text-gray-800 dark:text-gray-200'
+                                      }`}>
+                                        {permission.permission_name}
+                                      </span>
+                                      {isChecked && (
+                                        <span className="text-blue-600 dark:text-blue-400 text-xs font-bold">✓</span>
+                                      )}
+                                    </div>
+                                    {permission.description && (
+                                      <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5 leading-tight">
+                                        {permission.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 p-3">
-                          {modulePermissions.map((permission) => (
-                            <label key={permission.permission_id} className="flex items-start gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={formData.permissions.includes(permission.permission_code)}
-                                onChange={() => togglePermission(permission.permission_code)}
-                                className="mt-0.5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-                              />
-                              <span>
-                                <span className="block text-sm font-medium text-gray-800 dark:text-gray-200">{permission.permission_name}</span>
-                                {permission.description && <span className="block text-xs text-gray-500 dark:text-gray-400">{permission.description}</span>}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </section>
+                      </div>
                     )
                   })}
+
+                  {Object.keys(filteredModules).length === 0 && (
+                    <div className="col-span-full py-8 text-center text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-[#0f0f1a] rounded-xl border border-dashed border-gray-300 dark:border-[#2a2a4a]">
+                      No matching permissions found for "{searchQuery}"
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            <div className="flex gap-3">
+            <div className="flex gap-3 pt-2">
               <button type="submit" className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">
                 {editing ? 'Update User' : 'Create User'}
               </button>

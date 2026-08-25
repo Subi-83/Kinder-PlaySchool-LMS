@@ -68,7 +68,7 @@ class BookCategory(db.Model):  # type: ignore
     @classmethod
     def get_active_categories(cls):
         """Get all active book categories"""
-        return cls.query.filter_by(is_active=True).all()
+        return cls.query.filter_by(is_active=True).order_by(cls.category_id.asc()).all()
 
 
 class BookTitle(db.Model):  # type: ignore

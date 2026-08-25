@@ -246,6 +246,11 @@ function Books() {
     if (filters.availability === 'issued' && availableCopies > 0) return false
 
     return true
+  }).sort((a, b) => {
+    const getBookId = (book) => [...(book.copies || [])]
+      .sort((left, right) => String(left.barcode || '').localeCompare(String(right.barcode || ''), undefined, { numeric: true }))
+      [0]?.barcode || book.book_title_id
+    return String(getBookId(a)).localeCompare(String(getBookId(b)), undefined, { numeric: true })
   })
 
   const hasActiveFilters = Boolean(
@@ -750,7 +755,8 @@ function Books() {
                     <tr className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a] transition-colors text-gray-900 dark:text-white">
                       <td className="p-3 text-center">
                         <span className="font-mono font-bold text-xs px-2 py-1 bg-gray-100 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-300 rounded">
-                          #{b.book_title_id}
+                          {[...(b.copies || [])]
+                            .sort((left, right) => String(left.barcode || '').localeCompare(String(right.barcode || ''), undefined, { numeric: true }))[0]?.barcode || b.book_title_id}
                         </span>
                       </td>
 

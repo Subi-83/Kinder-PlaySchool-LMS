@@ -31,6 +31,7 @@ const TABS = {
     update: (id, data) => booksAPI.updateCategory(id, data),
     remove: (id) => booksAPI.deleteCategory(id),
     columns: [
+      { key: 'category_id', label: 'Category ID' },
       { key: 'category_code', label: 'Code' },
       { key: 'category_name', label: 'Name' },
       { key: 'is_active', label: 'Active', type: 'bool' },
