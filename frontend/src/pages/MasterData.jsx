@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api, { booksAPI, studentsAPI } from '../services/api'
+import Pagination from '../components/common/Pagination'
 
 const TABS = {
   levels: {
     label: 'Book Levels',
     idKey: 'level_id',
-    load: () => booksAPI.getLevels(),
+    load: () => api.get('/books/levels', { params: { include_inactive: true } }),
     create: (data) => booksAPI.createLevel(data),
     update: (id, data) => booksAPI.updateLevel(id, data),
     remove: (id) => booksAPI.deleteLevel(id),
@@ -26,7 +27,7 @@ const TABS = {
   categories: {
     label: 'Book Categories',
     idKey: 'category_id',
-    load: () => booksAPI.getCategories(),
+    load: () => api.get('/books/categories', { params: { include_inactive: true } }),
     create: (data) => booksAPI.createCategory(data),
     update: (id, data) => booksAPI.updateCategory(id, data),
     remove: (id) => booksAPI.deleteCategory(id),
@@ -45,7 +46,7 @@ const TABS = {
   programmes: {
     label: 'Programmes',
     idKey: 'programme_id',
-    load: () => studentsAPI.getProgrammes(),
+    load: () => api.get('/students/programmes', { params: { include_inactive: true } }),
     create: (data) => studentsAPI.createProgramme(data),
     update: (id, data) => studentsAPI.updateProgramme(id, data),
     remove: (id) => studentsAPI.deleteProgramme(id),
@@ -53,7 +54,6 @@ const TABS = {
       { key: 'programme_code', label: 'Code' },
       { key: 'programme_name', label: 'Name' },
       { key: 'grade_level', label: 'Grade Level' },
-      { key: 'max_books_allowed', label: 'Max Books' },
       { key: 'library_access', label: 'Library Access', type: 'bool' },
       { key: 'is_active', label: 'Active', type: 'bool' },
     ],
@@ -61,7 +61,6 @@ const TABS = {
       { key: 'programme_code', label: 'Code', required: true },
       { key: 'programme_name', label: 'Name', required: true },
       { key: 'grade_level', label: 'Grade Level' },
-      { key: 'max_books_allowed', label: 'Max Books Allowed', type: 'number', default: 2 },
       { key: 'library_access', label: 'Library Access', type: 'bool', default: true },
       { key: 'description', label: 'Description' },
     ],
@@ -69,7 +68,7 @@ const TABS = {
   academicYears: {
     label: 'Academic Years',
     idKey: 'academic_year_id',
-    load: () => studentsAPI.getAcademicYears(),
+    load: () => api.get('/students/academic-years', { params: { include_inactive: true } }),
     create: (data) => studentsAPI.createAcademicYear(data),
     update: (id, data) => studentsAPI.updateAcademicYear(id, data),
     remove: (id) => studentsAPI.deleteAcademicYear(id),
@@ -103,6 +102,10 @@ function SystemSettingsPanel({ canEdit }) {
   const [holidays, setHolidays] = useState([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
+  const totalPages = Math.max(1, Math.ceil(holidays.length / pageSize))
+  const paginatedHolidays = holidays.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const [holidayForm, setHolidayForm] = useState({
     holiday_name: '',
@@ -119,7 +122,7 @@ function SystemSettingsPanel({ canEdit }) {
       setHolidays(hRes.data || [])
     } catch (err) {
       setMsg('❌ Error loading system settings.')
-    } fontFinally: {
+    } finally {
       setLoading(false)
     }
   }
@@ -302,7 +305,7 @@ function SystemSettingsPanel({ canEdit }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-              {holidays.map((h) => (
+              {paginatedHolidays.map((h) => (
                 <tr key={h.holiday_id} className="text-gray-900 dark:text-white">
                   <td className="p-3 font-semibold">{h.holiday_name}</td>
                   <td className="p-3 font-mono">{h.holiday_date}</td>
@@ -322,6 +325,9 @@ function SystemSettingsPanel({ canEdit }) {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4">
+          <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={holidays.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="holidays" />
         </div>
       </div>
     </div>
@@ -375,11 +381,27 @@ function DataBackupPanel() {
 }
 
 function MasterDataPanel({ tabKey, config, canEdit }) {
+  const itemName = config.label === 'Book Categories' ? 'Book Category' : config.label.slice(0, -1)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm(config.fields))
   const [editingId, setEditingId] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
+  const filteredRows = rows.filter((row) => {
+    if (statusFilter === 'ACTIVE' && !row.is_active) return false
+    if (statusFilter === 'INACTIVE' && row.is_active) return false
+    const query = search.trim().toLowerCase()
+    if (!query) return true
+    return config.columns.some((column) => String(row[column.key] ?? '').toLowerCase().includes(query))
+  })
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const paginatedRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const load = async () => {
     try {
@@ -395,17 +417,28 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
   }
 
   useEffect(() => {
+    setCurrentPage(1)
     load()
   }, [tabKey])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search, statusFilter])
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [currentPage, totalPages])
 
   const resetForm = () => {
     setForm(emptyForm(config.fields))
     setEditingId(null)
+    setShowModal(false)
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setSaving(true)
     try {
       if (editingId) {
         await config.update(editingId, form)
@@ -416,6 +449,8 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
       load()
     } catch (err) {
       setError(err.data?.error || err.response?.data?.error || err.message || 'Save failed')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -426,6 +461,17 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
       next[f.key] = row[f.key] ?? (f.type === 'bool' ? false : '')
     })
     setForm(next)
+    setShowModal(true)
+  }
+
+  const handleActivate = async (row) => {
+    try {
+      setError('')
+      await config.update(row[config.idKey], { is_active: true })
+      await load()
+    } catch (err) {
+      setError(err.data?.error || err.response?.data?.error || err.message || 'Activation failed')
+    }
   }
 
   const handleDelete = async (row) => {
@@ -439,10 +485,6 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
     }
   }
 
-  if (loading) {
-    return <p className="text-gray-500 dark:text-gray-400 py-8 text-center">Loading {config.label}...</p>
-  }
-
   return (
     <div className="space-y-4">
       {error && (
@@ -451,10 +493,23 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
         </div>
       )}
 
-      {canEdit && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-sm">
+      <div className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-[#292944] dark:bg-[#17172a] sm:flex-row sm:items-end">
+        <label className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Search
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${config.label.toLowerCase()}...`} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d]" />
+        </label>
+        <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Status
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] sm:w-44">
+            <option value="ALL">All statuses</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
+          </select>
+        </label>
+        {canEdit && <button onClick={() => { resetForm(); setShowModal(true) }} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700">+ Add {itemName}</button>}
+      </div>
+
+      {showModal && canEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+        <form onSubmit={handleSubmit} className="max-h-[90vh] w-full max-w-3xl overflow-y-auto bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-xl">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-            {editingId ? `Edit ${config.label.slice(0, -1)}` : `Add ${config.label.slice(0, -1)}`}
+            {editingId ? `Edit ${itemName}` : `Add ${itemName}`}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {config.fields.map((f) => (
@@ -492,19 +547,17 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
             ))}
           </div>
           <div className="flex gap-2 mt-4">
-            <button type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all">
-              {editingId ? 'Update' : 'Add'}
+            <button disabled={saving} type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-60">
+              {saving ? 'Saving...' : editingId ? 'Update' : 'Add'}
             </button>
-            {editingId && (
-              <button type="button" onClick={resetForm} className="px-5 py-2.5 bg-gray-200 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl transition-all">
-                Cancel
-              </button>
-            )}
+            <button type="button" onClick={resetForm} className="px-5 py-2.5 bg-gray-200 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl transition-all">Cancel</button>
           </div>
         </form>
+        </div>
       )}
 
       <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-x-auto">
+        {loading ? <div className="flex items-center justify-center gap-3 py-16 text-gray-500"><span className="h-7 w-7 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />Loading {config.label}...</div> : <>
         <table className="w-full text-sm">
           <thead className="bg-gray-100 dark:bg-[#22223a] text-left text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
             <tr>
@@ -515,14 +568,14 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
-            {rows.length === 0 && (
+            {filteredRows.length === 0 && (
               <tr>
                 <td colSpan={config.columns.length + 1} className="px-4 py-6 text-center text-gray-400">
-                  No {config.label.toLowerCase()} yet.
+                  No {config.label.toLowerCase()} match your search and filter.
                 </td>
               </tr>
             )}
-            {rows.map((row) => (
+            {paginatedRows.map((row) => (
               <tr key={row[config.idKey]} className="text-gray-900 dark:text-white hover:bg-blue-50/20 dark:hover:bg-[#19192e] transition-colors">
                 {config.columns.map((c) => (
                   <td key={c.key} className="px-4 py-3 whitespace-nowrap text-xs font-semibold">
@@ -532,13 +585,19 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
                 {canEdit && (
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap text-xs font-semibold">
                     <button onClick={() => handleEdit(row)} className="text-blue-600 dark:text-blue-400 hover:underline">Edit</button>
-                    <button onClick={() => handleDelete(row)} className="text-rose-600 dark:text-rose-400 hover:underline">Deactivate</button>
+                    {row.is_active
+                      ? <button onClick={() => handleDelete(row)} className="text-rose-600 dark:text-rose-400 hover:underline">Deactivate</button>
+                      : <button onClick={() => handleActivate(row)} className="text-emerald-600 dark:text-emerald-400 hover:underline">Activate</button>}
                   </td>
                 )}
               </tr>
             ))}
           </tbody>
         </table>
+        <div className="px-4 py-4 border-t border-gray-200 dark:border-[#292944]">
+          <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredRows.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel={config.label.toLowerCase()} />
+        </div>
+        </>}
       </div>
     </div>
   )
@@ -553,9 +612,9 @@ function MasterData() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Master Data & System Settings</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Master Data</h2>
         <p className="text-gray-500 dark:text-gray-400">
-          Configure book levels, categories, academic programmes, system fine rates, holidays, and database JSON backup export.
+          Configure book levels, categories, academic programmes, and database JSON backup export.
         </p>
       </div>
 
@@ -574,16 +633,6 @@ function MasterData() {
           </button>
         ))}
         <button
-          onClick={() => setActiveTab('settings')}
-          className={`px-4 py-2.5 text-sm font-bold border-b-2 whitespace-nowrap transition-colors ${
-            activeTab === 'settings'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-          }`}
-        >
-          ⚙️ Settings & Holidays
-        </button>
-        <button
           onClick={() => setActiveTab('backup')}
           className={`px-4 py-2.5 text-sm font-bold border-b-2 whitespace-nowrap transition-colors ${
             activeTab === 'backup'
@@ -595,9 +644,7 @@ function MasterData() {
         </button>
       </div>
 
-      {activeTab === 'settings' ? (
-        <SystemSettingsPanel canEdit={canEdit} />
-      ) : activeTab === 'backup' ? (
+      {activeTab === 'backup' ? (
         <DataBackupPanel />
       ) : (
         <MasterDataPanel tabKey={activeTab} config={TABS[activeTab]} canEdit={canEdit} />

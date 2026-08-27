@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
 
 // Category colors for badges
 const CATEGORY_COLORS = {
@@ -24,7 +25,7 @@ const SETTING_LABELS = {
   'date_format': 'Date Display Format',
   'time_format': 'Time Display Format',
   'issue_period_days': 'Default Issue Period (Days)',
-  'max_books_per_student': 'Max Books Allowed Per Student',
+  'max_books_per_student': 'Max Books Allowed Per JK Member',
   'barcode_lookup_enabled': 'Barcode / ISBN Lookup',
   'holiday_adjustment': 'Automatic Holiday Due Adjustment',
   'late_fine_per_day': 'Late Fine Per Day',
@@ -50,12 +51,14 @@ const SETTING_LABELS = {
 // 📅 HOLIDAY CALENDAR COMPONENT
 // ============================================================
 
-function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
+export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [editingHoliday, setEditingHoliday] = useState(null)
   const [filterView, setFilterView] = useState('month') // 'month' or 'year'
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
   const [form, setForm] = useState({
     holiday_name: '',
     start_date: '',
@@ -199,6 +202,16 @@ function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
     }
     return true
   }).sort((a, b) => a.holiday_date.localeCompare(b.holiday_date))
+  const holidayPages = Math.max(1, Math.ceil(displayedHolidays.length / pageSize))
+  const paginatedHolidays = displayedHolidays.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterView, year, month])
+
+  useEffect(() => {
+    if (currentPage > holidayPages) setCurrentPage(holidayPages)
+  }, [currentPage, holidayPages])
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -385,7 +398,7 @@ function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
-                {displayedHolidays.map((h) => (
+                {paginatedHolidays.map((h) => (
                   <div
                     key={h.holiday_id}
                     className="p-3.5 rounded-xl border border-gray-200 dark:border-[#2a2a4a] bg-gray-50/70 dark:bg-[#171728] hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
@@ -432,6 +445,9 @@ function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
                 ))}
               </div>
             )}
+            <div className="mt-4">
+              <Pagination currentPage={currentPage} totalPages={holidayPages} totalItems={displayedHolidays.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="holidays" />
+            </div>
           </div>
 
           <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 text-xs text-blue-800 dark:text-blue-300">
@@ -563,6 +579,8 @@ function SystemSettingsTable({ canEdit }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('ALL')
   const [statusMessage, setStatusMessage] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
 
   const loadSettings = async () => {
     try {
@@ -620,6 +638,7 @@ function SystemSettingsTable({ canEdit }) {
     setStatusMessage('')
     try {
       await api.put(`/settings/${key}`, { value })
+      window.dispatchEvent(new Event('app-settings-updated'))
       setStatusMessage(`✅ Saved "${SETTING_LABELS[key] || key}"`)
       loadSettings()
       setTimeout(() => setStatusMessage(''), 3000)
@@ -635,6 +654,7 @@ function SystemSettingsTable({ canEdit }) {
     setStatusMessage('')
     try {
       await api.post('/settings', editedValues)
+      window.dispatchEvent(new Event('app-settings-updated'))
       setStatusMessage('✅ All system settings updated successfully!')
       loadSettings()
       setTimeout(() => setStatusMessage(''), 3500)
@@ -654,6 +674,16 @@ function SystemSettingsTable({ canEdit }) {
                           (s.description && s.description.toLowerCase().includes(searchQuery.toLowerCase()))
     return matchesCat && matchesSearch
   })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paginatedSettings = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, selectedCategory])
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [currentPage, totalPages])
 
   // Has changes
   const hasChanges = settingsList.some(s => String(s.setting_value) !== String(editedValues[s.setting_key]))
@@ -730,13 +760,13 @@ function SystemSettingsTable({ canEdit }) {
                 <th className="px-5 py-3.5">Category</th>
                 <th className="px-5 py-3.5">Setting Name & Key</th>
                 <th className="px-5 py-3.5">Description</th>
-                <th className="px-5 py-3.5">Data Type</th>
+                {/* <th className="px-5 py-3.5">Data Type</th> */}
                 <th className="px-5 py-3.5 min-w-[220px]">Configured Value</th>
                 {canEdit && <th className="px-5 py-3.5 text-right">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-[#242442]">
-              {filtered.map(setting => {
+              {paginatedSettings.map(setting => {
                 const key = setting.setting_key
                 const label = SETTING_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                 const catClass = CATEGORY_COLORS[setting.category] || CATEGORY_COLORS['Other']
@@ -771,11 +801,11 @@ function SystemSettingsTable({ canEdit }) {
                       {setting.description || 'System setting configuration parameter'}
                     </td>
 
-                    <td className="px-5 py-4 whitespace-nowrap">
+                    {/* <td className="px-5 py-4 whitespace-nowrap">
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-300 font-mono">
                         {setting.data_type || 'STRING'}
                       </span>
-                    </td>
+                    </td> */}
 
                     <td className="px-5 py-4">
                       {isBool ? (
@@ -840,6 +870,9 @@ function SystemSettingsTable({ canEdit }) {
             </tbody>
           </table>
         </div>
+        <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
+          <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filtered.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="settings" />
+        </div>
       </div>
     </div>
   )
@@ -851,23 +884,7 @@ function SystemSettingsTable({ canEdit }) {
 
 function Settings() {
   const { user, hasPermission } = useAuth()
-  const [activeTab, setActiveTab] = useState('table') // 'table' or 'calendar'
-  const [holidays, setHolidays] = useState([])
-
   const canEdit = user?.role === 'ADMIN' || hasPermission('settings.view')
-
-  const loadHolidays = async () => {
-    try {
-      const res = await api.get('/settings/holidays')
-      setHolidays(res.data || [])
-    } catch (err) {
-      console.error('Error loading holidays:', err)
-    }
-  }
-
-  useEffect(() => {
-    loadHolidays()
-  }, [])
 
   return (
     <div className="space-y-6">
@@ -875,53 +892,16 @@ function Settings() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-            <span>⚙️</span> System Settings & Holidays
+            <span>⚙️</span> System Settings
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Configure global library parameters, lending policies, charges, and manage the official school holiday calendar.
+            Configure global library parameters, lending policies, charges, and system behaviour.
           </p>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex rounded-xl bg-gray-100 dark:bg-[#1a1a2e] p-1.5 border border-gray-200 dark:border-[#2a2a4a] shadow-xs">
-          <button
-            onClick={() => setActiveTab('table')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'table'
-                ? 'bg-white dark:bg-[#0f0f1a] text-blue-600 dark:text-blue-400 shadow-sm border border-gray-200/50 dark:border-[#2a2a4a]'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            <span>📊</span> System Settings Table
-          </button>
-
-          <button
-            onClick={() => setActiveTab('calendar')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'calendar'
-                ? 'bg-white dark:bg-[#0f0f1a] text-blue-600 dark:text-blue-400 shadow-sm border border-gray-200/50 dark:border-[#2a2a4a]'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            <span>📅</span> Holiday Calendar View
-            {holidays.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300 text-[10px]">
-                {holidays.length}
-              </span>
-            )}
-          </button>
-        </div>
       </div>
 
-      {/* Tab Panels */}
-      {activeTab === 'table' && <SystemSettingsTable canEdit={canEdit} />}
-      {activeTab === 'calendar' && (
-        <HolidayCalendar
-          holidays={holidays}
-          canEdit={canEdit}
-          onHolidayChange={loadHolidays}
-        />
-      )}
+      <SystemSettingsTable canEdit={canEdit} />
     </div>
   )
 }

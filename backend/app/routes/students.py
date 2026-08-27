@@ -251,7 +251,7 @@ def get_students():
 @jwt_required()
 @permission_required('student.view')
 def search_students():
-    """Search students by name, roll number, STU ID, phone, email, school, grade"""
+    """Search JK members by name, roll number, JK ID, phone, email, school, grade"""
     q = (request.args.get('q') or '').strip()
     library_only = (request.args.get('library_only') or '').lower() in ('true', '1', 'yes')
     
@@ -283,7 +283,7 @@ def get_student(student_id):
     """Get a specific student by ID"""
     student = Student.query.get(student_id)
     if not student:
-        return jsonify({'error': 'Student not found'}), 404
+        return jsonify({'error': 'JK member not found'}), 404
     return jsonify(student.to_dict()), 200
 
 @students_bp.route('/', methods=['POST'])
@@ -414,49 +414,26 @@ def update_student(student_id):
 @jwt_required()
 @permission_required('student.delete')
 def delete_student(student_id):
-    """Delete a student and their related records permanently."""
+    """Request administrator approval before deactivating a student."""
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'error': 'Student not found'}), 404
     
-    student_uid = student.student_uid
-    student_name = student.student_name
-    
     # Check if student has active book issues
     if hasattr(student, 'issues') and student.issues.filter_by(status='ACTIVE').count() > 0:
-        return jsonify({'error': f'Cannot delete student {student_name}; they have active book issues. Please return books first.'}), 400
+        return jsonify({'error': f'Cannot delete JK member {student.student_name}; they have active book issues. Please return books first.'}), 400
     
-    try:
-        from app.models.subscription import StudentSubscription
-        from app.models.deposit import DepositAccount, DepositTransaction
-        
-        # Clean up related records
-        StudentSubscription.query.filter_by(student_id=student_id).delete()
-        
-        dep_acc = DepositAccount.query.filter_by(student_id=student_id).first()
-        if dep_acc:
-            DepositTransaction.query.filter_by(account_id=dep_acc.account_id).delete()
-            db.session.delete(dep_acc)
-            
-        StudentEnrollment.query.filter_by(student_id=student_id).delete()
-        db.session.delete(student)
-        db.session.commit()
-        
-        current_user = get_current_user()
-        user_id = current_user.user_id if current_user else None
-        username = current_user.username if current_user else 'system'
-        AuditLog.log_action(
-            user_id=user_id,
-            username=username,
-            action='DELETE_STUDENT',
-            module='Student',
-            record_id=student_uid,
-            details=f'Permanently deleted student: {student_name}'
-        )
-        return jsonify({'message': f'Student {student_name} deleted successfully.'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to delete student: {str(e)}'}), 400
+    existing = AuditLog.query.filter_by(action='DELETE_STUDENT_REQUEST', module='Student', record_id=str(student_id)).first()
+    if existing:
+        return jsonify({'message': 'JK member deletion is waiting for administrator approval.', 'request_id': existing.audit_id}), 202
+    current_user = get_current_user()
+    approval = AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='DELETE_STUDENT_REQUEST', module='Student', record_id=str(student_id),
+        details=f'Requested deletion of JK member {student.student_name} ({student.student_uid})'
+    )
+    return jsonify({'message': 'JK member deletion request sent to administrator.', 'request_id': approval.audit_id}), 202
 
 
 @students_bp.route('/reset-all', methods=['POST'])
@@ -811,7 +788,9 @@ def promote_students():
 @permission_required('student.view')
 def get_academic_years():
     """Get all academic years"""
-    years = AcademicYear.get_active_years()
+    years = (AcademicYear.query.order_by(AcademicYear.year_code.desc()).all()
+             if request.args.get('include_inactive', '').lower() == 'true'
+             else AcademicYear.get_active_years())
     return jsonify([y.to_dict() for y in years]), 200
 
 @students_bp.route('/academic-years', methods=['POST'])
@@ -902,7 +881,9 @@ def delete_academic_year(academic_year_id):
 @permission_required('programme.view')
 def get_programmes():
     """Get all programmes"""
-    programmes = Programme.get_active_programmes()
+    programmes = (Programme.query.order_by(Programme.sort_order, Programme.programme_name).all()
+                  if request.args.get('include_inactive', '').lower() == 'true'
+                  else Programme.get_active_programmes())
     return jsonify([p.to_dict() for p in programmes]), 200
 
 @students_bp.route('/programmes', methods=['POST'])
@@ -921,7 +902,6 @@ def create_programme():
         programme_code=data.get('programme_code'),
         description=data.get('description'),
         grade_level=data.get('grade_level'),
-        max_books_allowed=_to_i(data.get('max_books_allowed'), 2),
         library_access=bool(data.get('library_access', True)),
         sort_order=_to_i(data.get('sort_order'), 0)
     )
@@ -961,8 +941,6 @@ def update_programme(programme_id):
     for field in ('programme_name', 'programme_code', 'description', 'grade_level', 'library_access', 'is_active'):
         if field in data:
             setattr(programme, field, data[field])
-    if 'max_books_allowed' in data:
-        programme.max_books_allowed = _to_i(data['max_books_allowed'], 2)
     if 'sort_order' in data:
         programme.sort_order = _to_i(data['sort_order'], 0)
 

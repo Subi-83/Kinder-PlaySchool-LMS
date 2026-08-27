@@ -118,11 +118,17 @@ def get_book(book_id):
 def create_book():
     """Create a new book title or add copy to existing book title"""
     data = request.get_json() or {}
+    create_physical_copy = data.get('create_physical_copy', True)
+    if isinstance(create_physical_copy, str):
+        create_physical_copy = create_physical_copy.lower() in ('true', '1', 'yes')
     
     title = (data.get('title') or '').strip()
     author = (data.get('author') or '').strip()
     isbn = (data.get('isbn') or '').strip() or None
     level_id = _to_int(data.get('level_id'))
+    ebook_count = max(0, _to_int(data.get('ebook_count')) or 0)
+    if not create_physical_copy and ebook_count == 0:
+        return jsonify({'error': 'Enter an e-book count when no physical copy is being added.'}), 400
     
     # 1. Check if book title already exists by ISBN or exact Title+Author
     existing = None
@@ -135,7 +141,24 @@ def create_book():
         ).first()
 
     if existing:
-        # Add a new copy under existing title
+        # Update e-book inventory without inventing a physical copy when this
+        # submission represents an e-book-only holding.
+        if not create_physical_copy:
+            if data.get('ebook_count') not in (None, ''):
+                existing.ebook_count = ebook_count
+            if _to_float(data.get('mrp')) is not None:
+                existing.mrp = _to_float(data.get('mrp'))
+            db.session.commit()
+            current_user = get_current_user()
+            AuditLog.log_action(
+                user_id=current_user.user_id if current_user else None,
+                username=current_user.username if current_user else 'system',
+                action='UPDATE_EBOOK_INVENTORY', module='Book', record_id=str(existing.book_title_id),
+                details=f'Updated e-book inventory for {existing.title} to {existing.ebook_count}; no physical copy added.'
+            )
+            return jsonify(existing.to_dict()), 200
+
+        # Add a new physical copy under the existing title.
         copy_count = existing.copies.count()
         gen_barcode = _generate_default_barcode(existing.level_id or level_id, existing.book_title_id, copy_count + 1)
         copy = BookCopy(
@@ -152,6 +175,10 @@ def create_book():
             existing.publication_year = _to_int(data.get('publication_year'))
         if level_id and not existing.level_id:
             existing.level_id = level_id
+        if _to_float(data.get('mrp')) is not None:
+            existing.mrp = _to_float(data.get('mrp'))
+        if data.get('ebook_count') not in (None, ''):
+            existing.ebook_count = max(0, _to_int(data.get('ebook_count')) or 0)
 
         db.session.add(copy)
         db.session.commit()
@@ -174,6 +201,8 @@ def create_book():
             author=author,
             isbn=isbn,
             level_id=level_id,
+            mrp=_to_float(data.get('mrp')),
+            ebook_count=ebook_count,
             category_id=_to_int(data.get('category_id')),
             publication_year=_to_int(data.get('publication_year')),
             publisher=data.get('publisher') or None,
@@ -183,19 +212,20 @@ def create_book():
         db.session.add(book)
         db.session.flush()
 
-        gen_barcode = _generate_default_barcode(level_id, book.book_title_id, 1)
-        copy = BookCopy(
-            book_title_id=book.book_title_id,
-            copy_number=1,
-            barcode=data.get('barcode') or gen_barcode,
-            accession_number=data.get('accession_number') or None,
-            purchase_year=_to_int(data.get('purchase_year')),
-            purchase_price=_to_float(data.get('purchase_price')),
-            location=data.get('location') or 'Main Shelf',
-            status='AVAILABLE',
-            notes=data.get('copy_notes') or None
-        )
-        db.session.add(copy)
+        if create_physical_copy:
+            gen_barcode = _generate_default_barcode(level_id, book.book_title_id, 1)
+            copy = BookCopy(
+                book_title_id=book.book_title_id,
+                copy_number=1,
+                barcode=data.get('barcode') or gen_barcode,
+                accession_number=data.get('accession_number') or None,
+                purchase_year=_to_int(data.get('purchase_year')),
+                purchase_price=_to_float(data.get('purchase_price')),
+                location=data.get('location') or 'Main Shelf',
+                status='AVAILABLE',
+                notes=data.get('copy_notes') or None
+            )
+            db.session.add(copy)
         db.session.commit()
 
         current_user = get_current_user()
@@ -205,7 +235,7 @@ def create_book():
             action='CREATE_BOOK',
             module='Book',
             record_id=str(book.book_title_id),
-            details=f'Created book: {book.title} by {book.author}'
+            details=f'Created book: {book.title} by {book.author}' + (' with first physical copy' if create_physical_copy else ' as e-book only')
         )
         return jsonify(book.to_dict()), 201
     except Exception as e:
@@ -222,6 +252,8 @@ def update_book(book_id):
         return jsonify({'error': 'Book not found'}), 404
     
     data = request.get_json() or {}
+    tracked_fields = ('title', 'author', 'isbn', 'level_id', 'mrp', 'ebook_count', 'category_id', 'publication_year', 'publisher', 'description')
+    before_values = {field: getattr(book, field, None) for field in tracked_fields}
     
     try:
         if 'title' in data:
@@ -232,6 +264,10 @@ def update_book(book_id):
             book.isbn = data['isbn'] or None
         if 'level_id' in data:
             book.level_id = _to_int(data['level_id'])
+        if 'mrp' in data:
+            book.mrp = _to_float(data['mrp'])
+        if 'ebook_count' in data:
+            book.ebook_count = max(0, _to_int(data['ebook_count']) or 0)
         if 'category_id' in data:
             book.category_id = _to_int(data['category_id'])
         if 'publication_year' in data:
@@ -266,7 +302,10 @@ def update_book(book_id):
             action='UPDATE_BOOK',
             module='Book',
             record_id=str(book_id),
-            details=f'Updated book: {book.title}'
+            details='Updated book fields: ' + json.dumps({
+                field: {'from': str(before_values[field]), 'to': str(getattr(book, field, None))}
+                for field in tracked_fields if str(before_values[field]) != str(getattr(book, field, None))
+            })
         )
         
         return jsonify(book.to_dict()), 200
@@ -278,7 +317,7 @@ def update_book(book_id):
 @jwt_required()
 @permission_required('book.delete')
 def delete_book(book_id):
-    """Delete a book (only if no copies are issued or referenced)"""
+    """Create an administrator approval request before deleting a book."""
     book = BookTitle.query.get(book_id)
     if not book:
         return jsonify({'error': 'Book not found'}), 404
@@ -292,30 +331,17 @@ def delete_book(book_id):
     if issued_copies > 0:
         return jsonify({'error': f'Cannot delete book with {issued_copies} issued copies'}), 400
     
-    book_title = book.title
-    
-    try:
-        # Delete all copies
-        BookCopy.query.filter_by(book_title_id=book_id).delete()
-        db.session.delete(book)
-        db.session.commit()
-        
-        current_user = get_current_user()
-        user_id = current_user.user_id if current_user else None
-        username = current_user.username if current_user else 'system'
-        AuditLog.log_action(
-            user_id=user_id,
-            username=username,
-            action='DELETE_BOOK',
-            module='Book',
-            record_id=str(book_id),
-            details=f'Deleted book: {book_title}'
-        )
-        
-        return jsonify({'message': 'Book deleted successfully'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Cannot delete book: its copies are referenced in historical issue/return records.'}), 400
+    current_user = get_current_user()
+    existing_request = AuditLog.query.filter_by(action='DELETE_BOOK_REQUEST', module='Book', record_id=str(book_id)).first()
+    if existing_request:
+        return jsonify({'message': 'Deletion is already waiting for administrator approval.', 'request_id': existing_request.audit_id}), 202
+    approval = AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='DELETE_BOOK_REQUEST', module='Book', record_id=str(book_id),
+        details=f'Requested deletion of book: {book.title}'
+    )
+    return jsonify({'message': 'Deletion request sent to administrator.', 'request_id': approval.audit_id}), 202
 
 @books_bp.route('/<int:book_id>/copies', methods=['POST'])
 @jwt_required()
@@ -355,6 +381,8 @@ def update_book_copy(copy_id):
         return jsonify({'error': 'Book copy not found'}), 404
     
     data = request.get_json() or {}
+    tracked_fields = ('status', 'condition', 'location', 'notes', 'barcode', 'purchase_year', 'purchase_price')
+    before_values = {field: getattr(copy, field, None) for field in tracked_fields}
     
     if 'status' in data:
         copy.status = data['status']
@@ -372,24 +400,40 @@ def update_book_copy(copy_id):
         copy.purchase_price = _to_float(data['purchase_price'])
     
     db.session.commit()
+    current_user = get_current_user()
+    AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='UPDATE_BOOK_COPY', module='BookCopy', record_id=str(copy_id),
+        details='Updated copy fields: ' + json.dumps({
+            field: {'from': str(before_values[field]), 'to': str(getattr(copy, field, None))}
+            for field in tracked_fields if str(before_values[field]) != str(getattr(copy, field, None))
+        })
+    )
     return jsonify(copy.to_dict()), 200
 
 @books_bp.route('/copy/<int:copy_id>', methods=['DELETE'])
 @jwt_required()
 @permission_required('book.delete')
 def delete_book_copy(copy_id):
-    """Delete a single book copy"""
+    """Create an administrator approval request before deleting a copy."""
     copy = BookCopy.query.get(copy_id)
     if not copy:
         return jsonify({'error': 'Book copy not found'}), 404
     if copy.status == 'ISSUED':
         return jsonify({'error': 'Cannot delete copy while it is currently issued to a student'}), 400
         
-    book_id = copy.book_title_id
-    db.session.delete(copy)
-    db.session.commit()
-    book = BookTitle.query.get(book_id)
-    return jsonify(book.to_dict() if book else {'message': 'Copy deleted'}), 200
+    current_user = get_current_user()
+    existing_request = AuditLog.query.filter_by(action='DELETE_COPY_REQUEST', module='BookCopy', record_id=str(copy_id)).first()
+    if existing_request:
+        return jsonify({'message': 'Deletion is already waiting for administrator approval.', 'request_id': existing_request.audit_id}), 202
+    approval = AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='DELETE_COPY_REQUEST', module='BookCopy', record_id=str(copy_id),
+        details=f'Requested deletion of copy {copy.barcode or copy_id} from {copy.title_ref.title if copy.title_ref else "book"}'
+    )
+    return jsonify({'message': 'Deletion request sent to administrator.', 'request_id': approval.audit_id}), 202
 
 @books_bp.route('/isbn-lookup', methods=['GET'])
 @jwt_required()
@@ -541,7 +585,9 @@ def isbn_lookup():
 @jwt_required()
 def get_book_levels():
     """Get all book levels"""
-    levels = BookLevel.get_active_levels()
+    levels = (BookLevel.query.order_by(BookLevel.sort_order, BookLevel.level_name).all()
+              if request.args.get('include_inactive', '').lower() == 'true'
+              else BookLevel.get_active_levels())
     return jsonify([l.to_dict() for l in levels]), 200
 
 @books_bp.route('/levels', methods=['POST'])
@@ -600,7 +646,9 @@ def delete_book_level(level_id):
 @jwt_required()
 def get_book_categories():
     """Get all book categories"""
-    categories = BookCategory.get_active_categories()
+    categories = (BookCategory.query.order_by(BookCategory.category_name).all()
+                  if request.args.get('include_inactive', '').lower() == 'true'
+                  else BookCategory.get_active_categories())
     return jsonify([c.to_dict() for c in categories]), 200
 
 @books_bp.route('/categories', methods=['POST'])

@@ -147,22 +147,18 @@ def update_user(user_id):
     
     db.session.commit()
     
-    # Update permissions if role is STAFF and permissions provided
     if 'permissions' in data and user.role == 'STAFF':
-        # Remove existing user permissions
+        submitted = set(data['permissions'])
         UserPermission.query.filter_by(user_id=user_id).delete()
-        
-        # Add new permissions
-        for perm_code in data['permissions']:
+        db.session.flush()
+        for perm_code in submitted:
             permission = Permission.query.filter_by(permission_code=perm_code).first()
             if permission:
-                user_perm = UserPermission(
-                    user_id=user.user_id,
-                    permission_id=permission.permission_id,
-                    is_allowed=True
-                )
-                db.session.add(user_perm)
-        db.session.commit()
+                db.session.add(UserPermission(
+                    user_id=user.user_id, permission_id=permission.permission_id, is_allowed=True
+                ))
+
+    db.session.commit()
     
     AuditLog.log_action(
         user_id=current_user.user_id,

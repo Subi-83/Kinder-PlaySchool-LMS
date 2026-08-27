@@ -6,6 +6,7 @@ from app.models.student import Student
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from app.services.settings_service import SettingsService
+import json
 
 deposits_bp = Blueprint('deposits', __name__, url_prefix='/api/deposits')
 
@@ -178,6 +179,48 @@ def get_transactions(student_id):
     ).order_by(DepositTransaction.created_at.desc()).limit(50).all()
     
     return jsonify([t.to_dict() for t in transactions]), 200
+
+@deposits_bp.route('/correction-request', methods=['POST'])
+@jwt_required()
+@permission_required('deposit.topup')
+def request_deposit_correction():
+    """Request an auditable correction to a mistaken deposit transaction."""
+    data = request.get_json() or {}
+    transaction_id = data.get('transaction_id')
+    reason = (data.get('reason') or '').strip()
+    try:
+        corrected_amount = float(data.get('corrected_amount'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid corrected amount.'}), 400
+    if corrected_amount < 0 or not reason:
+        return jsonify({'error': 'Corrected amount and reason are required.'}), 400
+
+    transaction = DepositTransaction.query.get(transaction_id)
+    if not transaction or transaction.transaction_type not in ('INITIAL_DEPOSIT', 'TOP_UP'):
+        return jsonify({'error': 'Deposit payment transaction not found.'}), 404
+    existing = AuditLog.query.filter_by(action='DEPOSIT_CORRECTION_REQUEST', record_id=str(transaction_id)).first()
+    if existing:
+        return jsonify({'error': 'A correction for this transaction is already awaiting approval.'}), 409
+
+    account = transaction.account_ref
+    student = account.student if account else None
+    current_user = get_current_user()
+    payload = {
+        'transaction_id': transaction.transaction_id,
+        'student_id': account.student_id,
+        'student_uid': student.student_uid if student else str(account.student_id),
+        'student_name': student.student_name if student else 'JK Member',
+        'original_amount': float(transaction.amount),
+        'corrected_amount': corrected_amount,
+        'reason': reason,
+    }
+    AuditLog.log_action(
+        user_id=current_user.user_id,
+        username=current_user.username,
+        action='DEPOSIT_CORRECTION_REQUEST', module='Deposit',
+        record_id=transaction.transaction_id, details=json.dumps(payload)
+    )
+    return jsonify({'message': 'Deposit correction sent for administrator approval.'}), 201
 
 @deposits_bp.route('/low-balance', methods=['GET'])
 @jwt_required()

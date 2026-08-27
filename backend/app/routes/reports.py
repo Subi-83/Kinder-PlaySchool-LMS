@@ -92,11 +92,29 @@ def fine_report():
             'month': month_start.strftime('%b %Y'),
             'amount': float(amount)
         })
+
+    fine_transactions = DepositTransaction.query.filter_by(
+        transaction_type='FINE'
+    ).order_by(DepositTransaction.created_at.desc()).all()
     
     return jsonify({
         'total_fines': float(total_fines),
         'recent_fines_30days': float(recent_fines),
-        'monthly_fines': monthly_fines
+        'monthly_fines': monthly_fines,
+        'fine_transactions': [
+            {
+                'transaction_id': transaction.transaction_id,
+                'student_id': transaction.account_ref.student.student_uid if transaction.account_ref and transaction.account_ref.student else None,
+                'student_name': transaction.account_ref.student.student_name if transaction.account_ref and transaction.account_ref.student else None,
+                'amount': abs(float(transaction.amount)),
+                'balance_after': float(transaction.balance_after),
+                'reference_id': transaction.reference_id,
+                'description': transaction.description,
+                'created_by': transaction.creator.username if transaction.creator else None,
+                'created_at': transaction.created_at.strftime('%Y-%m-%d %H:%M:%S') if transaction.created_at else None,
+            }
+            for transaction in fine_transactions
+        ]
     }), 200
 
 @reports_bp.route('/financial', methods=['GET'])
@@ -126,6 +144,17 @@ def financial_report():
     total_balance = db.session.query(
         db.func.sum(DepositAccount.current_balance)
     ).scalar() or 0
+
+    total_subscription_payments = db.session.query(
+        db.func.sum(StudentSubscription.amount_paid)
+    ).scalar() or 0
+
+    financial_transactions = DepositTransaction.query.order_by(
+        DepositTransaction.created_at.desc()
+    ).all()
+    subscription_payments = StudentSubscription.query.filter(
+        StudentSubscription.amount_paid.isnot(None)
+    ).order_by(StudentSubscription.payment_date.desc()).all()
     
     return jsonify({
         'total_deposits': float(total_deposits),
@@ -133,7 +162,36 @@ def financial_report():
         'total_damages': float(total_damages),
         'total_lost_books': float(total_lost),
         'net_collection': float(total_fines + total_damages + total_lost),
-        'total_balance': float(total_balance)
+        'total_subscription_payments': float(total_subscription_payments),
+        'gross_collection': float(total_deposits + total_subscription_payments),
+        'total_balance': float(total_balance),
+        'deposit_transactions': [
+            {
+                'transaction_id': transaction.transaction_id,
+                'student_id': transaction.account_ref.student.student_uid if transaction.account_ref and transaction.account_ref.student else None,
+                'student_name': transaction.account_ref.student.student_name if transaction.account_ref and transaction.account_ref.student else None,
+                'transaction_type': transaction.transaction_type,
+                'amount': float(transaction.amount),
+                'balance_after': float(transaction.balance_after),
+                'reference_id': transaction.reference_id,
+                'description': transaction.description,
+                'created_at': transaction.created_at.strftime('%Y-%m-%d %H:%M:%S') if transaction.created_at else None,
+            }
+            for transaction in financial_transactions
+        ],
+        'subscription_payments': [
+            {
+                'subscription_id': subscription.subscription_id,
+                'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
+                'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
+                'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
+                'amount_paid': float(subscription.amount_paid),
+                'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
+                'payment_method': subscription.payment_method,
+                'status': subscription.status,
+            }
+            for subscription in subscription_payments
+        ]
     }), 200
 
 @reports_bp.route('/issue-return', methods=['GET'])
@@ -175,6 +233,8 @@ def issue_return_report():
     active_issues = BookIssue.query.filter(
         BookIssue.status.in_(['ACTIVE', 'OVERDUE'])
     ).count()
+
+    issue_records = BookIssue.query.order_by(BookIssue.issue_date.desc(), BookIssue.issue_id.desc()).all()
     
     return jsonify({
         'today_issues': today_issues,
@@ -184,7 +244,23 @@ def issue_return_report():
         'monthly_issues': monthly_issues,
         'monthly_returns': monthly_returns,
         'overdue': overdue,
-        'active_issues': active_issues
+        'active_issues': active_issues,
+        'issue_return_records': [
+            {
+                'issue_id': issue.issue_id,
+                'student_id': issue.student_ref.student_uid if issue.student_ref else None,
+                'student_name': issue.student_ref.student_name if issue.student_ref else None,
+                'book_id': issue.copy_ref.barcode if issue.copy_ref else None,
+                'book_title': issue.copy_ref.title_ref.title if issue.copy_ref and issue.copy_ref.title_ref else None,
+                'issue_date': issue.issue_date.strftime('%Y-%m-%d') if issue.issue_date else None,
+                'due_date': issue.due_date.strftime('%Y-%m-%d') if issue.due_date else None,
+                'return_date': issue.returns.return_date.strftime('%Y-%m-%d') if issue.returns and issue.returns.return_date else None,
+                'status': issue.status,
+                'fine_amount': float(issue.returns.fine_amount) if issue.returns else 0.0,
+                'damage_charge': float(issue.returns.damage_charge) if issue.returns else 0.0,
+            }
+            for issue in issue_records
+        ]
     }), 200
 
 @reports_bp.route('/dashboard-alerts', methods=['GET'])
@@ -464,6 +540,9 @@ def books_detailed_report():
             'total_quantity': total_copies,
             'available_quantity': avail_copies,
             'issued_quantity': issued_copies,
+            'damaged_quantity': damaged_copies,
+            'lost_quantity': lost_copies,
+            'ebook_quantity': int(b.ebook_count or 0),
             'book_status': status_str
         })
 
@@ -472,5 +551,8 @@ def books_detailed_report():
         'total_copies': sum(int(r['total_quantity']) for r in results),
         'available_copies': sum(int(r['available_quantity']) for r in results),
         'issued_copies': sum(int(r['issued_quantity']) for r in results),
+        'damaged_copies': sum(int(r['damaged_quantity']) for r in results),
+        'lost_copies': sum(int(r['lost_quantity']) for r in results),
+        'ebook_copies': sum(int(r['ebook_quantity']) for r in results),
         'books_list': results
     }), 200

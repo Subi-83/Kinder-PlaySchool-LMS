@@ -15,7 +15,7 @@ library_bp = Blueprint('library', __name__, url_prefix='/api/library')
 
 def count_holidays_during_overdue_period(due_date, return_date):
     """Return the non-chargeable holiday dates after the due date."""
-    if not due_date or not return_date or return_date <= due_date:
+    if not SettingsService.get_bool('holiday_adjustment', True) or not due_date or not return_date or return_date <= due_date:
         return 0
 
     holidays = Holiday.query.all()
@@ -31,6 +31,40 @@ def count_holidays_during_overdue_period(due_date, return_date):
             excluded_days += 1
         current_date += timedelta(days=1)
     return excluded_days
+
+def is_configured_holiday(date_value, holidays):
+    return any(
+        holiday.holiday_date == date_value or
+        (holiday.is_recurring and holiday.holiday_date.month == date_value.month
+         and holiday.holiday_date.day == date_value.day)
+        for holiday in holidays
+    )
+
+def adjust_due_date_for_holidays(due_date):
+    """Move a due date forward until it lands on a working day."""
+    if not SettingsService.get_bool('holiday_adjustment', True):
+        return due_date
+    holidays = Holiday.query.all()
+    adjusted = due_date
+    while is_configured_holiday(adjusted, holidays):
+        adjusted += timedelta(days=1)
+    return adjusted
+
+@library_bp.route('/calendar-info', methods=['GET'])
+@jwt_required()
+@permission_required('book.issue')
+def get_library_calendar_info():
+    """Holiday and charge settings required by the lending screen."""
+    return jsonify({
+        'holidays': [holiday.to_dict() for holiday in Holiday.query.order_by(Holiday.holiday_date).all()],
+        'holiday_adjustment': SettingsService.get_bool('holiday_adjustment', True),
+        'issue_period_days': SettingsService.get_int('issue_period_days', 14),
+        'late_fine_per_day': SettingsService.get_float('late_fine_per_day', 5),
+        'damage_small': SettingsService.get_float('damage_small', 100),
+        'damage_large': SettingsService.get_float('damage_large', 200),
+        'damage_lost': SettingsService.get_float('damage_lost', 300),
+        'damage_default': SettingsService.get_float('damage_default', 100),
+    }), 200
 
 @library_bp.route('/issues', methods=['GET'])
 @jwt_required()
@@ -122,6 +156,7 @@ def issue_book():
     deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
     low_deposit_threshold = SettingsService.get_float('low_deposit_threshold', 300)
     deposit_balance = float(deposit_account.current_balance or 0) if deposit_account else 0.0
+    book_mrp = float(copy.title_ref.mrp or 0) if copy.title_ref else 0.0
     admin_override = bool(data.get('admin_approved_low_deposit', False))
     current_user = get_current_user()
     if deposit_balance <= low_deposit_threshold:
@@ -129,6 +164,8 @@ def issue_book():
             return jsonify({'error': f'Deposit is ₹{deposit_balance:.2f}, which is at or below the ₹{low_deposit_threshold:.2f} borrowing limit. Ask an administrator for approval or top up the deposit.'}), 400
         if not current_user or current_user.role != 'ADMIN':
             return jsonify({'error': 'Only an administrator can approve borrowing with a low deposit.'}), 403
+    if book_mrp > 0 and deposit_balance < book_mrp:
+        return jsonify({'error': f'Book MRP is ₹{book_mrp:.2f}. The student deposit must be at least the MRP; current balance is ₹{deposit_balance:.2f}.'}), 400
     
     # Get issue period from settings
     issue_days = SettingsService.get_int('issue_period_days', 14)
@@ -148,7 +185,7 @@ def issue_book():
         student_id=student_id,
         issue_date=issue_date,
         issue_time=datetime.now().time(),
-        due_date=issue_date + timedelta(days=issue_days),
+        due_date=adjust_due_date_for_holidays(issue_date + timedelta(days=issue_days)),
         issued_by=current_user.user_id,
         status='ACTIVE'
     )
@@ -215,7 +252,17 @@ def return_book():
     damage_charge = float(data.get('damage_charge', 0))
     if damage_charge == 0:
         if is_lost:
-            damage_charge = SettingsService.get_float('damage_lost', 300)
+            lost_charge_mode = str(data.get('lost_charge_mode', 'MRP')).upper()
+            book_mrp = float(issue.copy_ref.title_ref.mrp or 0) if issue.copy_ref and issue.copy_ref.title_ref else 0.0
+            if lost_charge_mode == 'CUSTOM':
+                try:
+                    damage_charge = float(data.get('lost_amount'))
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'Enter a valid custom lost-book amount.'}), 400
+                if damage_charge < 0:
+                    return jsonify({'error': 'Lost-book amount cannot be negative.'}), 400
+            else:
+                damage_charge = book_mrp if book_mrp > 0 else SettingsService.get_float('damage_lost', 300)
         elif condition_returned in ['SMALL', 'SMALL_DAMAGED']:
             damage_charge = SettingsService.get_float('damage_small', 100)
         elif condition_returned in ['LARGE', 'LARGE_DAMAGED']:
@@ -223,21 +270,23 @@ def return_book():
         elif is_damaged:
             damage_charge = SettingsService.get_float('damage_default', 100)
 
-    total_charge = fine_amount + damage_charge
+    fine_amount = round(max(fine_amount, 0), 2)
+    damage_charge = round(max(damage_charge, 0), 2)
+    total_charge = round(fine_amount + damage_charge, 2)
     amount_deducted = 0.0
     outstanding_payable = 0.0
 
     if total_charge > 0:
         deposit_account = DepositAccount.query.filter_by(student_id=issue.student_id).first()
         if deposit_account:
-            cur_bal = float(deposit_account.current_balance or 0.0)
+            cur_bal = round(float(deposit_account.current_balance or 0.0), 2)
             if cur_bal >= total_charge:
                 amount_deducted = total_charge
                 outstanding_payable = 0.0
-                deposit_account.current_balance = cur_bal - total_charge
+                deposit_account.current_balance = round(cur_bal - total_charge, 2)
             else:
                 amount_deducted = cur_bal
-                outstanding_payable = total_charge - cur_bal
+                outstanding_payable = round(total_charge - cur_bal, 2)
                 deposit_account.current_balance = 0.0
                 deposit_account.outstanding_balance = float(getattr(deposit_account, 'outstanding_balance', 0) or 0) + outstanding_payable
 

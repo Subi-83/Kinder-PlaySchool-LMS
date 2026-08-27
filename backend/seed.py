@@ -126,25 +126,8 @@ def seed_database():
         db.session.commit()
         admin = User.query.filter_by(username='admin').first()
 
-        # Grant permissions to STAFF role
-        staff_permissions = [
-            'student.view', 'student.create', 'student.edit',
-            'programme.view',
-            'subscription.view', 'subscription.create', 'subscription.edit',
-            'book.view', 'book.create', 'book.edit',
-            'book.issue', 'book.return',
-            'damage.create',
-            'deposit.view', 'deposit.topup', 'deposit.adjust',
-            'report.stock', 'report.member', 'report.fine', 'report.financial', 'report.issue_return',
-            'holiday.view'
-        ]
-        for perm_code in staff_permissions:
-            p = permission_objs.get(perm_code)
-            if p:
-                rp = RolePermission.query.filter_by(role='STAFF', permission_id=p.permission_id).first()
-                if not rp:
-                    db.session.add(RolePermission(role='STAFF', permission_id=p.permission_id))
-
+        # No role-level defaults. Administrators grant permissions per user.
+        RolePermission.query.delete()
         db.session.commit()
 
         # ----------------------------------------------------
@@ -191,16 +174,16 @@ def seed_database():
                 db.session.add(GradeLevel(grade_code=g_code, grade_name=g_name, description=g_desc, sort_order=order))
 
         programmes_data = [
-            ('Playgroup', 'PG', 'Early learning playgroup programme', 'PG', 2, 1),
-            ('Nursery', 'NUR', 'Nursery foundational programme', 'NUR', 2, 2),
-            ('Junior KG', 'JKG', 'Junior kindergarten reading & activity', 'JKG', 3, 3),
-            ('Senior KG', 'SKG', 'Senior kindergarten preparatory', 'SKG', 3, 4),
-            ('Grade 1', 'G1', 'Primary Grade 1 standard curriculum', '1', 4, 5),
-            ('Grade 2', 'G2', 'Primary Grade 2 standard curriculum', '2', 4, 6),
-            ('Lit Readers Club', 'FLY', 'Special literacy and reading club (Lit Readers)', 'ALL', 5, 7),
+            ('Playgroup', 'PG', 'Early learning playgroup programme', 'PG', 1),
+            ('Nursery', 'NUR', 'Nursery foundational programme', 'NUR', 2),
+            ('Junior KG', 'JKG', 'Junior kindergarten reading & activity', 'JKG', 3),
+            ('Senior KG', 'SKG', 'Senior kindergarten preparatory', 'SKG', 4),
+            ('Grade 1', 'G1', 'Primary Grade 1 standard curriculum', '1', 5),
+            ('Grade 2', 'G2', 'Primary Grade 2 standard curriculum', '2', 6),
+            ('Lit Readers Club', 'FLY', 'Special literacy and reading club (Lit Readers)', 'ALL', 7),
         ]
         prog_objs = {}
-        for p_name, p_code, p_desc, g_lvl, max_b, s_ord in programmes_data:
+        for p_name, p_code, p_desc, g_lvl, s_ord in programmes_data:
             prg = Programme.query.filter_by(programme_name=p_name).first()
             if not prg:
                 prg = Programme(
@@ -209,7 +192,6 @@ def seed_database():
                     description=p_desc,
                     grade_level=g_lvl,
                     library_access=True,
-                    max_books_allowed=max_b,
                     sort_order=s_ord,
                     is_active=True
                 )
@@ -497,84 +479,84 @@ def seed_database():
 
         students_sample = [
             {
-                'uid': 'STU0001', 'name': 'Aarav Sharma', 'gender': 'MALE', 'dob': date(2019, 4, 12),
+                'uid': 'JK0001', 'name': 'Aarav Sharma', 'gender': 'MALE', 'dob': date(2019, 4, 12),
                 'prog': 'JKG', 'roll': '25JKG0001',
                 'mother_name': 'Priya Sharma', 'mother_phone': '9876543210', 'mother_email': 'priya.sharma@example.com',
                 'father_name': 'Rajesh Sharma', 'father_phone': '9876543211', 'father_email': 'rajesh.sharma@example.com',
                 'address': 'Flat 402, Sunshine Apartments, MG Road', 'plan': 'SUB-STD', 'deposit': Decimal('1500.00')
             },
             {
-                'uid': 'STU0002', 'name': 'Ananya Patel', 'gender': 'FEMALE', 'dob': date(2020, 1, 25),
+                'uid': 'JK0002', 'name': 'Ananya Patel', 'gender': 'FEMALE', 'dob': date(2020, 1, 25),
                 'prog': 'NUR', 'roll': '25NUR0001',
                 'mother_name': 'Meera Patel', 'mother_phone': '9876543212', 'mother_email': 'meera.p@example.com',
                 'father_name': 'Amit Patel', 'father_phone': '9876543213', 'father_email': 'amit.p@example.com',
                 'address': '12 Park Avenue, Residency Road', 'plan': 'SUB-BASIC', 'deposit': Decimal('1000.00')
             },
             {
-                'uid': 'STU0003', 'name': 'Vihaan Rao', 'gender': 'MALE', 'dob': date(2018, 9, 10),
+                'uid': 'JK0003', 'name': 'Vihaan Rao', 'gender': 'MALE', 'dob': date(2018, 9, 10),
                 'prog': 'G1', 'roll': '25G10001',
                 'mother_name': 'Kavita Rao', 'mother_phone': '9876543214', 'mother_email': 'kavita.rao@example.com',
                 'father_name': 'Srinivas Rao', 'father_phone': '9876543215', 'father_email': 'srini.rao@example.com',
                 'address': '78 Lotus Greens, Indiranagar', 'plan': 'SUB-PREM', 'deposit': Decimal('2000.00')
             },
             {
-                'uid': 'STU0004', 'name': 'Diya Gupta', 'gender': 'FEMALE', 'dob': date(2019, 11, 5),
+                'uid': 'JK0004', 'name': 'Diya Gupta', 'gender': 'FEMALE', 'dob': date(2019, 11, 5),
                 'prog': 'JKG', 'roll': '25JKG0002',
                 'mother_name': 'Sneha Gupta', 'mother_phone': '9876543216', 'mother_email': 'sneha.g@example.com',
                 'father_name': 'Vikas Gupta', 'father_phone': '9876543217', 'father_email': 'vikas.g@example.com',
                 'address': '55 Rose Gardens, Koramangala', 'plan': 'SUB-STD', 'deposit': Decimal('1200.00')
             },
             {
-                'uid': 'STU0005', 'name': 'Kabir Verma', 'gender': 'MALE', 'dob': date(2018, 3, 15),
+                'uid': 'JK0005', 'name': 'Kabir Verma', 'gender': 'MALE', 'dob': date(2018, 3, 15),
                 'prog': 'G2', 'roll': '25G20001',
                 'mother_name': 'Ritu Verma', 'mother_phone': '9876543218', 'mother_email': 'ritu.v@example.com',
                 'father_name': 'Sanjay Verma', 'father_phone': '9876543219', 'father_email': 'sanjay.v@example.com',
                 'address': '99 Palm Enclave, HSR Layout', 'plan': 'SUB-PREM', 'deposit': Decimal('1800.00')
             },
             {
-                'uid': 'STU0006', 'name': 'Myra Reddy', 'gender': 'FEMALE', 'dob': date(2021, 2, 18),
+                'uid': 'JK0006', 'name': 'Myra Reddy', 'gender': 'FEMALE', 'dob': date(2021, 2, 18),
                 'prog': 'PG', 'roll': '25PG0001',
                 'mother_name': 'Anitha Reddy', 'mother_phone': '9876543220', 'mother_email': 'anitha.r@example.com',
                 'father_name': 'Vikram Reddy', 'father_phone': '9876543221', 'father_email': 'vikram.r@example.com',
                 'address': '14 Lakeview Towers, Whitefield', 'plan': 'SUB-BASIC', 'deposit': Decimal('1000.00')
             },
             {
-                'uid': 'STU0007', 'name': 'Reyansh Joshi', 'gender': 'MALE', 'dob': date(2019, 7, 22),
+                'uid': 'JK0007', 'name': 'Reyansh Joshi', 'gender': 'MALE', 'dob': date(2019, 7, 22),
                 'prog': 'SKG', 'roll': '25SKG0001',
                 'mother_name': 'Pooja Joshi', 'mother_phone': '9876543222', 'mother_email': 'pooja.j@example.com',
                 'father_name': 'Nitin Joshi', 'father_phone': '9876543223', 'father_email': 'nitin.j@example.com',
                 'address': '303 Silver Heights, Jayanagar', 'plan': 'SUB-STD', 'deposit': Decimal('1500.00')
             },
             {
-                'uid': 'STU0008', 'name': 'Ishaan Mehta', 'gender': 'MALE', 'dob': date(2018, 12, 30),
+                'uid': 'JK0008', 'name': 'Ishaan Mehta', 'gender': 'MALE', 'dob': date(2018, 12, 30),
                 'prog': 'G1', 'roll': '25G10002',
                 'mother_name': 'Neha Mehta', 'mother_phone': '9876543224', 'mother_email': 'neha.m@example.com',
                 'father_name': 'Karan Mehta', 'father_phone': '9876543225', 'father_email': 'karan.m@example.com',
                 'address': '22 Windsor Park, JP Nagar', 'plan': 'SUB-STD', 'deposit': Decimal('1200.00')
             },
             {
-                'uid': 'STU0009', 'name': 'Avani Nair', 'gender': 'FEMALE', 'dob': date(2020, 5, 14),
+                'uid': 'JK0009', 'name': 'Avani Nair', 'gender': 'FEMALE', 'dob': date(2020, 5, 14),
                 'prog': 'NUR', 'roll': '25NUR0002',
                 'mother_name': 'Lakshmi Nair', 'mother_phone': '9876543226', 'mother_email': 'lakshmi.n@example.com',
                 'father_name': 'Gautam Nair', 'father_phone': '9876543227', 'father_email': 'gautam.n@example.com',
                 'address': '45 Jasmine Villa, Electronic City', 'plan': 'SUB-BASIC', 'deposit': Decimal('800.00')
             },
             {
-                'uid': 'STU0010', 'name': 'Arjun Singh', 'gender': 'MALE', 'dob': date(2019, 1, 8),
+                'uid': 'JK0010', 'name': 'Arjun Singh', 'gender': 'MALE', 'dob': date(2019, 1, 8),
                 'prog': 'SKG', 'roll': '25SKG0002',
                 'mother_name': 'Simran Singh', 'mother_phone': '9876543228', 'mother_email': 'simran.s@example.com',
                 'father_name': 'Gurpreet Singh', 'father_phone': '9876543229', 'father_email': 'gurpreet.s@example.com',
                 'address': '88 Maple Drive, Sarjapur Road', 'plan': 'SUB-STD', 'deposit': Decimal('1400.00')
             },
             {
-                'uid': 'STU0011', 'name': 'Saisha Fernandez', 'gender': 'FEMALE', 'dob': date(2018, 6, 20),
+                'uid': 'JK0011', 'name': 'Saisha Fernandez', 'gender': 'FEMALE', 'dob': date(2018, 6, 20),
                 'prog': 'G2', 'roll': '25G20002',
                 'mother_name': 'Maria Fernandez', 'mother_phone': '9876543230', 'mother_email': 'maria.f@example.com',
                 'father_name': 'Anthony Fernandez', 'father_phone': '9876543231', 'father_email': 'anthony.f@example.com',
                 'address': '10 Ocean View, Ulsoor', 'plan': 'SUB-PREM', 'deposit': Decimal('2500.00')
             },
             {
-                'uid': 'STU0012', 'name': 'Rohan Banerjee', 'gender': 'MALE', 'dob': date(2019, 10, 17),
+                'uid': 'JK0012', 'name': 'Rohan Banerjee', 'gender': 'MALE', 'dob': date(2019, 10, 17),
                 'prog': 'FLY', 'roll': '25FLY0001',
                 'mother_name': 'Sarmistha Banerjee', 'mother_phone': '9876543232', 'mother_email': 'sarmistha.b@example.com',
                 'father_name': 'Subhabrata Banerjee', 'father_phone': '9876543233', 'father_email': 'subha.b@example.com',

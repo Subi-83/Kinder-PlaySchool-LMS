@@ -6,7 +6,7 @@ class Student(db.Model):
     __tablename__ = 'students'
     
     student_id = db.Column(db.Integer, primary_key=True)
-    student_uid = db.Column(db.String(20), unique=True, nullable=False, comment='Permanent ID: STU0001')
+    student_uid = db.Column(db.String(20), unique=True, nullable=False, comment='Permanent member ID: JK0001')
     student_name = db.Column(db.String(100), nullable=False)
     date_of_birth = db.Column(db.Date, nullable=False)
     gender = db.Column(db.Enum('MALE', 'FEMALE', 'OTHER'), nullable=True)
@@ -149,12 +149,18 @@ class Student(db.Model):
         the largest existing KP number rather than the current database id, so
         deleting a student can never cause an old number to be reused.
         """
-        existing_numbers = [
-            int(student_uid[3:])
-            for (student_uid,) in cls.query.with_entities(cls.student_uid).all()
-            if student_uid and student_uid.startswith('STU') and student_uid[3:].isdigit()
-        ]
-        return f"STU{(max(existing_numbers, default=0) + 1):04d}"
+        from app.services.settings_service import SettingsService
+        import re
+        school_name = SettingsService.get_string('school_name', 'Kinder Park Preschool')
+        words = re.findall(r'[A-Za-z0-9]+', school_name or '')
+        prefix = ''.join(word[0] for word in words[:2]).upper() or 'MB'
+        prefix = prefix[:4]
+        existing_numbers = []
+        for (member_uid,) in cls.query.with_entities(cls.student_uid).all():
+            match = re.search(r'(\d+)$', member_uid or '')
+            if match:
+                existing_numbers.append(int(match.group(1)))
+        return f"{prefix}{(max(existing_numbers, default=0) + 1):04d}"
 
     @classmethod
     def generate_roll_number(cls, academic_year, programme):

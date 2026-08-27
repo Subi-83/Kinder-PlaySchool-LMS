@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
+import { useAppSettings } from '../context/AppSettingsContext'
 
 const emptyForm = () => ({
   student_name: '',
@@ -25,8 +27,10 @@ const emptyForm = () => ({
 })
 
 function Students() {
+  const { memberLabel, membersLabel, memberPrefix } = useAppSettings()
   const { user, hasPermission } = useAuth()
   const [students, setStudents] = useState([])
+  const [loading, setLoading] = useState(true)
   const [programmes, setProgrammes] = useState([])
   const [academicYears, setAcademicYears] = useState([])
   const [form, setForm] = useState(emptyForm())
@@ -35,6 +39,8 @@ function Students() {
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   // State for Re-enrollment modal
   const [reEnrollStudent, setReEnrollStudent] = useState(null)
@@ -69,7 +75,7 @@ function Students() {
 
   const handleResetAll = async () => {
     const confirmation = window.prompt(
-      '⚠️ WARNING: This will permanently DELETE ALL student records, enrollments, deposit accounts, and reset all roll numbers to 0001!\n\nType "RESET" to confirm:'
+      '⚠️ WARNING: This will permanently DELETE ALL JK member records, enrollments, deposit accounts, and reset all roll numbers to 0001!\n\nType "RESET" to confirm:'
     )
     if (confirmation !== 'RESET') return
     try {
@@ -89,6 +95,7 @@ function Students() {
 
   const load = async () => {
     try {
+      setLoading(true)
       const [s, p, y] = await Promise.all([
         api.get('/students/'),
         api.get('/students/programmes'),
@@ -98,7 +105,9 @@ function Students() {
       setProgrammes(p.data || [])
       setAcademicYears(y.data || [])
     } catch (e) {
-      setError(e.data?.error || e.message || 'Could not load student master data.')
+      setError(e.data?.error || e.message || 'Could not load JK member master data.')
+    }finally{
+      setLoading(false)
     }
   }
 
@@ -129,10 +138,10 @@ function Students() {
       setSuccess('')
       if (editing) {
         await api.put(`/students/${editing}`, form)
-        setSuccess('✅ Student updated successfully.')
+        setSuccess('✅ JK member updated successfully.')
       } else {
         await api.post('/students/', form)
-        setSuccess('✅ Student created successfully.')
+        setSuccess('✅ JK member created successfully.')
       }
       setShowForm(false)
       setEditing(null)
@@ -140,7 +149,7 @@ function Students() {
       await load()
       setTimeout(() => setSuccess(''), 4000)
     } catch (e) {
-      setError(e.data?.error || e.response?.data?.error || e.message || 'Could not save student.')
+      setError(e.data?.error || e.response?.data?.error || e.message || 'Could not save JK member.')
     }
   }
 
@@ -197,7 +206,7 @@ function Students() {
   const importStudentSpreadsheet = async (event) => {
     event.preventDefault()
     if (!studentExcelFile || !importYear) {
-      setError('Please choose a student Excel/CSV file and select the academic year.')
+      setError('Please choose a JK member Excel/CSV file and select the academic year.')
       return
     }
     const body = new FormData()
@@ -279,8 +288,15 @@ function Students() {
     setFilterSubStatus('')
   }
 
+  const totalItems = filtered.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const paginatedStudents = filtered.slice(
+  (currentPage - 1) * pageSize,
+  currentPage * pageSize
+  )
+
   const textFields = [
-    ['student_name', 'Student name'],
+    ['student_name', 'JK member name'],
     ['date_of_birth', 'Date of birth', 'date'],
     ['school_name', 'School name'],
     ['grade', 'Grade'],
@@ -290,15 +306,25 @@ function Students() {
     ['father_name', "Father's name"],
     ['father_phone', "Father's phone number", 'tel'],
     ['father_email', "Father's email", 'email', true],
-    ['student_email', 'Student email', 'email', true]
+    ['student_email', 'JK member email', 'email', true]
   ]
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading student data...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Students & Library Memberships</h2>
-          <p className="text-gray-500 dark:text-gray-400">Manage student profiles, roll numbers, deposit balances, and library access privileges.</p>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{membersLabel} & Library Memberships</h2>
+          <p className="text-gray-500 dark:text-gray-400">Manage {memberLabel.toLowerCase()} profiles, roll numbers, deposit balances, and library access privileges.</p>
         </div>
         {canCreate && (
           <div className="flex flex-wrap gap-2">
@@ -310,7 +336,7 @@ function Students() {
               }}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-sm transition-all"
             >
-              {showForm ? '✕ Cancel' : '+ New Student'}
+              {showForm ? '✕ Cancel' : `+ New ${memberLabel}`}
             </button>
             <button
               onClick={() => {
@@ -322,7 +348,7 @@ function Students() {
               }}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition-all"
             >
-              Existing / Old Student
+              Existing / Old {memberLabel}
             </button>
             <button
               onClick={() => {
@@ -353,7 +379,7 @@ function Students() {
       {/* CREATE / EDIT FORM */}
       {showForm && (
         <form onSubmit={submit} className="bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-sm space-y-4">
-          <h3 className="font-bold text-gray-900 dark:text-white text-lg">{editing ? 'Edit Student Master Record' : 'Create New Student'}</h3>
+          <h3 className="font-bold text-gray-900 dark:text-white text-lg">{editing ? `Edit ${memberLabel} Record` : `Create New ${memberLabel}`}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {textFields.filter(([key]) => !editing || key !== 'grade').map(([key, label, type, optional]) => (
               <label key={key} className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
@@ -420,7 +446,7 @@ function Students() {
           </div>
 
           <button className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
-            {editing ? 'Update Student' : 'Save Student'}
+            {editing ? `Update ${memberLabel}` : `Save ${memberLabel}`}
           </button>
         </form>
       )}
@@ -432,7 +458,7 @@ function Students() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by Name, STU ID, Roll No, Phone..."
+            placeholder={`Search by Name, ${memberPrefix} ID, Roll No, Phone...`}
             className="w-full md:w-80 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
@@ -515,8 +541,8 @@ function Students() {
             className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">Status (All)</option>
-            <option value="ACTIVE">Active Students</option>
-            <option value="INACTIVE">Inactive Students</option>
+            <option value="ACTIVE">Active {membersLabel}</option>
+            <option value="INACTIVE">Inactive {membersLabel}</option>
           </select>
         </div>
       </div>
@@ -526,8 +552,8 @@ function Students() {
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
             <tr>
-              <th className="px-4 py-3">Roll & STU ID</th>
-              <th className="px-4 py-3">Student Name</th>
+              <th className="px-4 py-3">Roll & {memberPrefix} ID</th>
+              <th className="px-4 py-3">{memberLabel} Name</th>
               <th className="px-4 py-3">Programme / Grade</th>
               <th className="px-4 py-3 text-center">Library Access</th>
               <th className="px-4 py-3">Deposit & Fines</th>
@@ -537,7 +563,7 @@ function Students() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
-            {filtered.map((s) => {
+            {paginatedStudents.map((s) => {
               const activeEnc = s.enrollments?.find((e) => e.status === 'ACTIVE') || s.current_enrollment
               const activeSub = s.active_subscription
               return (
@@ -601,7 +627,7 @@ function Students() {
                     <div className="text-gray-500">{s.father_name} ({s.father_phone})</div>
                   </td>
 
-                  <td className="px-4 py-3 text-right space-x-2 text-xs font-semibold">
+                  <td className="py-3 flex items-center gap-2">
                     {canEdit && (
                       <>
                         <button
@@ -633,7 +659,7 @@ function Students() {
                             })
                             setShowForm(true)
                           }}
-                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                          className="px-2.5 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-200 dark:hover:bg-blue-900/50 font-medium transition-colors"
                         >
                           Edit
                         </button>
@@ -642,7 +668,7 @@ function Students() {
                             selectExistingStudent(s)
                             setShowEnrollmentDialog(true)
                           }}
-                          className="text-emerald-600 dark:text-emerald-400 hover:underline"
+                          className="px-2.5 py-1 text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/80 rounded-md font-semibold transition-colors border border-emerald-300 dark:border-emerald-800"
                         >
                           + Re-Enroll
                         </button>
@@ -656,14 +682,14 @@ function Students() {
                               setError('')
                               await api.delete(`/students/${s.student_id}`)
                               await load()
-                              setSuccess('Student deleted successfully.')
+                              setSuccess('JK member deletion request sent successfully.')
                               setTimeout(() => setSuccess(''), 3000)
                             } catch (err) {
-                              setError(err.data?.error || err.response?.data?.error || err.message || 'Could not delete student.')
+                              setError(err.data?.error || err.response?.data?.error || err.message || 'Could not request JK member deletion.')
                             }
                           }
                         }}
-                        className="text-rose-600 dark:text-rose-400 hover:underline"
+                        className="px-2.5 py-1 text-xs bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-md hover:bg-rose-200 dark:hover:bg-rose-900/50 font-medium transition-colors"
                       >
                         Delete
                       </button>
@@ -675,13 +701,25 @@ function Students() {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan="8" className="p-8 text-center text-gray-500 dark:text-gray-400">
-                  No students match your filter criteria.
+                  No {membersLabel} match your filter criteria.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+      {filtered.length > 0 && (
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            perPage={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="books"
+          />
+        </div>
+      )}
 
       {/* EXCEL IMPORT MODAL DIALOG */}
       {showImport && (
@@ -690,7 +728,7 @@ function Students() {
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                  <span>📊</span> Import Students from Excel / CSV
+                  <span>📊</span> Import {membersLabel} from Excel / CSV
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
               </div>
@@ -794,9 +832,9 @@ function Students() {
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                  <span>🎓</span> Re-Enroll Existing / Old Student
+                  <span>🎓</span> Re-Enroll Existing / Old {memberLabel}
                 </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Search for an existing student record to enroll them into a new academic year.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Search for an existing {memberLabel.toLowerCase()} record to enroll them into a new academic year.</p>
               </div>
               <button
                 type="button"
@@ -821,7 +859,7 @@ function Students() {
                     value={existingSearch}
                     onChange={(e) => setExistingSearch(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchExistingStudents())}
-                    placeholder="Enter Student Name, STU ID, or Phone Number..."
+                    placeholder={`Enter ${memberLabel} Name, ${memberPrefix} ID, or Phone Number...`}
                     className="flex-1 px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                   <button
@@ -835,7 +873,7 @@ function Students() {
 
                 {existingMatches.length > 0 && (
                   <div className="space-y-2 border border-gray-200 dark:border-gray-800 rounded-xl p-3 max-h-60 overflow-y-auto bg-gray-50 dark:bg-[#10101d]">
-                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Matching Students ({existingMatches.length}):</div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Matching {membersLabel} ({existingMatches.length}):</div>
                     {existingMatches.map((st) => (
                       <div
                         key={st.student_id}
@@ -861,7 +899,7 @@ function Students() {
 
                 {existingSearch && existingMatches.length === 0 && (
                   <div className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
-                    No matching student found. Double-check search query or create a new student record.
+                    No matching JK member found. Double-check the search or create a new JK member record.
                   </div>
                 )}
               </div>
@@ -882,7 +920,7 @@ function Students() {
                     onClick={() => setReEnrollStudent(null)}
                     className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
                   >
-                    Change Student
+                    Change {memberLabel}
                   </button>
                 </div>
 

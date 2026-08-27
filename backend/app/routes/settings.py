@@ -9,6 +9,20 @@ from datetime import datetime, timedelta, timezone
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
 
+@settings_bp.route('/public', methods=['GET'])
+def get_public_settings():
+    """Return non-sensitive branding settings used before and after login."""
+    import re
+    school_name = SettingsService.get_string('school_name', 'Kinder Park Preschool')
+    words = re.findall(r'[A-Za-z0-9]+', school_name or '')
+    member_prefix = (''.join(word[0] for word in words[:2]).upper() or 'MB')[:4]
+    return jsonify({
+        'school_name': school_name,
+        'member_prefix': member_prefix,
+        'member_label': f'{member_prefix} Member',
+        'members_label': f'{member_prefix} Members'
+    }), 200
+
 @settings_bp.route('/', methods=['GET'])
 @jwt_required()
 @permission_required('settings.view')

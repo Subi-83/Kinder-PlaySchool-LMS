@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
 
 function AuditLogs() {
   const { user } = useAuth()
@@ -10,7 +11,8 @@ function AuditLogs() {
   const [filter, setFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalLogs, setTotalLogs] = useState(0)
-  const perPage = 50
+
+  const perPage = 10
 
   const loadLogs = async () => {
     try {
@@ -128,30 +130,14 @@ function AuditLogs() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          Showing {((currentPage - 1) * perPage) + 1} to {Math.min(currentPage * perPage, totalLogs)} of {totalLogs} logs
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="px-3 py-1 rounded-lg border border-gray-300 dark:border-[#2a2a4a] text-gray-700 dark:text-gray-200 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-[#0f0f1a] transition-colors"
-          >
-            Previous
-          </button>
-          <span className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400">
-            Page {currentPage} of {totalPages || 1}
-          </span>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages || totalPages === 0}
-            className="px-3 py-1 rounded-lg border border-gray-300 dark:border-[#2a2a4a] text-gray-700 dark:text-gray-200 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-[#0f0f1a] transition-colors"
-          >
-            Next
-          </button>
-        </div>
-      </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={totalLogs}
+        perPage={perPage}
+        onPageChange={setCurrentPage}
+        itemLabel="logs"
+      />
     </div>
   )
 }

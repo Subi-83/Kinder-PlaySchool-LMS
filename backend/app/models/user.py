@@ -43,7 +43,7 @@ class User(db.Model):
             return True
         
         # Check user-specific permissions
-        for up in self.user_permissions:
+        for up in self.user_permissions: # type: ignore
             if up.permission.permission_code == permission_code and up.is_allowed:
                 return True
         
@@ -67,17 +67,19 @@ class User(db.Model):
         """Get all permissions for the user"""
         if self.role == 'ADMIN':
             return [p.permission_code for p in Permission.query.all()]
-        
+
         permissions = set()
-        
-        # Get role-based permissions
+
         for rp in RolePermission.query.filter_by(role=self.role).all():
             permissions.add(rp.permission.permission_code)
-        
-        # Get user-specific permissions
-        for up in self.user_permissions.filter_by(is_allowed=True).all():
-            permissions.add(up.permission.permission_code)
-        
+
+        # Apply user-specific overrides — grants AND denials
+        for up in self.user_permissions.all():          # ← no is_allowed filter here anymore
+            if up.is_allowed:
+                permissions.add(up.permission.permission_code)
+            else:
+                permissions.discard(up.permission.permission_code)
+
         return list(permissions)
     
     def to_dict(self):

@@ -3,14 +3,25 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import StudentSearchInput from '../components/StudentSearchInput'
 import BookSearchInput from '../components/BookSearchInput'
+import Pagination from '../components/common/Pagination'
+import { useAppSettings } from '../context/AppSettingsContext'
+
+const parseLocalDate = (value) => value ? new Date(`${value}T00:00:00`) : null
+const toDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 function Library() {
   const { user, hasPermission } = useAuth()
+  const { memberLabel } = useAppSettings()
   const [issues, setIssues] = useState([])
   const [history, setHistory] = useState([])
-  const [students, setStudents] = useState([])
+  const [holidays, setHolidays] = useState([])
+  const [librarySettings, setLibrarySettings] = useState({})
+  const [holidayView, setHolidayView] = useState('month')
+  const [holidayPage, setHolidayPage] = useState(1)
   const [message, setMessage] = useState('')
-
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
+  const [loading, setLoading] = useState(true)
   // Selected entities for forms
   const [selectedIssueStudent, setSelectedIssueStudent] = useState(null)
   const [selectedIssueBook, setSelectedIssueBook] = useState(null)
@@ -33,6 +44,8 @@ function Library() {
     condition: 'GOOD',
     is_damaged: false,
     is_lost: false,
+    lost_charge_mode: 'MRP',
+    lost_amount: '',
     notes: ''
   })
 
@@ -44,20 +57,29 @@ function Library() {
   const canReturn = user?.role === 'ADMIN' || hasPermission('book.return')
   const lowDepositThreshold = 300
   const selectedStudentHasLowDeposit = selectedIssueStudent && Number(selectedIssueStudent.deposit_balance || 0) <= lowDepositThreshold
+  const selectedBookMrp = Number(selectedIssueBook?.mrp || 0)
+  const selectedStudentBelowMrp = selectedIssueStudent && selectedBookMrp > 0 && Number(selectedIssueStudent.deposit_balance || 0) < selectedBookMrp
   const canApproveLowDeposit = user?.role === 'ADMIN'
 
   const load = async () => {
     try {
-      const [activeRes, historyRes, studentsRes] = await Promise.all([
+      setLoading(true)
+      const [activeRes, historyRes, calendarRes] = await Promise.all([
         api.get('/library/issues/active'),
         api.get('/library/issues'),
-        api.get('/students/')
+        api.get('/library/calendar-info').catch(async () => {
+          const holidayResponse = await api.get('/settings/holidays')
+          return { data: { holidays: holidayResponse.data || [], holiday_adjustment: true } }
+        })
       ])
       setIssues(activeRes.data || [])
       setHistory(historyRes.data || [])
-      setStudents(studentsRes.data || [])
+      setHolidays(calendarRes.data?.holidays || [])
+      setLibrarySettings(calendarRes.data || {})
     } catch (e) {
       setMessage(e.data?.error || e.message || 'Could not load library data.')
+    }finally{
+      setLoading(false)
     }
   }
 
@@ -94,6 +116,31 @@ function Library() {
     return issues.filter((i) => String(i.student_id) === String(selectedFilterStudent.student_id))
   }, [issues, selectedFilterStudent])
 
+  const totalPages = Math.max(1, Math.ceil(filteredHistory.length / pageSize))
+  const paginatedHistory = filteredHistory.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedFilterStudent])
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [currentPage, totalPages])
+
+  const today = parseLocalDate(todayStr)
+  const displayedHolidays = holidays.filter((holiday) => {
+    const date = parseLocalDate(holiday.holiday_date)
+    if (!date) return false
+    return holidayView === 'month'
+      ? date.getMonth() === today.getMonth() && (date.getFullYear() === today.getFullYear() || holiday.is_recurring)
+      : date >= today || holiday.is_recurring
+  })
+  const holidayPageSize = 5
+  const holidayPages = Math.max(1, Math.ceil(displayedHolidays.length / holidayPageSize))
+  const visibleHolidays = displayedHolidays.slice((holidayPage - 1) * holidayPageSize, holidayPage * holidayPageSize)
+
+  useEffect(() => setHolidayPage(1), [holidayView])
+
   // Handle Book ID / ISBN search or scan for issue
   const handleIssueBarcodeScan = async (code) => {
     const trimmed = code.trim().toUpperCase()
@@ -117,7 +164,7 @@ function Library() {
   }
 
   // Handle Book ID / ISBN scan for return
-  const handleReturnBarcodeScan = (code) => {
+  const handleReturnBarcodeScan = async (code) => {
     const trimmed = code.trim().toUpperCase()
     if (!trimmed) return
     const matchedIssue = issues.find((i) => 
@@ -125,8 +172,12 @@ function Library() {
       (i.book_isbn || '').toUpperCase() === trimmed
     )
     if (matchedIssue) {
-      const stu = students.find((s) => String(s.student_id) === String(matchedIssue.student_id))
-      if (stu) setSelectedReturnStudent(stu)
+      try {
+        const studentResponse = await api.get(`/students/${matchedIssue.student_id}`)
+        if (studentResponse.data) setSelectedReturnStudent(studentResponse.data)
+      } catch (_) {
+        setSelectedReturnStudent({ student_id: matchedIssue.student_id, student_name: matchedIssue.student_name })
+      }
       setSelectedReturnIssue(matchedIssue)
       setMessage(`✅ Matched active issue: "${matchedIssue.book_title}" for ${matchedIssue.student_name} (Book ID: ${matchedIssue.book_barcode}${matchedIssue.book_isbn ? ' | ISBN: ' + matchedIssue.book_isbn : ''})`)
       setTimeout(() => setMessage(''), 4000)
@@ -139,19 +190,23 @@ function Library() {
   const submitIssue = async (e) => {
     e.preventDefault()
     if (!selectedIssueStudent) {
-      setMessage('❌ Please select a student.')
+      setMessage(`❌ Please select a ${memberLabel}.`)
       return
     }
     if (!selectedIssueStudent.library_access) {
-      setMessage(`❌ Student ${selectedIssueStudent.student_name} does not have library borrowing privileges enabled. Please enable Library Access in Student Management.`)
+      setMessage(`❌ ${memberLabel} ${selectedIssueStudent.student_name} does not have borrowing privileges enabled. Please enable Library Access in ${memberLabel} Management.`)
       return
     }
     if (!selectedIssueStudent.active_subscription) {
-      setMessage(`❌ Student ${selectedIssueStudent.student_name} does not have an active library subscription plan. Please assign a subscription plan.`)
+      setMessage(`❌ ${memberLabel} ${selectedIssueStudent.student_name} does not have an active library subscription plan. Please assign a subscription plan.`)
       return
     }
     if (!selectedIssueBook) {
       setMessage('❌ Please select an available book copy.')
+      return
+    }
+    if (selectedStudentBelowMrp) {
+      setMessage(`❌ Deposit must cover the book MRP of ₹${selectedBookMrp.toFixed(2)}.`)
       return
     }
     if (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit) {
@@ -176,28 +231,49 @@ function Library() {
     }
   }
 
-  // Calculate return details dynamically
+  const dynamicHolidayDays = useMemo(() => {
+    if (!selectedReturnIssue || librarySettings.holiday_adjustment === false) return 0
+    const dueDate = parseLocalDate(selectedReturnIssue.due_date)
+    const returnDate = parseLocalDate(returnForm.return_date)
+    if (!dueDate || !returnDate || returnDate <= dueDate) return 0
+    let count = 0
+    const cursor = new Date(dueDate)
+    cursor.setDate(cursor.getDate() + 1)
+    while (cursor <= returnDate) {
+      const cursorKey = toDateKey(cursor)
+      if (holidays.some((holiday) => holiday.holiday_date === cursorKey || (holiday.is_recurring && holiday.holiday_date.slice(5) === cursorKey.slice(5)))) count += 1
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    return count
+  }, [selectedReturnIssue, returnForm.return_date, holidays, librarySettings.holiday_adjustment])
+
+  useEffect(() => {
+    setReturnForm((current) => ({ ...current, holiday_days: dynamicHolidayDays }))
+  }, [selectedReturnIssue?.issue_id, returnForm.return_date, dynamicHolidayDays])
+
+  // Calculate return details dynamically, while allowing a manual holiday override.
   const returnCalculation = useMemo(() => {
     if (!selectedReturnIssue) return null
-    const issueDate = new Date(selectedReturnIssue.issue_date)
-    const dueDate = new Date(selectedReturnIssue.due_date)
-    const returnDate = new Date(returnForm.return_date)
+    const dueDate = parseLocalDate(selectedReturnIssue.due_date)
+    const returnDate = parseLocalDate(returnForm.return_date)
 
     const rawOverdueDays = Math.max(0, Math.floor((returnDate - dueDate) / (1000 * 60 * 60 * 24)))
-    const holidayDays = Math.max(0, parseInt(returnForm.holiday_days || 0, 10))
+    const holidayDays = Math.max(0, Number(returnForm.holiday_days || 0))
     const effectiveOverdueDays = Math.max(0, rawOverdueDays - holidayDays)
-    const lateFine = effectiveOverdueDays * 5.0 // ₹5/day default
+    const lateFine = effectiveOverdueDays * Number(librarySettings.late_fine_per_day ?? 5)
 
     let damageCharge = 0.0
     const cond = returnForm.condition
     if (returnForm.is_lost || cond === 'LOST') {
-      damageCharge = 300.0
+      damageCharge = returnForm.lost_charge_mode === 'CUSTOM'
+        ? Math.max(0, Number(returnForm.lost_amount || 0))
+        : Number(selectedReturnIssue.mrp || librarySettings.damage_lost || 300)
     } else if (cond === 'SMALL_DAMAGED' || cond === 'SMALL') {
-      damageCharge = 100.0
+      damageCharge = Number(librarySettings.damage_small ?? 100)
     } else if (cond === 'LARGE_DAMAGED' || cond === 'LARGE') {
-      damageCharge = 200.0
+      damageCharge = Number(librarySettings.damage_large ?? 200)
     } else if (returnForm.is_damaged || cond === 'DAMAGED' || cond === 'POOR') {
-      damageCharge = 100.0
+      damageCharge = Number(librarySettings.damage_default ?? 100)
     }
 
     const totalCharge = lateFine + damageCharge
@@ -218,7 +294,7 @@ function Library() {
       amountDeducted,
       outstandingPayable
     }
-  }, [selectedReturnIssue, returnForm, selectedReturnStudent])
+  }, [selectedReturnIssue, returnForm, selectedReturnStudent, holidays, librarySettings])
 
   // Submit Return
   const submitReturn = async (e) => {
@@ -236,6 +312,8 @@ function Library() {
         condition: returnForm.condition,
         is_damaged: returnForm.is_damaged,
         is_lost: returnForm.is_lost,
+        lost_charge_mode: returnForm.lost_charge_mode,
+        lost_amount: returnForm.lost_amount,
         notes: returnForm.notes
       })
       const data = res.data || {}
@@ -252,7 +330,16 @@ function Library() {
       setMessage('❌ ' + (err.data?.error || err.message || 'Could not return book.'))
     }
   }
-
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading Library data...</p>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="space-y-6">
       {/* Title Header */}
@@ -277,6 +364,33 @@ function Library() {
         </div>
       )}
 
+      <div className="rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-bold text-gray-900 dark:text-white">🗓️ Official Holiday List</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">These days are automatically excluded from late-fine calculations.</p>
+          </div>
+          <div className="flex rounded-lg bg-gray-100 dark:bg-[#10101d] p-1">
+            <button type="button" onClick={() => setHolidayView('month')} className={`px-3 py-1.5 rounded-md text-xs font-semibold ${holidayView === 'month' ? 'bg-white dark:bg-[#292944] text-blue-600 dark:text-blue-300 shadow-sm' : 'text-gray-500'}`}>This Month</button>
+            <button type="button" onClick={() => setHolidayView('upcoming')} className={`px-3 py-1.5 rounded-md text-xs font-semibold ${holidayView === 'upcoming' ? 'bg-white dark:bg-[#292944] text-blue-600 dark:text-blue-300 shadow-sm' : 'text-gray-500'}`}>Upcoming</button>
+          </div>
+        </div>
+        {visibleHolidays.length ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+            {visibleHolidays.map((holiday) => (
+              <div key={holiday.holiday_id} className="rounded-xl border border-gray-200 dark:border-[#292944] bg-gray-50 dark:bg-[#10101d] p-3">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">{holiday.holiday_name}</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">📅 {holiday.holiday_date}</p>
+                {holiday.is_recurring && <span className="inline-block mt-1 text-[10px] font-bold text-purple-600 dark:text-purple-300">ANNUAL</span>}
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-sm text-gray-500 dark:text-gray-400 py-3">No holidays found for this period.</p>}
+        <div className="mt-4">
+          <Pagination currentPage={holidayPage} totalPages={holidayPages} totalItems={displayedHolidays.length} perPage={holidayPageSize} onPageChange={setHolidayPage} itemLabel="holidays" />
+        </div>
+      </div>
+
       {/* Forms Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ISSUE BOOK FORM */}
@@ -284,7 +398,7 @@ function Library() {
           <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-gray-800">
             <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-              Issue Book to Student
+              Issue Book to {memberLabel}
             </h3>
             <span className="text-xs px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">
               📷 Scanner Ready
@@ -320,7 +434,7 @@ function Library() {
 
           {/* Student Search Autocomplete */}
           <StudentSearchInput
-            label="Search Student"
+            label={`Search ${memberLabel}`}
             libraryOnly={true}
             selectedStudent={selectedIssueStudent}
             onSelectStudent={(stu) => setSelectedIssueStudent(stu)}
@@ -348,13 +462,13 @@ function Library() {
 
               {!selectedIssueStudent.library_access && (
                 <div className="text-rose-600 dark:text-rose-400 font-semibold text-[11px] bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-lg border border-rose-200 dark:border-rose-900">
-                  ❌ Student borrowing access is turned OFF. Book issuing is blocked until Library Access is enabled in Student Management.
+                  ❌ {memberLabel} borrowing access is turned OFF. Book issuing is blocked until Library Access is enabled in {memberLabel} Management.
                 </div>
               )}
 
               {selectedIssueStudent.library_access && !selectedIssueStudent.active_subscription && (
                 <div className="text-amber-600 dark:text-amber-400 font-semibold text-[11px] bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900">
-                  ⚠️ Student has no active library subscription plan. Please assign a plan to allow book issuing.
+                  ⚠️ {memberLabel} has no active library subscription plan. Please assign a plan to allow book issuing.
                 </div>
               )}
 
@@ -368,6 +482,11 @@ function Library() {
               {selectedStudentHasLowDeposit && (
                 <div className="text-amber-700 dark:text-amber-300 font-semibold text-[11px] bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900">
                   ⚠️ Deposit is ₹{Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)} (≤₹300). Borrowing is blocked until the deposit is topped up or an administrator approves this issue.
+                </div>
+              )}
+              {selectedStudentBelowMrp && (
+                <div className="text-rose-700 dark:text-rose-300 font-semibold text-[11px] bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-lg border border-rose-200 dark:border-rose-900">
+                  ❌ Book MRP is ₹{selectedBookMrp.toFixed(2)}. Deposit must be at least the MRP before this physical copy can be issued.
                 </div>
               )}
             </div>
@@ -407,7 +526,7 @@ function Library() {
           )}
 
           <button
-            disabled={!canIssue || !selectedIssueStudent || !selectedIssueStudent.library_access || !selectedIssueStudent.active_subscription || !selectedIssueBook || (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit)}
+            disabled={!canIssue || !selectedIssueStudent || !selectedIssueStudent.library_access || !selectedIssueStudent.active_subscription || !selectedIssueBook || selectedStudentBelowMrp || (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit)}
             className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Confirm & Issue Book
@@ -425,6 +544,19 @@ function Library() {
               📷 Scanner Ready
             </span>
           </div>
+
+          {(returnForm.is_lost || returnForm.condition === 'LOST') && (
+            <div className="rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50/60 dark:bg-rose-950/20 p-3 space-y-3">
+              <label className="block text-xs font-bold uppercase text-rose-700 dark:text-rose-300">Lost-book charge</label>
+              <div className="flex flex-wrap gap-4 text-sm">
+                <label className="flex items-center gap-2"><input type="radio" checked={returnForm.lost_charge_mode === 'MRP'} onChange={() => setReturnForm({ ...returnForm, lost_charge_mode: 'MRP' })} /> LOST (₹{Number(selectedReturnIssue?.mrp || librarySettings.damage_lost || 300).toFixed(2)})</label>
+                <label className="flex items-center gap-2"><input type="radio" checked={returnForm.lost_charge_mode === 'CUSTOM'} onChange={() => setReturnForm({ ...returnForm, lost_charge_mode: 'CUSTOM' })} /> Custom amount</label>
+              </div>
+              {returnForm.lost_charge_mode === 'CUSTOM' && (
+                <input type="number" min="0" step="0.01" required value={returnForm.lost_amount} onChange={(e) => setReturnForm({ ...returnForm, lost_amount: e.target.value })} placeholder="Enter lost-book charge" className="w-full rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm" />
+              )}
+            </div>
+          )}
 
           {/* Return Book ID / ISBN Scan */}
           <div>
@@ -455,7 +587,7 @@ function Library() {
 
           {/* Select Student for Return */}
           <StudentSearchInput
-            label="1. Select Student Returning Book"
+              label={`1. Select ${memberLabel} Returning Book`}
             libraryOnly={true}
             selectedStudent={selectedReturnStudent}
             onSelectStudent={(stu) => setSelectedReturnStudent(stu)}
@@ -511,10 +643,12 @@ function Library() {
               <input
                 type="number"
                 min="0"
+                step="1"
                 value={returnForm.holiday_days}
                 onChange={(e) => setReturnForm({ ...returnForm, holiday_days: e.target.value })}
-                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm font-medium text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm font-semibold text-gray-900 dark:text-white"
               />
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Automatically detected: {dynamicHolidayDays}. You can override this number manually.</p>
             </div>
           </div>
 
@@ -598,12 +732,12 @@ function Library() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h3 className="font-bold text-gray-900 dark:text-white text-base">Book Issues & Return Records</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">View complete transaction history per student.</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">View complete transaction history per {memberLabel.toLowerCase()}.</p>
           </div>
 
           <div className="w-full md:w-80">
             <StudentSearchInput
-              label="Filter Table by Student"
+              label={`Filter Table by ${memberLabel}`}
               libraryOnly={false}
               selectedStudent={selectedFilterStudent}
               onSelectStudent={(stu) => setSelectedFilterStudent(stu)}
@@ -615,7 +749,7 @@ function Library() {
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
               <tr>
-                <th className="px-4 py-3">Student</th>
+                <th className="px-4 py-3">{memberLabel}</th>
                 <th className="px-4 py-3">Book ID & Title</th>
                 <th className="px-4 py-3">Issued / Due</th>
                 <th className="px-4 py-3">Returned On</th>
@@ -623,7 +757,7 @@ function Library() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
-              {filteredHistory.map((i) => (
+              {paginatedHistory.map((i) => (
                 <tr key={i.issue_id} className="hover:bg-blue-50/20 dark:hover:bg-[#19192e] transition-colors">
                   <td className="px-4 py-3">
                     <div className="font-bold text-gray-900 dark:text-white">{i.student_name}</div>
@@ -673,6 +807,7 @@ function Library() {
             </tbody>
           </table>
         </div>
+        <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredHistory.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="records" />
       </div>
     </div>
   )

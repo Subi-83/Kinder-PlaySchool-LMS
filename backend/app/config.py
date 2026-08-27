@@ -44,6 +44,7 @@ class Config:
         f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ECHO = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_size': int(os.getenv('DB_POOL_SIZE', 10)),
         'pool_recycle': int(os.getenv('DB_POOL_RECYCLE', 3600)),
@@ -184,15 +185,17 @@ class DevelopmentConfig(Config):
     TESTING = False
     
     # Development-specific settings
-    SQLALCHEMY_ECHO = True
-    SQLALCHEMY_RECORD_QUERIES = True
+    # SQL echoing makes list pages very slow because their relationship
+    # queries are synchronously printed to the console.
+    SQLALCHEMY_ECHO = False
+    SQLALCHEMY_RECORD_QUERIES = False
     
     # Less strict security for development
     SESSION_COOKIE_SECURE = False
     JWT_COOKIE_SECURE = False
     
     # Enable more logging
-    LOG_LEVEL = 'DEBUG'
+    LOG_LEVEL = 'INFO'
 
 class TestingConfig(Config):
     """Testing environment configuration"""

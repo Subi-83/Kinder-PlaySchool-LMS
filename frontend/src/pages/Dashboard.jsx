@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import { useAppSettings } from '../context/AppSettingsContext'
 
 function Dashboard() {
   const { user, isAuthenticated } = useAuth()
+  const { memberLabel, membersLabel } = useAppSettings()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({
     total_students: 0,
@@ -88,9 +90,9 @@ function Dashboard() {
   if (loading) return <div className="h-64 grid place-items-center text-gray-500 dark:text-gray-400">Loading dashboard…</div>
 
   const cards = [
-    ['Students', stats.total_students, '👩‍🎓', 'blue', '/students'],
+    [membersLabel, stats.total_students, '👩‍🎓', 'blue', '/students'],
     ['Active memberships', stats.active_members, '✨', 'violet', '/subscriptions'],
-    ['Books in library', stats.total_books, '📚', 'amber', '/books'],
+    ['Books in library', (stats.total_books - stats.lost), '📚', 'amber', '/books'],
     ['Available now', stats.available, '✅', 'emerald', '/books'],
     ['Currently issued', stats.active_issues, '📖', 'cyan', '/library'],
     ['Overdue', stats.overdue, '⏰', 'rose', '/library'],
@@ -107,7 +109,7 @@ function Dashboard() {
         <p className="mt-2 text-blue-50 dark:text-gray-300">Everything important, at a glance. Click any stat card below to go directly to its section.</p>
         <div className="mt-5 flex flex-wrap gap-3">
           {[
-            ['/students', 'Add student'],
+            ['/students', `Add ${memberLabel}`],
             ['/books', 'Add book'],
             ['/library', 'Issue / return'],
             ['/reports', 'Open reports']
@@ -139,7 +141,7 @@ function Dashboard() {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5">
-        <section className="lg:col-span-2 rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
+        <section className="lg:col-span-3 rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
           <div className="flex justify-between items-center">
             <h3 className="font-semibold text-gray-900 dark:text-white">Book availability</h3>
             <Link to="/books" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Manage inventory →</Link>
@@ -148,8 +150,8 @@ function Dashboard() {
             {[
               ['Available', stats.available, 'bg-emerald-500'],
               ['Issued', stats.issued, 'bg-cyan-500'],
-              ['Damaged', stats.damaged, 'bg-amber-500'],
-              ['Lost', stats.lost, 'bg-rose-500']
+              // ['Damaged', stats.damaged, 'bg-amber-500'],
+              // ['Lost', stats.lost, 'bg-rose-500']
             ].map(([label, value, color]) => (
               <div key={label}>
                 <div className="mb-1 flex justify-between text-sm">
@@ -164,32 +166,12 @@ function Dashboard() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold text-gray-900 dark:text-white">Financial summary</h3>
-            <Link to="/deposits" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Deposits →</Link>
-          </div>
-          <div className="mt-5 space-y-4">
-            {[
-              ['Deposits', stats.total_deposits],
-              ['Fine collection', stats.total_fines],
-              ['Damage charges', stats.total_damages],
-              ['Current balance', stats.total_balance]
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-lg bg-gray-50 dark:bg-[#10101d] p-3 border border-gray-100 dark:border-[#2a2a4a]">
-                <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-                <p className="mt-1 text-lg font-bold text-gray-900 dark:text-white">₹{Number(value || 0).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-        </section>
       </div>
-
       <section className="rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">Student warnings</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Overdue books and deposits below each student’s warning limit.</p>
+            <h3 className="font-semibold text-gray-900 dark:text-white">{memberLabel} warnings</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Overdue books and deposits below each {memberLabel.toLowerCase()}’s warning limit.</p>
           </div>
           <span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-3 py-1 text-sm font-medium text-amber-800 dark:text-amber-300">
             {alerts.overdue_books.length + alerts.low_deposits.length} open
@@ -216,6 +198,30 @@ function Dashboard() {
           </div>
         </div>
       </section>
+
+      
+        {/* {<section className="rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
+          <div className="flex justify-between items-center">
+            <h3 className="font-semibold text-gray-900 dark:text-white">Financial summary</h3>
+            <Link to="/deposits" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Deposits →</Link>
+          </div>
+          <div className="mt-5 space-y-4">
+            {[
+              ['Deposits', stats.total_deposits],
+              ['Fine collection', stats.total_fines],
+              ['Damage charges', stats.total_damages],
+              ['Current balance', stats.total_balance]
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-gray-50 dark:bg-[#10101d] p-3 border border-gray-100 dark:border-[#2a2a4a]">
+                <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+                <p className="mt-1 text-lg font-bold text-gray-900 dark:text-white">₹{Number(value || 0).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </section>} */}
+      
+
+      
     </div>
   )
 }

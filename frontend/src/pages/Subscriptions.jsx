@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
+import { useAppSettings } from '../context/AppSettingsContext'
 
 function Subscriptions() {
   const { user, hasPermission } = useAuth()
+  const { memberLabel, membersLabel } = useAppSettings()
   const [plans, setPlans] = useState([])
   const [eligibleStudents, setEligibleStudents] = useState([])
   const [activeSubscriptions, setActiveSubscriptions] = useState([])
@@ -12,6 +15,9 @@ function Subscriptions() {
   const [editing, setEditing] = useState(null)
   const [upgradingSubscription, setUpgradingSubscription] = useState(null)
   const [upgradePlanId, setUpgradePlanId] = useState('')
+  const [subscriptionsPage, setSubscriptionsPage] = useState(1)
+  const [plansPage, setPlansPage] = useState(1)
+  const pageSize = 10
   const [assignData, setAssignData] = useState({
     student_id: '',
     plan_id: ''
@@ -30,6 +36,15 @@ function Subscriptions() {
   const canEdit = hasPermission('subscription.edit') || user?.role === 'ADMIN'
   const canDelete = hasPermission('subscription.delete') || user?.role === 'ADMIN'
   const canAssign = hasPermission('subscription.create') || user?.role === 'ADMIN'
+  const subscriptionPages = Math.max(1, Math.ceil(activeSubscriptions.length / pageSize))
+  const planPages = Math.max(1, Math.ceil(plans.length / pageSize))
+  const paginatedSubscriptions = activeSubscriptions.slice((subscriptionsPage - 1) * pageSize, subscriptionsPage * pageSize)
+  const paginatedPlans = plans.slice((plansPage - 1) * pageSize, plansPage * pageSize)
+
+  useEffect(() => {
+    if (subscriptionsPage > subscriptionPages) setSubscriptionsPage(subscriptionPages)
+    if (plansPage > planPages) setPlansPage(planPages)
+  }, [subscriptionsPage, subscriptionPages, plansPage, planPages])
 
   const loadData = async () => {
     try {
@@ -156,7 +171,7 @@ function Subscriptions() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Library Subscriptions</h2>
           <p className="text-gray-500 dark:text-gray-400">
-            Manage library subscription plans and assign active subscriptions to eligible students.
+            Manage library subscription plans and assign active subscriptions to eligible {membersLabel}.
           </p>
         </div>
         {canCreate && (
@@ -301,14 +316,14 @@ function Subscriptions() {
               <span>📋</span> Assign New Subscription
             </h3>
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-              Only displaying students with Library Access who have NO active subscription
+              Only displaying {membersLabel} with Library Access who have NO active subscription
             </span>
           </div>
 
           <form onSubmit={handleAssign} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                Select Student ({eligibleStudents.length} Eligible)
+                Select {memberLabel} ({eligibleStudents.length} Eligible)
               </label>
               <select
                 value={assignData.student_id}
@@ -316,7 +331,7 @@ function Subscriptions() {
                 className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
                 required
               >
-                <option value="">-- Choose Student --</option>
+                <option value="">-- Choose {memberLabel} --</option>
                 {eligibleStudents.map(s => (
                   <option key={s.student_id} value={s.student_id}>
                     {s.student_uid} - {s.student_name}
@@ -354,7 +369,7 @@ function Subscriptions() {
           </form>
           {eligibleStudents.length === 0 && (
             <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-              ℹ️ No students are currently eligible for a new subscription. Students with active subscriptions cannot be assigned duplicates until their active subscription expires.
+              ℹ️ No {membersLabel} are currently eligible for a new subscription. {membersLabel} with active subscriptions cannot be assigned duplicates until their active subscription expires.
             </p>
           )}
         </div>
@@ -363,15 +378,15 @@ function Subscriptions() {
       {/* Active & Past Subscriptions List */}
       <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 dark:border-[#2a2a4a] flex justify-between items-center">
-          <h4 className="font-bold text-gray-900 dark:text-white text-base">🎟️ Student Subscriptions Status</h4>
+          <h4 className="font-bold text-gray-900 dark:text-white text-base">🎟️ {memberLabel} Subscriptions Status</h4>
           <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Total Records: {activeSubscriptions.length}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 dark:bg-[#0f0f1a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
               <tr>
-                <th className="px-4 py-3">Student ID</th>
-                <th className="px-4 py-3">Student Name</th>
+                <th className="px-4 py-3">{memberLabel} ID</th>
+                <th className="px-4 py-3">{memberLabel} Name</th>
                 <th className="px-4 py-3">Plan</th>
                 <th className="px-4 py-3">Start Date</th>
                 <th className="px-4 py-3">End Date</th>
@@ -380,7 +395,7 @@ function Subscriptions() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
-              {activeSubscriptions.map((sub) => (
+              {paginatedSubscriptions.map((sub) => (
                 <tr key={sub.subscription_id} className="hover:bg-blue-50/20 dark:hover:bg-[#0f0f1a] transition-colors">
                   <td className="px-4 py-3 font-mono text-xs font-bold text-gray-700 dark:text-gray-300">
                     {sub.student_uid}
@@ -431,12 +446,15 @@ function Subscriptions() {
               {activeSubscriptions.length === 0 && (
                 <tr>
                   <td colSpan="7" className="p-8 text-center text-gray-500 dark:text-gray-400">
-                    No active or past student subscriptions found.
+                    No active or past {memberLabel.toLowerCase()} subscriptions found.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
+          <Pagination currentPage={subscriptionsPage} totalPages={subscriptionPages} totalItems={activeSubscriptions.length} perPage={pageSize} onPageChange={setSubscriptionsPage} itemLabel="subscriptions" />
         </div>
       </div>
 
@@ -458,7 +476,7 @@ function Subscriptions() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
-              {plans.map(p => (
+              {paginatedPlans.map(p => (
                 <tr key={p.subscription_plan_id} className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a]">
                   <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">{p.plan_name}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{p.max_books} books</td>
@@ -511,6 +529,9 @@ function Subscriptions() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
+          <Pagination currentPage={plansPage} totalPages={planPages} totalItems={plans.length} perPage={pageSize} onPageChange={setPlansPage} itemLabel="plans" />
         </div>
       </div>
     </div>

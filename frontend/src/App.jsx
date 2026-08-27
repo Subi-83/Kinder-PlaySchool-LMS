@@ -2,6 +2,7 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { AppSettingsProvider } from './context/AppSettingsContext'
 import ProtectedRoute from './components/common/ProtectedRoute'
 import Layout from './components/common/Layout'
 
@@ -19,11 +20,14 @@ import Users from './pages/Users'
 import Settings from './pages/Settings'
 import AuditLogs from './pages/AuditLogs'
 import Profile from './pages/Profile'
+import Notifications from './pages/Notifications'
+import HolidayCalendarPage from './pages/HolidayCalendarPage'
 
 function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
+      <AppSettingsProvider>
+       <AuthProvider>
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -42,13 +46,16 @@ function App() {
               <Route path="reports" element={<Reports />} />
               <Route path="users" element={<Users />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="holiday-calendar" element={<HolidayCalendarPage />} />
               <Route path="audit" element={<AuditLogs />} />
               <Route path="profile" element={<Profile />} />
+              <Route path="notifications" element={<Notifications />} />
             </Route>
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
+       </AuthProvider>
+      </AppSettingsProvider>
     </ThemeProvider>
   )
 }

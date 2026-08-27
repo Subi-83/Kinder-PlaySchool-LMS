@@ -80,6 +80,8 @@ class BookTitle(db.Model):  # type: ignore
     author = db.Column(db.String(100), nullable=False)
     isbn = db.Column(db.String(20), nullable=True)
     level_id = db.Column(db.Integer, db.ForeignKey('book_levels.level_id'), nullable=True)
+    mrp = db.Column(db.DECIMAL(10, 2), nullable=True)
+    ebook_count = db.Column(db.Integer, nullable=False, default=0)
     category_id = db.Column(db.Integer, db.ForeignKey('book_categories.category_id'), nullable=True)
     publication_year = db.Column(db.Integer, nullable=True)
     publisher = db.Column(db.String(100), nullable=True)
@@ -104,7 +106,7 @@ class BookTitle(db.Model):  # type: ignore
         damaged_copies = self.copies.filter_by(status='DAMAGED').count()
         lost_copies = self.copies.filter_by(status='LOST').count()
         
-        all_copies = [c.to_dict() for c in self.copies.order_by(BookCopy.copy_number).all()]
+        all_copies = [c.to_dict() for c in self.copies.order_by(BookCopy.copy_number).all()] # type: ignore
         return {
             'book_title_id': self.book_title_id,
             'title': self.title,
@@ -113,6 +115,8 @@ class BookTitle(db.Model):  # type: ignore
             'level_id': self.level_id,
             'category_id': self.category_id,
             'level': self.level_ref.to_dict() if getattr(self, 'level_ref', None) else None,
+            'mrp': float(self.mrp) if self.mrp is not None else None,
+            'ebook_count': int(self.ebook_count or 0),
             'category': self.category_ref.to_dict() if getattr(self, 'category_ref', None) else None,
             'publication_year': self.publication_year,
             'publisher': self.publisher,
@@ -135,7 +139,9 @@ class BookTitle(db.Model):  # type: ignore
             'book_title_id': self.book_title_id,
             'title': self.title,
             'author': self.author,
-            'isbn': self.isbn
+            'isbn': self.isbn,
+            'mrp': float(self.mrp) if self.mrp is not None else None
+            ,'ebook_count': int(self.ebook_count or 0)
         }
     
     @classmethod
@@ -183,6 +189,7 @@ class BookCopy(db.Model):  # type: ignore
             'title': title_obj.title if title_obj else None,
             'author': title_obj.author if title_obj else None,
             'isbn': title_obj.isbn if title_obj else None,
+            'mrp': float(title_obj.mrp) if title_obj and title_obj.mrp is not None else None,
             'level_name': level_obj.level_name if level_obj else None,
             'level_code': level_obj.level_code if level_obj else None,
             'copy_number': self.copy_number,

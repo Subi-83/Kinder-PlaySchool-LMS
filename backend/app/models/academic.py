@@ -64,7 +64,6 @@ class Programme(db.Model):
     grade_level = db.Column(db.String(50), nullable=True, comment='Grade/Level like KG, 1, 2')
     is_active = db.Column(db.Boolean, default=True)
     library_access = db.Column(db.Boolean, default=True)
-    max_books_allowed = db.Column(db.Integer, default=2)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -84,7 +83,6 @@ class Programme(db.Model):
             'grade_level': self.grade_level,
             'is_active': self.is_active,
             'library_access': self.library_access,
-            'max_books_allowed': self.max_books_allowed,
             'sort_order': self.sort_order,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M') if self.updated_at else None

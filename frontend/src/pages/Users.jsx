@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
 
 function Users() {
   const { user, hasPermission } = useAuth()
@@ -10,6 +11,8 @@ function Users() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
   const [message, setMessage] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -25,6 +28,7 @@ function Users() {
   const canCreate = hasPermission('user.create') || user?.role === 'ADMIN'
   const canEdit = hasPermission('user.edit') || user?.role === 'ADMIN'
   const canDelete = hasPermission('user.delete') || user?.role === 'ADMIN'
+  const isAdmin = user?.role === 'ADMIN'
 
   const loadData = async () => {
     try {
@@ -45,6 +49,17 @@ function Users() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [users.length])
+
+  const totalItems = users.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const paginatedUsers = users.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -102,7 +117,8 @@ function Users() {
   }, {})
 
   const setModulePermissions = (modulePermissions, enabled) => {
-    const codes = modulePermissions.map((permission) => permission.permission_code)
+    const codes = modulePermissions
+      .map((permission) => permission.permission_code)
     setFormData((prev) => ({
       ...prev,
       permissions: enabled
@@ -163,7 +179,11 @@ function Users() {
         </div>
         {canCreate && (
           <button
-            onClick={() => { setShowForm(!showForm); setEditing(null); setFormData({ username: '', email: '', password: '', full_name: '', role: 'STAFF', is_active: true, permissions: [] }) }}
+            onClick={() => {
+              setShowForm(!showForm)
+              setEditing(null)
+              setFormData({ username: '', email: '', password: '', full_name: '', role: 'STAFF', is_active: true, permissions: [] })
+            }}
             className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
           >
             {showForm ? '✕ Cancel' : '+ Add User'}
@@ -260,7 +280,7 @@ function Users() {
                       <span>🛡️</span> Staff Module Permissions
                     </h4>
                     <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-                      Grant or revoke access to specific app modules. Select individual permissions or entire sections.
+                      Permissions are granted individually by an administrator. New staff users receive no permissions by default.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -269,7 +289,10 @@ function Users() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, permissions: permissions.map(p => p.permission_code) }))}
+                      onClick={() => setFormData(prev => ({
+                        ...prev,
+                        permissions: permissions.map(p => p.permission_code)
+                      }))}
                       className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
                     >
                       ✓ Allow All
@@ -350,7 +373,9 @@ function Users() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
                   {Object.entries(filteredModules).map(([module, modulePermissions]) => {
                     const selectedInModule = modulePermissions.filter(p => formData.permissions.includes(p.permission_code)).length
-                    const allSelected = selectedInModule === modulePermissions.length
+                    const editableInModule = modulePermissions
+                    const allEditableSelected = editableInModule.length > 0 &&
+                      editableInModule.every(p => formData.permissions.includes(p.permission_code))
 
                     return (
                       <div
@@ -375,46 +400,56 @@ function Users() {
                               </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => setModulePermissions(modulePermissions, !allSelected)}
-                              className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
-                                allSelected
-                                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200'
-                                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200'
-                              }`}
-                            >
-                              {allSelected ? 'Clear Section' : 'Select All'}
-                            </button>
+                            {editableInModule.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setModulePermissions(modulePermissions, !allEditableSelected)}
+                                className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                                  allEditableSelected
+                                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200'
+                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200'
+                                }`}
+                              >
+                                {allEditableSelected ? 'Clear Section' : 'Select All'}
+                              </button>
+                            )}
                           </div>
 
                           <div className="p-3 space-y-2">
                             {modulePermissions.map((permission) => {
                               const isChecked = formData.permissions.includes(permission.permission_code)
+                              const locked = false
                               return (
                                 <div
                                   key={permission.permission_id}
                                   onClick={() => togglePermission(permission.permission_code)}
-                                  className={`group p-2.5 rounded-lg border text-left cursor-pointer transition-all duration-150 flex items-start gap-2.5 ${
-                                    isChecked
-                                      ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40 dark:border-blue-600/80 shadow-xs'
-                                      : 'border-gray-200 dark:border-[#2a2a4a] bg-white dark:bg-[#121225] hover:border-gray-300 dark:hover:border-gray-600'
+                                  className={`group p-2.5 rounded-lg border text-left flex items-start gap-2.5 transition-all duration-150 ${
+                                    locked
+                                      ? 'cursor-not-allowed opacity-70 border-gray-200 dark:border-[#2a2a4a] bg-gray-100 dark:bg-[#1a1a2e]'
+                                      : 'cursor-pointer ' + (
+                                        isChecked
+                                          ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40 dark:border-blue-600/80 shadow-xs'
+                                          : 'border-gray-200 dark:border-[#2a2a4a] bg-white dark:bg-[#121225] hover:border-gray-300 dark:hover:border-gray-600'
+                                      )
                                   }`}
+                                  title={locked ? 'Default Staff permission — cannot be changed here' : ''}
                                 >
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
+                                    disabled={locked}
                                     onChange={() => {}}
-                                    className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none"
+                                    className={`mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none ${locked ? 'opacity-60' : ''}`}
                                   />
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-1">
-                                      <span className={`text-xs font-semibold ${
+                                      <span className={`text-xs font-semibold flex items-center gap-1 ${
                                         isChecked ? 'text-blue-900 dark:text-blue-200' : 'text-gray-800 dark:text-gray-200'
-                                      }`}>
+                                      } ${locked ? 'text-gray-500 dark:text-gray-400' : ''}`}>
+                                        {locked && <span title="Default permission">🔒</span>}
                                         {permission.permission_name}
                                       </span>
-                                      {isChecked && (
+                                      {isChecked && !locked && (
                                         <span className="text-blue-600 dark:text-blue-400 text-xs font-bold">✓</span>
                                       )}
                                     </div>
@@ -471,7 +506,7 @@ function Users() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
-              {users.map(u => (
+              {paginatedUsers.map(u => (
                 <tr key={u.user_id} className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a]">
                   <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{u.username}</td>
                   <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{u.email}</td>
@@ -490,7 +525,11 @@ function Users() {
                     <div className="flex gap-2">
                       {canEdit && u.user_id !== 1 && (
                         <button
-                          onClick={() => { setEditing(u.user_id); setFormData({ ...u, password: '', permissions: u.permissions || [] }); setShowForm(true) }}
+                          onClick={() => {
+                            setEditing(u.user_id)
+                            setFormData({ ...u, password: '', permissions: u.permissions || [] })
+                            setShowForm(true)
+                          }}
                           className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
                         >
                           Edit
@@ -518,6 +557,19 @@ function Users() {
             </tbody>
           </table>
         </div>
+
+        {users.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              perPage={pageSize}
+              onPageChange={setCurrentPage}
+              itemLabel="users"
+            />
+          </div>
+        )}
       </div>
     </div>
   )

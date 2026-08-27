@@ -1,10 +1,13 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useAppSettings } from '../../context/AppSettingsContext'
+import api from '../../services/api'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: '📊', permissions: [] },
-  { path: '/students', label: 'Students', icon: '👨‍🎓', permissions: ['student.view'] },
+  { path: '/notifications', label: 'Notifications', icon: '🔔', permissions: [], adminOnly: true },
+  { path: '/students', label: 'JK Members', icon: '👨‍🎓', permissions: ['student.view'] },
   { path: '/books', label: 'Books', icon: '📚', permissions: ['book.view'] },
   { path: '/subscriptions', label: 'Subscriptions', icon: '📋', permissions: ['subscription.view'] },
   { path: '/library', label: 'Library', icon: '📖', permissions: ['book.issue'] },
@@ -13,15 +16,37 @@ const navItems = [
   { path: '/reports', label: 'Reports', icon: '📈', permissions: ['report.stock'] },
   { path: '/users', label: 'Users', icon: '👥', permissions: ['user.view'] },
   { path: '/settings', label: 'Settings', icon: '⚙️', permissions: ['settings.view'] },
+  { path: '/holiday-calendar', label: 'Holiday Calendar', icon: '📅', permissions: ['settings.view'] },
   { path: '/audit', label: 'Audit Logs', icon: '📜', permissions: ['audit.view'] },
   { path: '/profile', label: 'My Profile', icon: '👤', permissions: [] },
 ]
 
 function Sidebar({ collapsed, onToggle }) {
   const { user, hasAnyPermission, hasPermission } = useAuth()
+  const { schoolName, membersLabel } = useAppSettings()
+  const schoolInitials = (schoolName || 'School')
+    .trim().split(/\s+/).filter(Boolean).slice(0, 2)
+    .map((word) => word[0]).join('').toUpperCase()
   const canViewSettings = user?.role === 'ADMIN' || hasPermission('settings.view')
+  const [notificationData, setNotificationData] = useState({ notifications: [], pending_count: 0 })
+
+  const loadNotifications = async () => {
+    if (user?.role !== 'ADMIN') return
+    try {
+      const response = await api.get('/audit/notifications')
+      setNotificationData(response.data || { notifications: [], pending_count: 0 })
+    } catch (_) {}
+  }
+
+  useEffect(() => {
+    loadNotifications()
+    if (user?.role !== 'ADMIN') return undefined
+    const timer = setInterval(loadNotifications, 30000)
+    return () => clearInterval(timer)
+  }, [user?.role])
 
   const filteredItems = navItems.filter(item => {
+    if (item.adminOnly && user?.role !== 'ADMIN') return false
     if (item.permissions.length === 0) return true
     return hasAnyPermission(item.permissions)
   })
@@ -35,18 +60,18 @@ function Sidebar({ collapsed, onToggle }) {
         {!collapsed && (
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex flex-col items-center justify-center shadow-md leading-none">
-              <span className="text-sm font-black tracking-tight">KP</span>
+              <span className="text-sm font-black tracking-tight">{schoolInitials}</span>
               <span className="text-[9px]">▰▰</span>
             </div>
             <div>
-              <h1 className="text-lg font-bold text-blue-600 dark:text-blue-400 leading-tight">Kinder Park</h1>
+              <h1 className="text-lg font-bold text-blue-600 dark:text-blue-400 leading-tight truncate max-w-36">{schoolName}</h1>
               <span className="text-xs text-gray-500 dark:text-gray-400">Library System</span>
             </div>
           </div>
         )}
         {collapsed && (
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex flex-col items-center justify-center text-white shadow-md leading-none" title="Kinder Park">
-            <span className="text-sm font-black tracking-tight">KP</span>
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex flex-col items-center justify-center text-white shadow-md leading-none" title={schoolName}>
+            <span className="text-sm font-black tracking-tight">{schoolInitials}</span>
             <span className="text-[9px]">▰▰</span>
           </div>
         )}
@@ -76,10 +101,11 @@ function Sidebar({ collapsed, onToggle }) {
                   : 'hover:bg-gray-100 dark:hover:bg-[#2a2a4a] text-gray-700 dark:text-gray-300'
               }`
             }
-            title={collapsed ? item.label : ''}
+            title={collapsed ? (item.path === '/students' ? membersLabel : item.label) : ''}
           >
             <span className="text-xl">{item.icon}</span>
-            {!collapsed && <span className="ml-3 text-sm font-medium">{item.label}</span>}
+            {!collapsed && <span className="ml-3 text-sm font-medium">{item.path === '/students' ? membersLabel : item.label}</span>}
+            {item.path === '/notifications' && notificationData.pending_count > 0 && <span className={`${collapsed ? 'absolute mt-[-24px] ml-6' : 'ml-auto'} min-w-5 h-5 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold grid place-items-center`}>{notificationData.pending_count}</span>}
           </NavLink>
         ))}
       </nav>

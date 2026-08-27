@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
+import { useAppSettings } from '../context/AppSettingsContext'
 
 const tabs = [
   { id: 'stock', label: 'Stock Summary', perm: 'report.stock' },
   { id: 'members', label: 'Members Summary', perm: 'report.member' },
-  { id: 'students-detailed', label: 'Students Report', perm: 'report.member' },
+  { id: 'students-detailed', label: 'JK Members Report', perm: 'report.member' },
   { id: 'books-detailed', label: 'Books Report', perm: 'report.stock' },
   { id: 'fines', label: 'Fines Report', perm: 'report.fine' },
   { id: 'financial', label: 'Financial Report', perm: 'report.financial' },
@@ -37,14 +39,62 @@ const download = (body, name, type) => {
   URL.revokeObjectURL(url)
 }
 
+function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggleField }) {
+  const [page, setPage] = useState(1)
+  const perPage = 10
+  const totalPages = Math.max(1, Math.ceil(rows.length / perPage))
+  const visibleRows = rows.slice((page - 1) * perPage, page * perPage)
+
+  useEffect(() => setPage(1), [rows, activeTab])
+
+  return (
+    <section className="space-y-3">
+      <h3 className="font-bold text-gray-900 dark:text-white text-base">{pretty(title)} ({rows.length} records)</h3>
+      <div className="rounded-xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#10101d] shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
+              <tr>{rows[0] && Object.keys(rows[0]).map(head => (
+                <th className="px-5 py-3.5" key={head}>
+                  <label className="inline-flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                    <input type="checkbox" checked={selectedFields.includes(head)} onChange={() => onToggleField(head)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
+                    {pretty(head)}
+                  </label>
+                </th>
+              ))}</tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
+              {visibleRows.map((row, index) => (
+                <tr key={(page - 1) * perPage + index} className="hover:bg-blue-50/30 dark:hover:bg-[#19192e]">
+                  {Object.entries(row).map(([cellKey, value]) => (
+                    <td className={`px-5 py-3.5 text-gray-700 dark:text-gray-300 ${typeof value === 'number' ? 'text-right font-medium' : ''}`} key={cellKey}>
+                      {typeof value === 'number' && /(amount|fine|charge|balance|deposit)/.test(cellKey) ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : String(value ?? '-')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-200 dark:border-[#292944]">
+          <Pagination currentPage={page} totalPages={totalPages} totalItems={rows.length} perPage={perPage} onPageChange={setPage} itemLabel="records" />
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Reports() {
-  const schoolName = 'Kinder Park Preschool & Library'
+  const { schoolName } = useAppSettings()
   const { user, hasPermission } = useAuth()
   const [active, setActive] = useState('students-detailed')
   const [data, setData] = useState({})
   const [extraData, setExtraData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [metricsPage, setMetricsPage] = useState(1)
+  const [selectedMetrics, setSelectedMetrics] = useState([])
+  const [selectedListFields, setSelectedListFields] = useState({})
 
   // Filter state for Students Detailed Report
   const [studentLevelFilter, setStudentLevelFilter] = useState('ALL')
@@ -136,9 +186,10 @@ function Reports() {
       } else if (tab.id === 'issue-return') {
         try {
           const alerts = await api.get('/reports/dashboard-alerts')
-          if (alerts.data?.overdue_books?.length > 0) {
-            setExtraData([['Current Overdue Books', alerts.data.overdue_books]])
-          }
+          const alertTables = []
+          if (alerts.data?.overdue_books?.length > 0) alertTables.push(['Current Overdue Books', alerts.data.overdue_books])
+          if (alerts.data?.low_deposits?.length > 0) alertTables.push(['Low Deposit Accounts', alerts.data.low_deposits])
+          setExtraData(alertTables)
         } catch (_) {}
       }
     } catch (e) {
@@ -171,6 +222,31 @@ function Reports() {
     const rawLists = Object.entries(data).filter(([, value]) => Array.isArray(value))
     return [...rawLists, ...extraData]
   }, [data, extraData])
+  const metricsPerPage = 10
+  const metricPages = Math.max(1, Math.ceil(scalar.length / metricsPerPage))
+  const visibleMetrics = scalar.slice((metricsPage - 1) * metricsPerPage, metricsPage * metricsPerPage)
+
+  useEffect(() => {
+    setSelectedMetrics(scalar.map(([key]) => key))
+    setSelectedListFields(Object.fromEntries(
+      lists.map(([title, rows]) => [title, rows[0] ? Object.keys(rows[0]) : []])
+    ))
+  }, [active, data, extraData])
+
+  useEffect(() => {
+    setMetricsPage(1)
+  }, [active, scalar.length])
+
+  const toggleMetric = (key) => {
+    setSelectedMetrics((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
+  }
+
+  const toggleListField = (title, field) => {
+    setSelectedListFields((current) => {
+      const selected = current[title] || []
+      return { ...current, [title]: selected.includes(field) ? selected.filter((item) => item !== field) : [...selected, field] }
+    })
+  }
 
   const generatedDateStr = useMemo(() => {
     return new Date().toLocaleString('en-IN', {
@@ -213,13 +289,14 @@ function Reports() {
       const metricSection = [
         '--- EXECUTIVE SUMMARY METRICS ---',
         'Metric Name,Value',
-        ...scalar.map(([k, v]) => `${JSON.stringify(pretty(k))},${JSON.stringify(formatVal(active, k, v))}`),
+        ...scalar.filter(([k]) => selectedMetrics.includes(k)).map(([k, v]) => `${JSON.stringify(pretty(k))},${JSON.stringify(formatVal(active, k, v))}`),
         ''
       ]
 
       const listSections = lists.flatMap(([title, rows]) => {
         if (!rows.length) return []
-        const fields = Object.keys(rows[0])
+        const fields = selectedListFields[title] || []
+        if (!fields.length) return []
         return [
           `--- ${pretty(title).toUpperCase()} ---`,
           fields.map(pretty).join(','),
@@ -283,7 +360,7 @@ function Reports() {
       <body>
         <div class="report-header">
           <div>
-            <h1 class="school-title">🏫 Kinder Park Preschool & Library</h1>
+            <h1 class="school-title">🏫 ${schoolName}</h1>
             <div class="report-subtitle">📊 ${reportTitle.toUpperCase()}</div>
           </div>
           <div class="meta-card">
@@ -294,11 +371,11 @@ function Reports() {
         </div>
 
         ${
-          scalar.length > 0
+          selectedMetrics.length > 0
             ? `
           <div class="section-heading">Executive Summary</div>
           <div class="kpi-container">
-            ${scalar
+            ${scalar.filter(([k]) => selectedMetrics.includes(k))
               .map(
                 ([k, v]) => `
               <div class="kpi-box">
@@ -315,12 +392,15 @@ function Reports() {
 
         ${lists
           .map(
-            ([key, rows]) => `
+            ([key, rows]) => {
+              const fields = selectedListFields[key] || []
+              if (!fields.length) return ''
+              return `
           <div class="section-heading">${pretty(key)}</div>
           <table>
             <thead>
               <tr>
-                ${rows[0] ? Object.keys(rows[0]).map((h) => `<th class="${typeof rows[0][h] === 'number' ? 'num-col' : ''}">${pretty(h)}</th>`).join('') : ''}
+                ${rows[0] ? fields.map((h) => `<th class="${typeof rows[0][h] === 'number' ? 'num-col' : ''}">${pretty(h)}</th>`).join('') : ''}
               </tr>
             </thead>
             <tbody>
@@ -328,7 +408,7 @@ function Reports() {
                 .map(
                   (row) => `
                 <tr>
-                  ${Object.entries(row)
+                  ${fields.map((k) => [k, row[k]])
                     .map(
                       ([k, v]) => `
                     <td class="${typeof v === 'number' ? 'num-col' : ''}">
@@ -343,12 +423,12 @@ function Reports() {
                 .join('')}
             </tbody>
           </table>
-        `
+        `}
           )
           .join('')}
 
         <div class="report-footer">
-          <div>Kinder Park Library System • Official Generated Report</div>
+          <div>${schoolName} • Official Generated Report</div>
           <div class="sig-box">Authorized Signature</div>
         </div>
       </body>
@@ -371,10 +451,10 @@ function Reports() {
         <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 text-blue-300 font-semibold text-xs tracking-wider uppercase">
-              <span>🏫 Kinder Park Preschool & Library System</span>
+              <span>🏫 {schoolName}</span>
             </div>
             <h2 className="text-3xl font-extrabold tracking-tight mt-1 text-white">{tab?.label || 'Report Generation'}</h2>
-            <p className="text-sm text-blue-200/80 mt-1">Official calculated records, inventory metrics, student eligibility, and financial breakdowns.</p>
+            <p className="text-sm text-blue-200/80 mt-1">Official calculated records, inventory metrics, JK member eligibility, and financial breakdowns.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -440,7 +520,7 @@ function Reports() {
           <div className="p-5 bg-blue-50/40 dark:bg-[#121222] border-b border-gray-200 dark:border-[#292944] space-y-4">
             <div className="flex justify-between items-center">
               <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-2">
-                <span>🔍</span> Filter Students Report
+                <span>🔍</span> Filter JK Members Report
               </h4>
               <button
                 onClick={resetFilters}
@@ -477,7 +557,7 @@ function Reports() {
                   onChange={(e) => setLibraryAccessFilter(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a2e] px-2.5 py-1.5 text-gray-900 dark:text-white"
                 >
-                  <option value="ALL">All Students</option>
+                  <option value="ALL">All JK Members</option>
                   <option value="true">Enabled (Yes)</option>
                   <option value="false">Disabled (No)</option>
                 </select>
@@ -656,7 +736,10 @@ function Reports() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {scalar.map(([key, value]) => (
                     <div key={key} className="rounded-xl bg-gray-50 dark:bg-[#22223a] border border-gray-200 dark:border-[#292944] p-4 transition-all hover:shadow-md">
-                      <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold">{pretty(key)}</p>
+                      <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold cursor-pointer">
+                        <input type="checkbox" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
+                        {pretty(key)}
+                      </label>
                       <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{formatVal(active, key, value)}</p>
                     </div>
                   ))}
@@ -680,53 +763,36 @@ function Reports() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
-                      {scalar.map(([key, value], idx) => (
+                      {visibleMetrics.map(([key, value], idx) => (
                         <tr key={key} className={idx % 2 === 0 ? 'bg-white dark:bg-[#10101d]' : 'bg-gray-50/50 dark:bg-[#141426]'}>
-                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-gray-100">{pretty(key)}</td>
+                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-gray-100">
+                            <label className="inline-flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
+                              {pretty(key)}
+                            </label>
+                          </td>
                           <td className="px-5 py-3.5 font-bold text-right text-gray-900 dark:text-white">{formatVal(active, key, value)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <div className="mt-3">
+                  <Pagination currentPage={metricsPage} totalPages={metricPages} totalItems={scalar.length} perPage={metricsPerPage} onPageChange={setMetricsPage} itemLabel="metrics" />
+                </div>
               </div>
             )}
 
             {/* Detailed Data Tables */}
             {lists.map(([key, rows]) => (
-              <section key={key} className="space-y-3">
-                <h3 className="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  {pretty(key)} ({rows.length} records)
-                </h3>
-                <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#10101d] shadow-sm">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
-                      <tr>
-                        {rows[0] &&
-                          Object.keys(rows[0]).map((head) => (
-                            <th className={`px-5 py-3.5 ${typeof rows[0][head] === 'number' ? 'text-right' : ''}`} key={head}>
-                              {pretty(head)}
-                            </th>
-                          ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
-                      {rows.map((row, index) => (
-                        <tr key={index} className="hover:bg-blue-50/30 dark:hover:bg-[#19192e] transition-colors">
-                          {Object.entries(row).map(([cellKey, value], cellIdx) => (
-                            <td className={`px-5 py-3.5 text-gray-700 dark:text-gray-300 ${typeof value === 'number' ? 'text-right font-medium' : ''}`} key={cellIdx}>
-                              {typeof value === 'number' && (cellKey.includes('amount') || cellKey.includes('fine') || cellKey.includes('charge') || cellKey.includes('balance') || cellKey.includes('deposit'))
-                                ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-                                : String(value ?? '-')}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+              <PaginatedReportTable
+                key={key}
+                title={key}
+                rows={rows}
+                activeTab={active}
+                selectedFields={selectedListFields[key] || []}
+                onToggleField={(field) => toggleListField(key, field)}
+              />
             ))}
 
             {!scalar.length && !lists.length && <p className="text-gray-500 dark:text-gray-400 text-center py-8">No report records available for this selection.</p>}

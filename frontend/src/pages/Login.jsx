@@ -1,9 +1,14 @@
 import React, { useState } from 'react'
+import { useAppSettings } from '../context/AppSettingsContext'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 
 function Login() {
+  const { schoolName } = useAppSettings()
+  const schoolInitials = (schoolName || 'School')
+    .trim().split(/\s+/).filter(Boolean).slice(0, 2)
+    .map((word) => word[0]).join('').toUpperCase()
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123')
   const [loading, setLoading] = useState(false)
@@ -47,9 +52,9 @@ function Login() {
           {/* Brand */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500 text-white text-2xl font-bold mb-4">
-              KP
+              {schoolInitials}
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Kinder Park</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{schoolName}</h1>
             <p className="text-gray-500 dark:text-gray-400">Library Management System</p>
           </div>
 

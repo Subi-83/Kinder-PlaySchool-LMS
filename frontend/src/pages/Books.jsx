@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import Pagination from '../components/common/Pagination'
 
 function Books() {
   const { user, hasPermission } = useAuth()
@@ -12,6 +13,8 @@ function Books() {
   const [isbnLoading, setIsbnLoading] = useState(false)
   const [lookupNotice, setLookupNotice] = useState('')
   const scannerInputRef = useRef(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   // Advanced Filter Controls State
   const [filters, setFilters] = useState({
@@ -28,6 +31,9 @@ function Books() {
     author: '',
     isbn: '',
     level_id: '',
+    mrp: '',
+    ebook_count: 0,
+    create_physical_copy: true,
     category_id: '',
     publication_year: '',
     publisher: '',
@@ -131,6 +137,9 @@ function Books() {
         author: '',
         isbn: '',
         level_id: '',
+        mrp: '',
+        ebook_count: 0,
+        create_physical_copy: true,
         category_id: '',
         publication_year: '',
         publisher: '',
@@ -167,7 +176,8 @@ function Books() {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this book title and all its copies?')) return
     try {
-      await api.delete(`/books/${id}`)
+      const response = await api.delete(`/books/${id}`)
+      window.alert(response.data?.message || 'Deletion request sent to administrator.')
       await loadData()
     } catch (err) {
       alert('Error deleting book: ' + (err.data?.error || err.response?.data?.error || err.message))
@@ -177,7 +187,8 @@ function Books() {
   const handleDeleteCopy = async (copyId) => {
     if (!window.confirm('Are you sure you want to delete this physical copy?')) return
     try {
-      await api.delete(`/books/copy/${copyId}`)
+      const response = await api.delete(`/books/copy/${copyId}`)
+      window.alert(response.data?.message || 'Deletion request sent to administrator.')
       await loadData()
     } catch (err) {
       alert('Error deleting copy: ' + (err.data?.error || err.response?.data?.error || err.message))
@@ -273,6 +284,26 @@ function Books() {
     })
   }
 
+  // Reset to page 1 whenever filters or the underlying dataset change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [
+    filters.search,
+    filters.level_id,
+    filters.category_id,
+    filters.publication_year,
+    filters.purchase_year,
+    filters.availability,
+    books.length
+  ])
+
+  const totalItems = filteredBooks.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const paginatedBooks = filteredBooks.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
+
   const getStatusBadge = (status) => {
     const colors = {
       'AVAILABLE': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -302,7 +333,7 @@ function Books() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Books Category & Inventory</h2>
           <p className="text-gray-500 dark:text-gray-400">
-            Manage books with level barcode formatting (`L1-100001`), publication & purchase years, and physical copies.
+            Manage physical and informational e-book inventory. E-books are never available in student issuing.
           </p>
         </div>
         {canCreate && (
@@ -315,6 +346,9 @@ function Books() {
                 author: '',
                 isbn: '',
                 level_id: '',
+                mrp: '',
+                ebook_count: 0,
+                create_physical_copy: true,
                 category_id: '',
                 publication_year: '',
                 publisher: '',
@@ -621,6 +655,54 @@ function Books() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  MRP (₹)
+                </label>
+
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 499.00"
+                  value={formData.mrp}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      mrp: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  E-book Count <span className="font-normal text-gray-400">(Information only)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formData.ebook_count}
+                  onChange={(e) => setFormData({ ...formData, ebook_count: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Excluded from physical availability and student lending.</p>
+              </div>
+
+              {!editing && (
+                <label className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-gray-800 dark:border-blue-900 dark:bg-blue-950/20 dark:text-gray-200">
+                  <input
+                    type="checkbox"
+                    checked={!!formData.create_physical_copy}
+                    onChange={(e) => setFormData({ ...formData, create_physical_copy: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span>Add the first physical copy<br /><span className="text-xs font-normal text-gray-500 dark:text-gray-400">Turn this off when this title is e-book only.</span></span>
+                </label>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Location / Shelf
                 </label>
                 <input
@@ -735,14 +817,15 @@ function Books() {
                 <th className="p-3 w-16 text-center">Book ID</th>
                 <th className="p-3">Book Title / Author</th>
                 <th className="p-3">Level / Category</th>
+                <th className="p-3">MRP</th>
                 <th className="p-3">Publish / Purchase Year</th>
-                <th className="p-3">Total Copies Count</th>
+                <th className="p-3">Inventory Count</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
-              {filteredBooks.map((b) => {
+              {paginatedBooks.map((b) => {
                 const totalCopies = b.inventory?.total_copies || b.copies?.length || 0
                 const availableCopies = b.inventory?.available ?? totalCopies
                 const isExpanded = expandedBookId === b.book_title_id
@@ -781,6 +864,12 @@ function Books() {
                         )}
                       </td>
 
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white">
+                        {b.mrp != null
+                          ? `₹${Number(b.mrp).toFixed(2)}`
+                          : '—'}
+                      </td>
+
                       <td className="p-3 text-xs">
                         <div>
                           <span className="font-medium text-gray-700 dark:text-gray-300">Publish:</span> {b.publication_year || '—'}
@@ -793,7 +882,10 @@ function Books() {
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                            📦 {totalCopies === 1 ? '1 Copy' : `${totalCopies} Copies`}
+                            📦 {totalCopies === 1 ? '1 Physical' : `${totalCopies} Physical`}
+                          </span>
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                            💻 {Number(b.ebook_count || 0)} E-book{Number(b.ebook_count || 0) === 1 ? '' : 's'}
                           </span>
                           <button
                             onClick={() => setExpandedBookId(isExpanded ? null : b.book_title_id)}
@@ -841,6 +933,9 @@ function Books() {
                                   author: b.author || '',
                                   isbn: b.isbn || '',
                                   level_id: b.level_id || '',
+                                  mrp: b.mrp ?? '',
+                                  ebook_count: b.ebook_count || 0,
+                                  create_physical_copy: true,
                                   category_id: b.category_id || '',
                                   publication_year: b.publication_year || '',
                                   publisher: b.publisher || '',
@@ -943,6 +1038,19 @@ function Books() {
             </tbody>
           </table>
         </div>
+
+        {filteredBooks.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              perPage={pageSize}
+              onPageChange={setCurrentPage}
+              itemLabel="books"
+            />
+          </div>
+        )}
       </div>
     </div>
   )

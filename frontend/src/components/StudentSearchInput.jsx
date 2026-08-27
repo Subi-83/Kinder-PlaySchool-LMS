@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import api from '../services/api'
+import { useAppSettings } from '../context/AppSettingsContext'
 
-export default function StudentSearchInput({ onSelectStudent, selectedStudent, libraryOnly = true, label = 'Select Student' }) {
+export default function StudentSearchInput({ onSelectStudent, selectedStudent, libraryOnly = true, label }) {
+  const { memberLabel, membersLabel, memberPrefix } = useAppSettings()
+  const resolvedLabel = label || `Select ${memberLabel}`
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -66,7 +69,7 @@ export default function StudentSearchInput({ onSelectStudent, selectedStudent, l
   return (
     <div ref={wrapperRef} className="relative w-full">
       <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5">
-        {label}
+        {resolvedLabel}
       </label>
       <div className="relative">
         <input
@@ -77,7 +80,7 @@ export default function StudentSearchInput({ onSelectStudent, selectedStudent, l
             if (query.trim() && results.length > 0) setIsOpen(true)
             else if (!query.trim()) searchStudents('')
           }}
-          placeholder="Search by Student Name, STU ID, Roll No, Phone..."
+          placeholder={`Search by ${memberLabel} Name, ${memberPrefix} ID, Roll No, Phone...`}
           className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a2e] px-4 py-2.5 pr-10 text-sm font-medium text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
         />
         {loading ? (
@@ -105,7 +108,7 @@ export default function StudentSearchInput({ onSelectStudent, selectedStudent, l
       {isOpen && (
         <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#17172a] shadow-xl divide-y divide-gray-100 dark:divide-gray-800">
           {results.length === 0 ? (
-            <div className="p-3 text-xs text-gray-500 dark:text-gray-400 text-center">No students found</div>
+            <div className="p-3 text-xs text-gray-500 dark:text-gray-400 text-center">No {membersLabel} found</div>
           ) : (
             results.map((stu) => {
               const activeSub = stu.active_subscription
