@@ -73,11 +73,19 @@ class Programme(db.Model):
     
     def __repr__(self):
         return f'<Programme {self.programme_name}>'
+
+    @property
+    def display_name(self):
+        """Joined label for screens that need both separate fields."""
+        name = (self.programme_name or '').strip()
+        grade = (self.grade_level or '').strip()
+        return f'{name} {grade}'.strip() if grade else name
     
     def to_dict(self):
         return {
             'programme_id': self.programme_id,
             'programme_name': self.programme_name,
+            'display_name': self.display_name,
             'programme_code': self.programme_code,
             'description': self.description,
             'grade_level': self.grade_level,
@@ -92,6 +100,7 @@ class Programme(db.Model):
         return {
             'programme_id': self.programme_id,
             'programme_name': self.programme_name,
+            'display_name': self.display_name,
             'programme_code': self.programme_code,
             'grade_level': self.grade_level
         }
@@ -121,6 +130,7 @@ class StudentEnrollment(db.Model):
     completion_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     registration_source = db.Column(db.String(30), nullable=True, default='MANUAL')
+    library_access = db.Column(db.Boolean, nullable=False, default=False, comment='Library access for this academic year')
     payment_method = db.Column(db.String(100), nullable=True)
     payment_proof_url = db.Column(db.Text, nullable=True)
     payment_qr_url = db.Column(db.Text, nullable=True)
@@ -151,6 +161,7 @@ class StudentEnrollment(db.Model):
             'completion_date': self.completion_date.strftime('%Y-%m-%d') if self.completion_date else None,
             'notes': self.notes,
             'registration_source': self.registration_source,
+            'library_access': self.library_access,
             'payment_method': self.payment_method,
             'payment_proof_url': self.payment_proof_url,
             'payment_qr_url': self.payment_qr_url,
@@ -202,6 +213,7 @@ class StudentEnrollment(db.Model):
             academic_year_id=new_academic_year_id,
             programme_id=new_programme_id,
             grade=new_grade or (current.grade if current else None),
+            library_access=current.library_access if current else False,
             status='ACTIVE',
             enrollment_date=datetime.utcnow().date()
         )

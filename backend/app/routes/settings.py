@@ -6,8 +6,52 @@ from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, admin_required, get_current_user
 from app.services.settings_service import SettingsService
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from sqlalchemy import text, Date, DateTime, Boolean, Integer, Float, Numeric
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
+
+def ensure_backup_reminder_settings():
+    """Add reminder settings to existing databases without requiring a migration."""
+    interval = SystemSetting.query.filter_by(setting_key='backup_reminder_days').first()
+    if not interval:
+        interval = SystemSetting(
+            setting_key='backup_reminder_days', setting_value='7', data_type='INTEGER',
+            category='Backup', description='Days between login backup reminders', is_editable=True
+        )
+        db.session.add(interval)
+    last_export = SystemSetting.query.filter_by(setting_key='backup_last_export_date').first()
+    if not last_export:
+        last_export = SystemSetting(
+            setting_key='backup_last_export_date', setting_value='', data_type='STRING',
+            category='Backup', description='Date of the last generated backup', is_editable=False
+        )
+        db.session.add(last_export)
+    db.session.commit()
+    return interval, last_export
+
+@settings_bp.route('/backup-reminder-status', methods=['GET'])
+@jwt_required()
+@admin_required
+def backup_reminder_status():
+    interval_setting, last_export_setting = ensure_backup_reminder_settings()
+    enabled = SettingsService.get_bool('backup_enabled', True)
+    interval_days = max(1, int(interval_setting.get_value() or 7))
+    last_value = (last_export_setting.setting_value or '').strip()
+    last_date = None
+    try:
+        last_date = datetime.strptime(last_value, '%Y-%m-%d').date() if last_value else None
+    except ValueError:
+        last_date = None
+    today = datetime.now().date()
+    days_since = (today - last_date).days if last_date else None
+    return jsonify({
+        'reminder_days': interval_days,
+        'last_backup_date': last_date.isoformat() if last_date else None,
+        'days_since_backup': days_since,
+        'backup_enabled': enabled,
+        'backup_due': enabled and (last_date is None or days_since >= interval_days)
+    }), 200
 
 @settings_bp.route('/public', methods=['GET'])
 def get_public_settings():
@@ -39,6 +83,7 @@ def get_settings():
 @permission_required('settings.view')
 def get_settings_detailed():
     """Get all system settings with metadata"""
+    ensure_backup_reminder_settings()
     settings = SystemSetting.query.order_by(SystemSetting.category, SystemSetting.setting_key).all()
     return jsonify([s.to_dict() for s in settings]), 200
 
@@ -248,9 +293,32 @@ def export_full_backup():
     from app.models.library import BookIssue, BookReturn
     from app.models.deposit import DepositAccount, DepositTransaction
     
+    def json_value(value):
+        if isinstance(value, (datetime, )):
+            return value.isoformat()
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return str(value)
+        return value
+
+    _, last_export_setting = ensure_backup_reminder_settings()
+    last_export_setting.setting_value = datetime.now().date().isoformat()
+    db.session.commit()
+
+    raw_tables = {}
+    protected_auth_tables = {'users', 'permissions', 'role_permissions', 'user_permissions'}
+    for table in db.metadata.sorted_tables:
+        if table.name == 'alembic_version' or table.name in protected_auth_tables:
+            continue
+        rows = db.session.execute(table.select()).mappings().all()
+        raw_tables[table.name] = [{key: json_value(value) for key, value in row.items()} for row in rows]
+
     backup_data = {
         'exported_at': datetime.now(timezone.utc).isoformat(),
-        'system_version': '1.0.0',
+        'system_version': '2.0.0',
+        'backup_format': 'raw-v2',
+        'raw_tables': raw_tables,
         'students': [s.to_dict() for s in Student.query.all()],
         'book_titles': [b.to_dict() for b in BookTitle.query.all()],
         'book_copies': [c.to_dict() for c in BookCopy.query.all()],
@@ -264,3 +332,93 @@ def export_full_backup():
         'settings': [s.to_dict() for s in SystemSetting.query.all()]
     }
     return jsonify(backup_data), 200
+
+@settings_bp.route('/import-backup', methods=['POST'])
+@jwt_required()
+@admin_required
+def import_full_backup():
+    """Restore a raw-v2 JSON backup while preserving login and permission records."""
+    upload = request.files.get('file')
+    if not upload or not upload.filename or not upload.filename.lower().endswith('.json'):
+        return jsonify({'error': 'Select a valid JSON backup file.'}), 400
+    try:
+        import json
+        payload = json.loads(upload.read().decode('utf-8-sig'))
+    except (ValueError, UnicodeDecodeError):
+        return jsonify({'error': 'The selected file is not valid backup JSON.'}), 400
+    if payload.get('backup_format') != 'raw-v2' or not isinstance(payload.get('raw_tables'), dict):
+        return jsonify({'error': 'This backup is an older format and cannot be restored. Export a new raw-v2 backup first.'}), 400
+
+    protected = {'users', 'permissions', 'role_permissions', 'user_permissions', 'alembic_version'}
+    table_map = {table.name: table for table in db.metadata.sorted_tables}
+
+    def database_value(column, value):
+        if value is None:
+            return None
+        if isinstance(column.type, DateTime):
+            return datetime.fromisoformat(str(value).replace('Z', '+00:00')).replace(tzinfo=None)
+        if isinstance(column.type, Date):
+            return datetime.fromisoformat(str(value)).date()
+        if isinstance(column.type, Boolean):
+            return bool(value)
+        if isinstance(column.type, Integer):
+            return int(value)
+        if isinstance(column.type, (Float, Numeric)):
+            return Decimal(str(value))
+        return value
+
+    try:
+        db.session.execute(text('SET FOREIGN_KEY_CHECKS = 0'))
+        for table in reversed(db.metadata.sorted_tables):
+            if table.name not in protected:
+                db.session.execute(table.delete())
+        restored = 0
+        for table in db.metadata.sorted_tables:
+            if table.name in protected:
+                continue
+            source_rows = payload['raw_tables'].get(table.name, [])
+            if not source_rows:
+                continue
+            valid_columns = {column.name: column for column in table.columns}
+            rows = [{key: database_value(valid_columns[key], value) for key, value in row.items() if key in valid_columns} for row in source_rows]
+            db.session.execute(table.insert(), rows)
+            restored += len(rows)
+        db.session.execute(text('SET FOREIGN_KEY_CHECKS = 1'))
+        db.session.commit()
+        return jsonify({'message': f'Backup restored successfully. {restored} records imported.', 'records_restored': restored}), 200
+    except Exception as exc:
+        db.session.rollback()
+        db.session.execute(text('SET FOREIGN_KEY_CHECKS = 1'))
+        db.session.commit()
+        return jsonify({'error': f'Backup restore failed: {str(exc)}'}), 400
+
+@settings_bp.route('/complete-reset', methods=['POST'])
+@jwt_required()
+@admin_required
+def complete_system_reset():
+    """Clear all application data while preserving admins, permissions, and settings."""
+    data = request.get_json() or {}
+    if data.get('confirmation') != 'RESET ALL DATA':
+        return jsonify({'error': 'Type RESET ALL DATA to confirm.'}), 400
+    protected = {'users', 'permissions', 'role_permissions', 'user_permissions', 'system_settings', 'alembic_version'}
+    try:
+        db.session.execute(text('SET FOREIGN_KEY_CHECKS = 0'))
+        deleted_tables = []
+        for table in reversed(db.metadata.sorted_tables):
+            if table.name not in protected:
+                db.session.execute(table.delete())
+                deleted_tables.append(table.name)
+        db.session.execute(text('SET FOREIGN_KEY_CHECKS = 1'))
+        db.session.commit()
+        current_user = get_current_user()
+        AuditLog.log_action(
+            user_id=current_user.user_id, username=current_user.username,
+            action='COMPLETE_SYSTEM_RESET', module='Settings',
+            details=f'Complete reset cleared {len(deleted_tables)} data tables; administrators, permissions, and settings were preserved.'
+        )
+        return jsonify({'message': 'Complete reset finished. Administrators, permissions, and system settings were preserved.'}), 200
+    except Exception as exc:
+        db.session.rollback()
+        db.session.execute(text('SET FOREIGN_KEY_CHECKS = 1'))
+        db.session.commit()
+        return jsonify({'error': f'Reset failed: {str(exc)}'}), 400

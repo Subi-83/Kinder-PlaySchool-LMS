@@ -3,6 +3,8 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models.deposit import DepositAccount, DepositTransaction
 from app.models.student import Student
+from app.models.academic import AcademicYear, StudentEnrollment
+from app.models.subscription import StudentSubscription
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from app.services.settings_service import SettingsService
@@ -14,18 +16,31 @@ deposits_bp = Blueprint('deposits', __name__, url_prefix='/api/deposits')
 @jwt_required()
 @permission_required('deposit.view')
 def get_deposits():
-    """Get deposit accounts only for active students with Library Access enabled."""
+    """Get deposit accounts only for actively subscribed library members."""
+    year_id = request.args.get('academic_year_id', type=int)
+    academic_year = AcademicYear.query.get(year_id) if year_id else AcademicYear.get_current()
+    if not academic_year:
+        return jsonify([]), 200
     # Auto-create deposit accounts for any active students with library access who don't have one yet
-    library_students = Student.query.filter_by(library_access=True, is_active=True).all()
+    library_students = Student.query.join(StudentEnrollment).join(StudentSubscription, StudentSubscription.student_id == Student.student_id).filter(
+        Student.is_active == True,
+        StudentEnrollment.academic_year_id == academic_year.academic_year_id,
+        StudentEnrollment.library_access == True,
+        StudentSubscription.academic_year_id == academic_year.academic_year_id,
+        StudentSubscription.status == 'ACTIVE'
+    ).distinct().all()
     for s in library_students:
         if not DepositAccount.query.filter_by(student_id=s.student_id).first():
             db.session.add(DepositAccount(student_id=s.student_id))
     db.session.commit()
 
-    accounts = DepositAccount.query.join(Student).filter(
-        Student.library_access == True,
+    accounts = DepositAccount.query.join(Student).join(StudentEnrollment).join(StudentSubscription, StudentSubscription.student_id == Student.student_id).filter(
+        StudentEnrollment.academic_year_id == academic_year.academic_year_id,
+        StudentEnrollment.library_access == True,
+        StudentSubscription.academic_year_id == academic_year.academic_year_id,
+        StudentSubscription.status == 'ACTIVE',
         Student.is_active == True
-    ).order_by(Student.student_name).all()
+    ).distinct().order_by(Student.student_name).all()
     return jsonify([a.to_dict() for a in accounts]), 200
 
 @deposits_bp.route('/student/<int:student_id>', methods=['GET'])
@@ -57,8 +72,18 @@ def topup_deposit():
         return jsonify({'error': 'Student record not found or student is inactive.'}), 400
 
     # Deposits are available only to students whose Library Access is enabled.
-    if not student.library_access:
+    academic_year_id = data.get('academic_year_id')
+    academic_year = AcademicYear.query.get(academic_year_id) if academic_year_id else AcademicYear.get_current()
+    has_year_access = academic_year and StudentEnrollment.query.filter_by(student_id=student.student_id, academic_year_id=academic_year.academic_year_id, library_access=True).first()
+    if not has_year_access:
         return jsonify({'error': 'Student does not have Library Access enabled. Enable Library Access before recording a deposit.'}), 400
+    active_subscription = StudentSubscription.query.filter_by(
+        student_id=student.student_id,
+        academic_year_id=academic_year.academic_year_id,
+        status='ACTIVE'
+    ).first()
+    if not active_subscription:
+        return jsonify({'error': 'An active subscription is required before recording a deposit.'}), 400
 
     deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
     if not deposit_account:
@@ -226,13 +251,20 @@ def request_deposit_correction():
 @jwt_required()
 @permission_required('deposit.view')
 def get_low_balance_accounts():
-    """Get low-balance accounts only for active students with Library Access enabled."""
+    """Get low-balance accounts only for actively subscribed library members."""
     threshold = request.args.get('threshold', SettingsService.get_float('low_deposit_threshold', 300), type=float)
     
-    accounts = DepositAccount.query.join(Student).filter(
+    year_id = request.args.get('academic_year_id', type=int)
+    academic_year = AcademicYear.query.get(year_id) if year_id else AcademicYear.get_current()
+    if not academic_year:
+        return jsonify([]), 200
+    accounts = DepositAccount.query.join(Student).join(StudentEnrollment).join(StudentSubscription, StudentSubscription.student_id == Student.student_id).filter(
         DepositAccount.current_balance <= threshold,
-        Student.library_access == True,
+        StudentEnrollment.academic_year_id == academic_year.academic_year_id,
+        StudentEnrollment.library_access == True,
+        StudentSubscription.academic_year_id == academic_year.academic_year_id,
+        StudentSubscription.status == 'ACTIVE',
         Student.is_active == True
-    ).all()
+    ).distinct().all()
     
     return jsonify([a.to_dict() for a in accounts]), 200

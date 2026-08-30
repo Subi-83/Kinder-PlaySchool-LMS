@@ -10,6 +10,8 @@ from app.models.student import Student
 from app.models.library import BookIssue
 from app.models.deposit import DepositAccount, DepositTransaction
 from app.models.settings import Holiday
+from app.models.academic import AcademicYear, StudentEnrollment
+from app.services.settings_service import SettingsService
 from datetime import datetime, timedelta
 import json
 from app.middleware.auth_middleware import permission_required, admin_required, get_current_user
@@ -48,10 +50,13 @@ def get_admin_notifications():
         'current_status': copy.status,
         'requires_approval': False,
     } for copy in condition_reviews]
-    low_accounts = DepositAccount.query.join(Student).filter(
+    current_year = AcademicYear.get_current()
+    threshold = SettingsService.get_float('low_deposit_threshold', 300)
+    low_accounts = [] if not current_year else DepositAccount.query.join(Student).join(StudentEnrollment).filter(
         Student.is_active == True,
-        Student.library_access == True,
-        DepositAccount.current_balance <= DepositAccount.warning_threshold
+        StudentEnrollment.academic_year_id == current_year.academic_year_id,
+        StudentEnrollment.library_access == True,
+        DepositAccount.current_balance <= threshold
     ).order_by(DepositAccount.current_balance.asc()).all()
     low_deposit_notifications = [{
         'audit_id': f'low-deposit-{account.deposit_account_id}',
@@ -63,7 +68,7 @@ def get_admin_notifications():
         'details': (
             f'{account.student.student_name if account.student else "Student"} '
             f'({account.student.student_uid if account.student else account.student_id}) has a deposit balance of '
-            f'₹{float(account.current_balance or 0):.2f}; warning threshold is ₹{float(account.warning_threshold or 0):.2f}.'
+            f'₹{float(account.current_balance or 0):.2f}; warning threshold is ₹{threshold:.2f}.'
         ),
         'requires_approval': False,
     } for account in low_accounts]

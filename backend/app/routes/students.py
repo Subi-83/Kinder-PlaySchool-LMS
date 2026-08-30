@@ -5,6 +5,7 @@ from app import db
 from app.models.student import Student
 from app.models.academic import AcademicYear, Programme, StudentEnrollment, GradeLevel
 from app.models.deposit import DepositAccount
+from app.models.library import BookIssue
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from datetime import datetime, timedelta
@@ -179,33 +180,49 @@ def _sheet_value(row, *names):
                 return str(val).strip()
     return ''
 
+def _split_programme_value(value):
+    """Split values such as ``FLY (9-12)`` into name and grade level."""
+    val_str = re.sub(r'\s+', ' ', str(value or '')).strip()
+    match = re.match(r'^(.*?)\s*\(\s*(\d+)\s*-\s*(\d+)\s*\)\s*$', val_str)
+    if not match:
+        return val_str, ''
+    return match.group(1).strip(), f'({match.group(2)}-{match.group(3)})'
+
+
+def _normalise_programme_fields(name, grade_level=None):
+    """Keep programme name and grade range in separate database fields."""
+    clean_name, grade_from_name = _split_programme_value(name)
+    grade_text = re.sub(r'\s+', ' ', str(grade_level or '')).strip()
+    _, grade_from_grade_text = _split_programme_value(grade_text)
+    clean_grade = grade_from_name or grade_from_grade_text or grade_text
+    # Old imports stored the complete joined value in both fields.
+    if _clean_header(clean_grade) == _clean_header(name):
+        clean_grade = grade_from_name
+    return clean_name, clean_grade
+
+
 def _match_programme(value, default_programme=None, auto_create=True):
     val_str = str(value or '').strip()
     if not val_str:
         return default_programme
 
-    needle = _clean_header(val_str)
+    programme_name, grade_level = _split_programme_value(val_str)
+    needle = _clean_header(programme_name)
 
-    # 1. Exact clean header match against active programmes
-    for p in Programme.get_active_programmes():
-        p_name = _clean_header(p.programme_name)
+    # Match the clean programme name separately from its grade suffix. Include
+    # inactive rows so an import never creates another copy of the same master.
+    programmes = Programme.query.order_by(Programme.sort_order, Programme.programme_name).all()
+    for p in programmes:
+        stored_name, stored_grade = _normalise_programme_fields(p.programme_name, p.grade_level)
+        p_name = _clean_header(stored_name)
         p_code = _clean_header(p.programme_code or '')
-        p_grade = _clean_header(p.grade_level or '')
-        if needle == p_name or needle == p_code or needle == p_grade:
+        grade_matches = not grade_level or not (p.grade_level or stored_grade) or _clean_header(grade_level) == _clean_header(p.grade_level or stored_grade)
+        if (needle == p_name and grade_matches) or needle == p_code:
             return p
 
-    # 2. Strict prefix/whole code match
-    for p in Programme.get_active_programmes():
-        p_code = _clean_header(p.programme_code or '')
-        p_name = _clean_header(p.programme_name)
-        if p_code and (needle == p_code or needle.startswith(p_code + ' ')):
-            return p
-        if p_name and p_name == needle:
-            return p
-
-    # 3. Auto-create new distinct programme if auto_create is enabled
+    # Auto-create only the clean name; grade level is stored in its own field.
     if auto_create:
-        clean_title = val_str[:100]
+        clean_title = programme_name[:100]
         words = [w for w in clean_title.upper().split() if w.isalnum()]
         code = ''.join(w[0] for w in words[:4]) if words else clean_title[:4].upper()
         
@@ -219,7 +236,7 @@ def _match_programme(value, default_programme=None, auto_create=True):
             programme_name=clean_title,
             programme_code=code[:30],
             description="Auto-created from Excel import",
-            grade_level=clean_title[:50],
+            grade_level=grade_level[:50] or None,
             is_active=True
         )
         db.session.add(new_prog)
@@ -324,7 +341,8 @@ def create_student():
         medical_notes=data.get('medical_notes'), library_access=data.get('library_access', True))
     db.session.add(student)
     db.session.flush()
-    db.session.add(DepositAccount(student_id=student.student_id))
+    if student.library_access:
+        db.session.add(DepositAccount(student_id=student.student_id))
     db.session.add(StudentEnrollment(student_id=student.student_id, academic_year_id=academic_year.academic_year_id,
         programme_id=programme.programme_id, grade=data['grade'].strip(), section=data.get('section'),
         roll_number=Student.generate_roll_number(academic_year, programme), enrollment_date=datetime.now().date()))
@@ -344,6 +362,37 @@ def update_student(student_id):
         student = Student.query.get(student_id)
         if not student:
             return jsonify({'error': 'Student not found'}), 404
+
+        profile = data.get('profile') or {}
+        before_profile = {}
+        if profile:
+            if not str(profile.get('student_name') or '').strip():
+                return jsonify({'error': 'Member name is required.'}), 400
+            try:
+                profile_dob = datetime.strptime(str(profile.get('date_of_birth') or ''), '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return jsonify({'error': 'A valid date of birth is required.'}), 400
+
+            profile_fields = (
+                'student_name', 'gender', 'school_name', 'student_email',
+                'mother_name', 'mother_phone', 'mother_email', 'father_name',
+                'father_phone', 'father_email', 'address', 'emergency_contact_name',
+                'emergency_contact_phone', 'medical_notes'
+            )
+            for field in profile_fields:
+                if field in profile:
+                    before_profile[field] = getattr(student, field, None)
+                    value = profile[field]
+                    if isinstance(value, str):
+                        value = value.strip() or None
+                    setattr(student, field, value)
+            before_profile['date_of_birth'] = student.date_of_birth
+            before_profile['library_access'] = student.library_access
+            student.date_of_birth = profile_dob
+            student.library_access = bool(profile.get('library_access', student.library_access))
+
+        if student.library_access and not DepositAccount.query.filter_by(student_id=student.student_id).first():
+            db.session.add(DepositAccount(student_id=student.student_id))
         
         data = request.get_json() or {}
         
@@ -414,19 +463,33 @@ def update_student(student_id):
 @jwt_required()
 @permission_required('student.delete')
 def delete_student(student_id):
-    """Request administrator approval before deactivating a student."""
+    """Admins deactivate immediately; other permitted users request approval."""
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'error': 'Student not found'}), 404
     
     # Check if student has active book issues
-    if hasattr(student, 'issues') and student.issues.filter_by(status='ACTIVE').count() > 0:
+    if BookIssue.query.filter(BookIssue.student_id == student_id, BookIssue.status.in_(['ACTIVE', 'OVERDUE'])).count() > 0:
         return jsonify({'error': f'Cannot delete JK member {student.student_name}; they have active book issues. Please return books first.'}), 400
+
+    current_user = get_current_user()
+    if current_user and current_user.role == 'ADMIN':
+        student.is_active = False
+        pending = AuditLog.query.filter_by(action='DELETE_STUDENT_REQUEST', module='Student', record_id=str(student_id)).first()
+        if pending:
+            pending.action = 'DELETE_STUDENT_APPROVED'
+            pending.details = f'{pending.details} | Completed directly by administrator {current_user.username}'
+        db.session.commit()
+        AuditLog.log_action(
+            user_id=current_user.user_id, username=current_user.username,
+            action='DELETE_STUDENT_ADMIN', module='Student', record_id=str(student_id),
+            details=f'Administrator deactivated JK member {student.student_name} ({student.student_uid})'
+        )
+        return jsonify({'message': f'JK member {student.student_name} deleted successfully.'}), 200
     
     existing = AuditLog.query.filter_by(action='DELETE_STUDENT_REQUEST', module='Student', record_id=str(student_id)).first()
     if existing:
         return jsonify({'message': 'JK member deletion is waiting for administrator approval.', 'request_id': existing.audit_id}), 202
-    current_user = get_current_user()
     approval = AuditLog.log_action(
         user_id=current_user.user_id if current_user else None,
         username=current_user.username if current_user else 'system',
@@ -520,7 +583,12 @@ def import_membership_spreadsheet():
         return jsonify({'error': 'The uploaded file has no data rows.'}), 400
 
     from app.models.subscription import StudentSubscription
-    result = {'rows_read': len(rows), 'new_students': 0, 'existing_students': 0, 'enrollments_created': 0, 'subscriptions_created': 0, 'skipped': []}
+    result = {
+        'rows_read': len(rows), 'new_students': 0, 'existing_students': 0,
+        'enrollments_created': 0, 'subscriptions_created': 0,
+        'existing_details': [], 'skipped': []
+    }
+    created_during_import = set()
     
     try:
         for row_number, row in enumerate(rows, start=2):
@@ -530,28 +598,36 @@ def import_membership_spreadsheet():
             programme_value = _sheet_value(row, "WHICH PROGRAMME ARE YOU SIGNING UP FOR", "WHICH PROGRAM ARE YOU SIGING UP FOR ?", "which program are you signing up for", "Programme", "Program", "Course", "Stream")
             programme = _match_programme(programme_value, default_programme=default_programme, auto_create=True)
 
-            if not name or not programme:
+            if not name or not dob or not programme:
                 missing = []
                 if not name: missing.append("Student Name")
+                if not dob: missing.append("valid Birthdate")
                 if not programme: missing.append(f"Programme (Excel value: '{programme_value or 'blank'}')")
                 result['skipped'].append({'row': row_number, 'reason': f"Missing or unmapped {', '.join(missing)}. Select a Default Programme above if not present in Excel."})
                 continue
 
-            email = _sheet_value(row, "Email address", "Email Address", "Email", "Student Email", "Parent Email", "Contact Email")
+            # Google Forms' generic "Email address" is the response/contact
+            # email, not necessarily the child's or either specific parent.
+            registration_email = _sheet_value(row, "Email address", "Email Address", "Parent Email", "Contact Email", "Email")
+            student_email = _sheet_value(row, "Student Email", "Child Email", "Child's Email") or registration_email
             mother_phone = _sheet_value(row, "MOTHER'S MOBILE NUMBER", "Mother's Mobile Number", "Mother Phone", "Mother Mobile", "Mother Contact", "Mother Phone Number", "Mother Mobile Number")
             father_phone = _sheet_value(row, "FATHER'S MOBILE NUMBER", "Father's Mobile Number", "Father Phone", "Father Mobile", "Father Contact", "Father Phone Number", "Father Mobile Number")
-            mother_email = _sheet_value(row, "Mother Email", "Mother's Email") or email
-            father_email = _sheet_value(row, "Father Email", "Father's Email") or email
+            mother_email = _sheet_value(row, "Mother Email", "Mother's Email")
+            father_email = _sheet_value(row, "Father Email", "Father's Email")
             raw_payment = _sheet_value(row, "MODE OF PAYMENT", "WHICH MODE OF PAYMENT DO YOU PREFER ?", "Payment Method", "Payment Mode")
+            library_answer = _clean_header(_sheet_value(
+                row,
+                "WOULD YOU LIKE TO TAKE A LIBRARY SUBSCRIPTION / IF YES, WHICH LIBRARY PACKAGE WOULD YOU LIKE TO CHOOSE?",
+                "WOULD YOU LIKE TO TAKE A LIBRARY SUBSCRIPTION ?",
+                "WOULD YOU LIKE TO TAKE A LIBRARY SUBSCRIPTION",
+                "Library Subscription", "Library Access"
+            ))
+            wants_subscription = library_answer in {'yes', 'y', 'true', '1'}
+            payment_proof = _sheet_value(row, "PROOF OF PAYMENT SCAN QR CODE 2", "Proof of Payment", "PROOF OF PAYMENT") or None
 
             student_data = {
                 'student_name': name,
                 'date_of_birth': dob.strftime('%Y-%m-%d') if dob else None,
-                'student_email': email,
-                'mother_phone': mother_phone,
-                'father_phone': father_phone,
-                'mother_email': mother_email,
-                'father_email': father_email,
             }
             
             matches = Student.find_duplicate_candidates(student_data)
@@ -561,7 +637,22 @@ def import_membership_spreadsheet():
                 
             if matches:
                 student = matches[0]
+                student.library_access = wants_subscription
                 result['existing_students'] += 1
+                result['existing_details'].append({
+                    'row': row_number,
+                    'student_uid': student.student_uid,
+                    'student_name': student.student_name,
+                    'date_of_birth': student.date_of_birth.strftime('%Y-%m-%d') if student.date_of_birth else None,
+                    'programme': programme.programme_name,
+                    'mother_name': _sheet_value(row, "MOTHER'S NAME", "Mother's Name", "Mother Name", "Mother") or None,
+                    'mother_phone': mother_phone or None,
+                    'father_name': _sheet_value(row, "FATHER'S NAME", "Father's Name", "Father Name", "Father") or None,
+                    'father_phone': father_phone or None,
+                    'library_access': wants_subscription,
+                    'match_reason': 'Same child name and birthdate',
+                    'match_origin': 'EARLIER_ROW_IN_FILE' if student.student_id in created_during_import else 'DATABASE',
+                })
             else:
                 gender_raw = _sheet_value(row, "GENDER", "Gender", "Sex").upper()
                 gender = 'MALE' if 'MALE' in gender_raw or gender_raw.startswith('M') else ('FEMALE' if 'FEMALE' in gender_raw or gender_raw.startswith('F') else 'OTHER')
@@ -571,7 +662,7 @@ def import_membership_spreadsheet():
                     student_name=name,
                     date_of_birth=dob,
                     gender=gender,
-                    student_email=email or None,
+                    student_email=student_email or None,
                     school_name=_sheet_value(row, "SCHOOL", "School Name", "School", "Previous School") or 'Kinder Park',
                     mother_name=_sheet_value(row, "MOTHER'S NAME", "Mother's Name", "Mother Name", "Mother") or None,
                     mother_phone=mother_phone or None,
@@ -583,11 +674,13 @@ def import_membership_spreadsheet():
                     emergency_contact_name=_sheet_value(row, "Emergency Contact Name", "Emergency Contact", "Emergency Name") or None,
                     emergency_contact_phone=_sheet_value(row, "Emergency Contact Phone", "Emergency Phone", "Emergency Mobile") or None,
                     medical_notes=_sheet_value(row, "Medical Notes", "Medical Condition", "Allergies", "Remarks") or None,
-                    library_access=True
+                    library_access=wants_subscription
                 )
                 db.session.add(student)
                 db.session.flush()
-                db.session.add(DepositAccount(student_id=student.student_id))
+                created_during_import.add(student.student_id)
+                if wants_subscription:
+                    db.session.add(DepositAccount(student_id=student.student_id))
                 result['new_students'] += 1
 
             enrollment = StudentEnrollment.query.filter_by(
@@ -606,28 +699,32 @@ def import_membership_spreadsheet():
                     roll_number=Student.generate_roll_number(academic_year, programme),
                     enrollment_date=datetime.now().date(),
                     registration_source='EXCEL_IMPORT',
+                    library_access=wants_subscription,
                     payment_method=raw_payment[:100] if raw_payment else None,
-                    payment_proof_url=_sheet_value(row, "PROOF OF PAYMENT SCAN QR CODE 2", "Proof of Payment", "PROOF OF PAYMENT") or None,
+                    payment_proof_url=payment_proof,
                     payment_qr_url=_sheet_value(row, "SCAN QR CODE", "SCAN QR CODE 2") or None,
                 )
                 db.session.add(enrollment)
                 db.session.flush()
                 result['enrollments_created'] += 1
+            else:
+                enrollment.library_access = wants_subscription
 
-            wants_subscription = _clean_header(_sheet_value(row, "WOULD YOU LIKE TO TAKE A LIBRARY SUBSCRIPTION / IF YES, WHICH LIBRARY PACKAGE WOULD YOU LIKE TO CHOOSE?", "WOULD YOU LIKE TO TAKE A LIBRARY SUBSCRIPTION ?", "WOULD YOU LIKE TO TAKE A LIBRARY SUBSCRIPTION", "Library Subscription", "Library Package")) in {'yes', 'y', 'true', '1'}
             plan = _match_subscription_plan(_sheet_value(row, "LIBRARY PACKAGE", "IF YES, WHICH LIBRARY PACKAGE WOULD YOU LIKE TO SUBSCRIBE TO ?", "Subscription Plan", "Library Package"))
             
-            if wants_subscription and plan and not StudentSubscription.query.filter_by(student_id=student.student_id, subscription_plan_id=plan.subscription_plan_id, status='ACTIVE').first():
+            if wants_subscription and plan and not StudentSubscription.query.filter_by(student_id=student.student_id, subscription_plan_id=plan.subscription_plan_id, academic_year_id=academic_year.academic_year_id, status='ACTIVE').first():
                 StudentSubscription.query.filter_by(student_id=student.student_id, status='ACTIVE').update({'status': 'EXPIRED'})
                 db.session.add(StudentSubscription(
                     student_id=student.student_id,
                     subscription_plan_id=plan.subscription_plan_id,
-                    start_date=datetime.now().date(),
-                    end_date=datetime.now().date() + timedelta(days=plan.duration_months * 30),
+                    academic_year_id=academic_year.academic_year_id,
+                    start_date=academic_year.start_date,
+                    end_date=min(academic_year.end_date, academic_year.start_date + timedelta(days=plan.duration_months * 30)),
                     status='ACTIVE',
                     amount_paid=plan.price,
                     payment_date=datetime.now().date(),
                     payment_method=raw_payment[:50] if raw_payment else None,
+                    payment_proof_url=payment_proof,
                     notes='Created from student Excel import',
                 ))
                 result['subscriptions_created'] += 1
@@ -684,8 +781,21 @@ def create_enrollment():
             programme_id=programme_id,
         ).first()
         if existing_enrollment:
+            existing_enrollment.grade = str(data.get('grade') or '').strip() or None
+            existing_enrollment.section = str(data.get('section') or '').strip() or None
+            existing_enrollment.library_access = bool(data.get('library_access', student.library_access))
+            existing_enrollment.status = 'ACTIVE'
+            existing_enrollment.completion_date = None
+            db.session.commit()
+            current_user = get_current_user()
+            AuditLog.log_action(
+                user_id=current_user.user_id if current_user else None,
+                username=current_user.username if current_user else 'system',
+                action='UPDATE_REENROLLMENT', module='Student', record_id=str(existing_enrollment.enrollment_id),
+                details=f'Updated member profile and existing enrollment for student {student.student_id}'
+            )
             return jsonify({
-                'message': 'This enrollment already exists; no new enrollment was created.',
+                'message': 'Member profile and existing enrollment updated.',
                 'enrollment': existing_enrollment.to_dict(),
             }), 200
 
@@ -705,6 +815,7 @@ def create_enrollment():
             section=data.get('section'),
             roll_number=Student.generate_roll_number(academic_year, programme),
             enrollment_date=datetime.now().date(),
+            library_access=bool(data.get('library_access', student.library_access)),
             status='ACTIVE'
         )
         
@@ -720,7 +831,7 @@ def create_enrollment():
             action='CREATE_ENROLLMENT',
             module='Student',
             record_id=str(enrollment.enrollment_id),
-            details=f'Created enrollment for student {enrollment.student_id}'
+            details=f'Created enrollment and updated profile for student {enrollment.student_id}; profile fields reviewed: {", ".join(before_profile.keys()) or "none"}'
         )
         
         return jsonify(enrollment.to_dict()), 201
@@ -897,11 +1008,12 @@ def create_programme():
         try: return int(v)
         except (TypeError, ValueError): return default
 
+    programme_name, grade_level = _normalise_programme_fields(data.get('programme_name'), data.get('grade_level'))
     programme = Programme(
-        programme_name=data.get('programme_name'),
+        programme_name=programme_name,
         programme_code=data.get('programme_code'),
         description=data.get('description'),
-        grade_level=data.get('grade_level'),
+        grade_level=grade_level or None,
         library_access=bool(data.get('library_access', True)),
         sort_order=_to_i(data.get('sort_order'), 0)
     )
@@ -938,7 +1050,15 @@ def update_programme(programme_id):
         try: return int(v)
         except (TypeError, ValueError): return default
 
-    for field in ('programme_name', 'programme_code', 'description', 'grade_level', 'library_access', 'is_active'):
+    if 'programme_name' in data or 'grade_level' in data:
+        name, grade = _normalise_programme_fields(
+            data.get('programme_name', programme.programme_name),
+            data.get('grade_level', programme.grade_level),
+        )
+        programme.programme_name = name
+        programme.grade_level = grade or None
+
+    for field in ('programme_code', 'description', 'is_active'):
         if field in data:
             setattr(programme, field, data[field])
     if 'sort_order' in data:
@@ -951,10 +1071,18 @@ def update_programme(programme_id):
 @jwt_required()
 @permission_required('programme.delete')
 def delete_programme(programme_id):
-    """Deactivate a programme (soft delete — students may reference it)"""
+    """Deactivate a programme, or permanently delete an unused one."""
     programme = Programme.query.get(programme_id)
     if not programme:
         return jsonify({'error': 'Programme not found'}), 404
+
+    if request.args.get('permanent', '').lower() in ('true', '1', 'yes'):
+        if programme.enrollments.count() > 0:
+            return jsonify({'error': 'This programme cannot be permanently deleted because member enrollments reference it. Deactivate it instead.'}), 409
+        programme_name = programme.programme_name
+        db.session.delete(programme)
+        db.session.commit()
+        return jsonify({'message': f'Programme {programme_name} permanently deleted'}), 200
 
     programme.is_active = False
     db.session.commit()

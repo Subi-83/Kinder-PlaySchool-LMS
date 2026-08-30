@@ -3,11 +3,21 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models.subscription import SubscriptionPlan, StudentSubscription
 from app.models.student import Student
+from app.models.academic import AcademicYear, StudentEnrollment
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from datetime import datetime, timedelta
 
 subscriptions_bp = Blueprint('subscriptions', __name__, url_prefix='/api/subscriptions')
+
+def _academic_year_from_request(data=None):
+    value = (data or {}).get('academic_year_id') or request.args.get('academic_year_id')
+    if value:
+        try:
+            return AcademicYear.query.get(int(value))
+        except (TypeError, ValueError):
+            return None
+    return AcademicYear.get_current()
 
 @subscriptions_bp.route('/plans', methods=['GET'])
 @jwt_required()
@@ -122,6 +132,9 @@ def delete_plan(plan_id):
 def get_eligible_students():
     """Get students eligible for creating a new subscription (Must have Library Access AND no active subscription)."""
     today = datetime.now().date()
+    academic_year = _academic_year_from_request()
+    if not academic_year:
+        return jsonify({'error': 'Select an academic year.'}), 400
     
     # Auto-expire overdue active subscriptions first
     overdue_subs = StudentSubscription.query.filter(
@@ -133,12 +146,11 @@ def get_eligible_students():
     if overdue_subs:
         db.session.commit()
 
-    active_student_ids = [
-        sub.student_id for sub in StudentSubscription.query.filter_by(status='ACTIVE').all()
-    ]
+    active_student_ids = [sub.student_id for sub in StudentSubscription.query.filter_by(status='ACTIVE', academic_year_id=academic_year.academic_year_id).all()]
 
-    eligible_query = Student.query.filter(
-        Student.library_access == True,
+    eligible_query = Student.query.join(StudentEnrollment).filter(
+        StudentEnrollment.academic_year_id == academic_year.academic_year_id,
+        StudentEnrollment.library_access == True,
         Student.is_active == True
     )
     if active_student_ids:
@@ -162,7 +174,11 @@ def get_all_student_subscriptions():
     if overdue_subs:
         db.session.commit()
 
-    subscriptions = StudentSubscription.query.order_by(StudentSubscription.created_at.desc()).all()
+    query = StudentSubscription.query
+    academic_year = _academic_year_from_request()
+    if academic_year:
+        query = query.filter_by(academic_year_id=academic_year.academic_year_id)
+    subscriptions = query.order_by(StudentSubscription.created_at.desc()).all()
     return jsonify([s.to_dict() for s in subscriptions]), 200
 
 @subscriptions_bp.route('/student/<int:student_id>', methods=['GET'])
@@ -176,6 +192,41 @@ def get_student_subscriptions(student_id):
     
     return jsonify([s.to_dict() for s in subscriptions]), 200
 
+@subscriptions_bp.route('/payments/<int:subscription_id>', methods=['PUT'])
+@jwt_required()
+@permission_required('subscription.edit')
+def update_subscription_payment(subscription_id):
+    """Update subscription payment only; never changes the library deposit."""
+    subscription = StudentSubscription.query.get(subscription_id)
+    if not subscription:
+        return jsonify({'error': 'Subscription not found'}), 404
+    data = request.get_json() or {}
+    try:
+        amount = float(data.get('amount_paid', 0))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid subscription amount.'}), 400
+    if amount < 0:
+        return jsonify({'error': 'Subscription amount cannot be negative.'}), 400
+    before = float(subscription.amount_paid or 0)
+    subscription.amount_paid = amount
+    subscription.payment_method = (data.get('payment_method') or '').strip() or None
+    subscription.payment_proof_url = (data.get('payment_proof_url') or '').strip() or None
+    payment_date = data.get('payment_date')
+    if payment_date:
+        try:
+            subscription.payment_date = datetime.strptime(payment_date, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Payment date must be YYYY-MM-DD.'}), 400
+    db.session.commit()
+    current_user = get_current_user()
+    AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='UPDATE_SUBSCRIPTION_PAYMENT', module='Subscription', record_id=subscription.subscription_id,
+        details=f'Updated subscription payment for {subscription.student_ref.student_name}: ₹{before:.2f} to ₹{amount:.2f}'
+    )
+    return jsonify(subscription.to_dict()), 200
+
 @subscriptions_bp.route('/assign', methods=['POST'])
 @jwt_required()
 @permission_required('subscription.create')
@@ -185,16 +236,18 @@ def assign_subscription():
     
     student_id = data.get('student_id')
     plan_id = data.get('plan_id')
+    academic_year = _academic_year_from_request(data)
     
-    if not student_id or not plan_id:
-        return jsonify({'error': 'Student ID and plan ID required'}), 400
+    if not student_id or not plan_id or not academic_year:
+        return jsonify({'error': 'Student, plan, and academic year are required'}), 400
     
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'error': 'Student not found'}), 404
 
     # Validation 1: Student MUST have Library Access
-    if not student.library_access:
+    enrollment = StudentEnrollment.query.filter_by(student_id=student.student_id, academic_year_id=academic_year.academic_year_id, library_access=True).first()
+    if not enrollment:
         return jsonify({'error': 'Student does not have Library Access enabled. Subscriptions are not allowed.'}), 400
     
     plan = SubscriptionPlan.query.get(plan_id)
@@ -213,6 +266,7 @@ def assign_subscription():
     # Validation 2: Check if student has an active unexpired subscription
     existing_active = StudentSubscription.query.filter_by(
         student_id=student_id,
+        academic_year_id=academic_year.academic_year_id,
         status='ACTIVE'
     ).first()
 
@@ -220,12 +274,13 @@ def assign_subscription():
         return jsonify({'error': f'Student {student.student_name} already has an active subscription ending on {existing_active.end_date.strftime("%Y-%m-%d")}. Duplicate active subscriptions are not allowed.'}), 400
     
     # Calculate start and end date
-    start_date = today
-    end_date = start_date + timedelta(days=plan.duration_months * 30)
+    start_date = max(today, academic_year.start_date)
+    end_date = min(academic_year.end_date, start_date + timedelta(days=plan.duration_months * 30))
     
     subscription = StudentSubscription(
         student_id=student_id,
         subscription_plan_id=plan_id,
+        academic_year_id=academic_year.academic_year_id,
         start_date=start_date,
         end_date=end_date,
         status='ACTIVE',

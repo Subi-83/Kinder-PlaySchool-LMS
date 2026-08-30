@@ -10,6 +10,8 @@ function Subscriptions() {
   const [plans, setPlans] = useState([])
   const [eligibleStudents, setEligibleStudents] = useState([])
   const [activeSubscriptions, setActiveSubscriptions] = useState([])
+  const [academicYears, setAcademicYears] = useState([])
+  const [academicYearId, setAcademicYearId] = useState('')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -17,6 +19,7 @@ function Subscriptions() {
   const [upgradePlanId, setUpgradePlanId] = useState('')
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)
   const [plansPage, setPlansPage] = useState(1)
+  const [subscriptionTab, setSubscriptionTab] = useState('assign')
   const pageSize = 10
   const [assignData, setAssignData] = useState({
     student_id: '',
@@ -49,14 +52,21 @@ function Subscriptions() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [plansRes, eligibleRes, subHistoryRes] = await Promise.all([
+      const params = academicYearId ? { academic_year_id: academicYearId } : {}
+      const [plansRes, eligibleRes, subHistoryRes, yearsRes] = await Promise.all([
         api.get('/subscriptions/plans'),
-        api.get('/subscriptions/eligible-students'),
-        api.get('/subscriptions/student-subscriptions')
+        api.get('/subscriptions/eligible-students', { params }),
+        api.get('/subscriptions/student-subscriptions', { params }),
+        api.get('/students/academic-years')
       ])
       setPlans(plansRes.data || [])
       setEligibleStudents(eligibleRes.data || [])
       setActiveSubscriptions(subHistoryRes.data || [])
+      setAcademicYears(yearsRes.data || [])
+      if (!academicYearId) {
+        const current = (yearsRes.data || []).find((year) => year.is_current)
+        if (current) setAcademicYearId(String(current.academic_year_id))
+      }
     } catch (err) {
       console.error('Error loading subscription data:', err)
     } finally {
@@ -66,7 +76,7 @@ function Subscriptions() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [academicYearId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -113,7 +123,7 @@ function Subscriptions() {
       return
     }
     try {
-      await api.post('/subscriptions/assign', assignData)
+      await api.post('/subscriptions/assign', { ...assignData, academic_year_id: academicYearId })
       setMessage('✅ Subscription assigned successfully!')
       setAssignData({ student_id: '', plan_id: '' })
       await loadData()
@@ -174,9 +184,14 @@ function Subscriptions() {
             Manage library subscription plans and assign active subscriptions to eligible {membersLabel}.
           </p>
         </div>
+        <label className="text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Academic Year
+          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} className="mt-1 block rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#17172a]">
+            {academicYears.map((year) => <option key={year.academic_year_id} value={year.academic_year_id}>{year.year_name || year.year_code}</option>)}
+          </select>
+        </label>
         {canCreate && (
           <button
-            onClick={() => { setShowForm(!showForm); setEditing(null); setFormData({ plan_name: '', plan_code: '', max_books: 1, duration_months: 3, price: '', description: '' }) }}
+            onClick={() => { setSubscriptionTab('plans'); setShowForm(!showForm); setEditing(null); setFormData({ plan_name: '', plan_code: '', max_books: 1, duration_months: 3, price: '', description: '' }) }}
             className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors font-semibold shadow-sm"
           >
             {showForm ? '✕ Cancel' : '+ Add Plan'}
@@ -190,7 +205,15 @@ function Subscriptions() {
         </div>
       )}
 
-      {showForm && (
+      <div className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-white p-1.5 dark:border-[#2a2a4a] dark:bg-[#1a1a2e]">
+        {[
+          ['assign', '➕ Assign Subscription'], ['records', `🎟️ ${memberLabel} Subscriptions`], ['plans', '⚙️ Subscription Plans']
+        ].map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setSubscriptionTab(key)} className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-colors ${subscriptionTab === key ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#2a2a4a]'}`}>{label}</button>
+        ))}
+      </div>
+
+      {subscriptionTab === 'plans' && showForm && (
         <div className="bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {editing ? 'Edit Plan' : 'New Subscription Plan'}
@@ -279,7 +302,7 @@ function Subscriptions() {
         </div>
       )}
 
-      {upgradingSubscription && (
+      {subscriptionTab === 'records' && upgradingSubscription && (
         <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-blue-200 dark:border-blue-900/60 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">⬆️ Upgrade Subscription</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -309,7 +332,7 @@ function Subscriptions() {
       )}
 
       {/* Assign Subscription Section */}
-      {canAssign && (
+      {subscriptionTab === 'assign' && canAssign && (
         <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -376,7 +399,7 @@ function Subscriptions() {
       )}
 
       {/* Active & Past Subscriptions List */}
-      <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
+      {subscriptionTab === 'records' && <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 dark:border-[#2a2a4a] flex justify-between items-center">
           <h4 className="font-bold text-gray-900 dark:text-white text-base">🎟️ {memberLabel} Subscriptions Status</h4>
           <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Total Records: {activeSubscriptions.length}</span>
@@ -456,10 +479,10 @@ function Subscriptions() {
         <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
           <Pagination currentPage={subscriptionsPage} totalPages={subscriptionPages} totalItems={activeSubscriptions.length} perPage={pageSize} onPageChange={setSubscriptionsPage} itemLabel="subscriptions" />
         </div>
-      </div>
+      </div>}
 
       {/* Plans List */}
-      <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
+      {subscriptionTab === 'plans' && <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 dark:border-[#2a2a4a]">
           <h4 className="font-bold text-gray-900 dark:text-white text-base">⚙️ Available Subscription Plans</h4>
         </div>
@@ -533,7 +556,7 @@ function Subscriptions() {
         <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
           <Pagination currentPage={plansPage} totalPages={planPages} totalItems={plans.length} perPage={pageSize} onPageChange={setPlansPage} itemLabel="plans" />
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

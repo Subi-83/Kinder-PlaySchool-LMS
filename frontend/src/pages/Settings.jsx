@@ -43,6 +43,8 @@ const SETTING_LABELS = {
   'backup_frequency': 'Backup Frequency',
   'backup_retention_days': 'Backup Retention Period (Days)',
   'backup_time': 'Daily Backup Time',
+  'backup_reminder_days': 'Backup Popup Interval (Days)',
+  'backup_last_export_date': 'Last Backup Date',
   'open_library_api_url': 'Open Library API URL',
   'open_library_api_timeout': 'Open Library Timeout (Seconds)',
 }
@@ -822,6 +824,15 @@ function SystemSettingsTable({ canEdit }) {
                             {currentVal === true || currentVal === 'true' ? 'Enabled' : 'Disabled'}
                           </span>
                         </label>
+                      ) : key === 'backup_reminder_days' ? (
+                        <select
+                          value={currentVal || 7}
+                          onChange={e => handleValueChange(key, Number(e.target.value))}
+                          disabled={!canEdit || !setting.is_editable}
+                          className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white font-medium focus:ring-2 focus:ring-blue-500"
+                        >
+                          {[1, 7, 14, 30, 60, 90].map(days => <option key={days} value={days}>{days} day{days === 1 ? '' : 's'}</option>)}
+                        </select>
                       ) : key === 'backup_frequency' ? (
                         <select
                           value={currentVal || 'daily'}

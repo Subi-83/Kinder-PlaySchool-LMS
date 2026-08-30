@@ -49,6 +49,7 @@ class StudentSubscription(db.Model):
     subscription_id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
     subscription_plan_id = db.Column(db.Integer, db.ForeignKey('subscription_plans.subscription_plan_id'), nullable=False)
+    academic_year_id = db.Column(db.Integer, db.ForeignKey('academic_years.academic_year_id'), nullable=True)
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
     status = db.Column(db.Enum('ACTIVE', 'EXPIRED', 'CANCELLED', 'PENDING'), default='PENDING')
@@ -56,8 +57,10 @@ class StudentSubscription(db.Model):
     payment_date = db.Column(db.Date, nullable=True)
     payment_method = db.Column(db.String(50), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    payment_proof_url = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    academic_year_ref = db.relationship('AcademicYear', foreign_keys=[academic_year_id])
     
     def __repr__(self):
         return f'<StudentSubscription {self.subscription_id} - {self.status}>'
@@ -69,6 +72,8 @@ class StudentSubscription(db.Model):
             'student_uid': self.student_ref.student_uid if self.student_ref else None,
             'student_name': self.student_ref.student_name if self.student_ref else None,
             'plan': self.plan_ref.to_dict() if self.plan_ref else None,
+            'academic_year_id': self.academic_year_id,
+            'academic_year': self.academic_year_ref.to_dict_brief() if self.academic_year_ref else None,
             'start_date': self.start_date.strftime('%Y-%m-%d') if self.start_date else None,
             'end_date': self.end_date.strftime('%Y-%m-%d') if self.end_date else None,
             'status': self.status,
@@ -79,6 +84,7 @@ class StudentSubscription(db.Model):
             'payment_date': self.payment_date.strftime('%Y-%m-%d') if self.payment_date else None,
             'payment_method': self.payment_method,
             'notes': self.notes,
+            'payment_proof_url': self.payment_proof_url,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M') if self.updated_at else None
         }

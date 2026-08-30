@@ -50,18 +50,17 @@ const TABS = {
     create: (data) => studentsAPI.createProgramme(data),
     update: (id, data) => studentsAPI.updateProgramme(id, data),
     remove: (id) => studentsAPI.deleteProgramme(id),
+    destroy: (id) => studentsAPI.deleteProgrammePermanent(id),
     columns: [
       { key: 'programme_code', label: 'Code' },
       { key: 'programme_name', label: 'Name' },
       { key: 'grade_level', label: 'Grade Level' },
-      { key: 'library_access', label: 'Library Access', type: 'bool' },
       { key: 'is_active', label: 'Active', type: 'bool' },
     ],
     fields: [
       { key: 'programme_code', label: 'Code', required: true },
       { key: 'programme_name', label: 'Name', required: true },
       { key: 'grade_level', label: 'Grade Level' },
-      { key: 'library_access', label: 'Library Access', type: 'bool', default: true },
       { key: 'description', label: 'Description' },
     ],
   },
@@ -336,6 +335,9 @@ function SystemSettingsPanel({ canEdit }) {
 
 function DataBackupPanel() {
   const [downloading, setDownloading] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [backupFile, setBackupFile] = useState(null)
   const [msg, setMsg] = useState('')
 
   const handleExportBackup = async () => {
@@ -358,8 +360,42 @@ function DataBackupPanel() {
     }
   }
 
+  const handleImportBackup = async () => {
+    if (!backupFile) return setMsg('Select a JSON backup file first.')
+    if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
+    const body = new FormData()
+    body.append('file', backupFile)
+    try {
+      setImporting(true)
+      setMsg('')
+      const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setMsg(response.data?.message || 'Backup restored successfully.')
+      setBackupFile(null)
+      window.dispatchEvent(new Event('app-settings-updated'))
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to restore backup.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleCompleteReset = async () => {
+    const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
+    if (confirmation !== 'RESET ALL DATA') return
+    try {
+      setResetting(true)
+      setMsg('')
+      const response = await api.post('/settings/complete-reset', { confirmation })
+      setMsg(response.data?.message || 'Complete reset finished.')
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Complete reset failed.')
+    } finally {
+      setResetting(false)
+    }
+  }
+
   return (
-    <div className="p-8 rounded-2xl bg-white dark:bg-[#17172a] border border-gray-200 dark:border-[#292944] shadow-sm space-y-4 max-w-xl">
+    <div className="p-8 rounded-2xl bg-white dark:bg-[#17172a] border border-gray-200 dark:border-[#292944] shadow-sm space-y-6 max-w-2xl">
       <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
         <span>💾 Data Backup & System Migration</span>
       </h3>
@@ -367,15 +403,20 @@ function DataBackupPanel() {
         Export all system data including students, books, subscription plans, issue records, deposit transactions, and settings into a standardized JSON file. This backup can be migrated to another software or restored at any time.
       </p>
 
-      {msg && <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-bold text-xs">{msg}</div>}
+      {msg && <div className={`p-3.5 rounded-xl font-bold text-xs ${msg.startsWith('❌') ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'}`}>{msg}</div>}
 
-      <button
-        onClick={handleExportBackup}
-        disabled={downloading}
-        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-md disabled:opacity-50"
-      >
-        {downloading ? 'Generating JSON Export...' : '📥 Download Full Database Backup (JSON)'}
-      </button>
+      <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+        <h4 className="font-bold">1. Export Backup</h4><p className="mb-3 text-xs text-gray-500">Download a complete raw-v2 JSON backup before resetting or moving data.</p>
+        <button onClick={handleExportBackup} disabled={downloading} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-md disabled:opacity-50">{downloading ? 'Generating JSON Export...' : '📥 Download Full Database Backup (JSON)'}</button>
+      </section>
+      <section className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
+        <h4 className="font-bold">2. Import / Restore Backup</h4><p className="mb-3 text-xs text-gray-500">Select a raw-v2 JSON backup. Existing application data will be replaced after confirmation.</p>
+        <div className="flex flex-col gap-3 sm:flex-row"><input type="file" accept=".json,application/json" onChange={(e) => setBackupFile(e.target.files?.[0] || null)} className="min-w-0 flex-1 rounded-xl border bg-white p-2 text-xs dark:border-gray-700 dark:bg-[#10101d]"/><button onClick={handleImportBackup} disabled={importing || !backupFile} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{importing ? 'Restoring...' : '📤 Import Backup'}</button></div>
+      </section>
+      <section className="rounded-xl border border-rose-300 bg-rose-50 p-4 dark:border-rose-900 dark:bg-rose-950/20">
+        <h4 className="font-bold text-rose-700 dark:text-rose-300">3. Complete Reset</h4><p className="mb-3 text-xs text-rose-600 dark:text-rose-400">Permanently clears all library data and master records. Administrators, permissions, and system settings are preserved.</p>
+        <button onClick={handleCompleteReset} disabled={resetting} className="rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{resetting ? 'Resetting...' : '🗑 Complete Reset'}</button>
+      </section>
     </div>
   )
 }
@@ -435,6 +476,74 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
     setShowModal(false)
   }
 
+  // const handleImportBackup = async () => {
+  //   if (!backupFile) return setMsg('❌ Select a JSON backup file first.')
+  //   if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
+  //   const body = new FormData()
+  //   body.append('file', backupFile)
+  //   try {
+  //     setImporting(true)
+  //     setMsg('')
+  //     const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+  //     setMsg(`✅ ${response.data?.message || 'Backup restored successfully.'}`)
+  //     setBackupFile(null)
+  //     window.dispatchEvent(new Event('app-settings-updated'))
+  //   } catch (err) {
+  //     setMsg('❌ ' + (err.response?.data?.error || 'Failed to restore backup.'))
+  //   } finally {
+  //     setImporting(false)
+  //   }
+  // }
+
+  // const handleCompleteReset = async () => {
+  //   const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
+  //   if (confirmation !== 'RESET ALL DATA') {
+  //     if (confirmation !== null) setMsg('❌ Reset cancelled: confirmation text did not match.')
+  //     return
+  //   }
+  //   try {
+  //     setResetting(true)
+  //     setMsg('')
+  //     const response = await api.post('/settings/complete-reset', { confirmation })
+  //     setMsg(`✅ ${response.data?.message || 'Complete reset finished.'}`)
+  //   } catch (err) {
+  //     setMsg('❌ ' + (err.response?.data?.error || 'Complete reset failed.'))
+  //   } finally {
+  //     setResetting(false)
+  //   }
+  // }
+
+  const handleImportBackup = async () => {
+    if (!backupFile) return setMsg('❌ Select a JSON backup file first.')
+    if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
+    const body = new FormData()
+    body.append('file', backupFile)
+    try {
+      setImporting(true); setMsg('')
+      const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setMsg(`✅ ${response.data?.message || 'Backup restored successfully.'}`)
+      setBackupFile(null)
+      window.dispatchEvent(new Event('app-settings-updated'))
+    } catch (err) {
+      setMsg('❌ ' + (err.response?.data?.error || 'Failed to restore backup.'))
+    } finally { setImporting(false) }
+  }
+
+  const handleCompleteReset = async () => {
+    const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
+    if (confirmation !== 'RESET ALL DATA') {
+      if (confirmation !== null) setMsg('❌ Reset cancelled: confirmation text did not match.')
+      return
+    }
+    try {
+      setResetting(true); setMsg('')
+      const response = await api.post('/settings/complete-reset', { confirmation })
+      setMsg(`✅ ${response.data?.message || 'Complete reset finished.'}`)
+    } catch (err) {
+      setMsg('❌ ' + (err.response?.data?.error || 'Complete reset failed.'))
+    } finally { setResetting(false) }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -482,6 +591,18 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
       load()
     } catch (err) {
       setError(err.data?.error || err.response?.data?.error || err.message || 'Delete failed')
+    }
+  }
+
+  const handlePermanentDelete = async (row) => {
+    const label = row[config.columns[1]?.key] || row[config.columns[0]?.key]
+    if (!window.confirm(`Permanently delete "${label}"? This cannot be undone and is allowed only when no records reference it.`)) return
+    try {
+      setError('')
+      await config.destroy(row[config.idKey])
+      await load()
+    } catch (err) {
+      setError(err.data?.error || err.response?.data?.error || err.message || 'Permanent delete failed')
     }
   }
 
@@ -588,6 +709,7 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
                     {row.is_active
                       ? <button onClick={() => handleDelete(row)} className="text-rose-600 dark:text-rose-400 hover:underline">Deactivate</button>
                       : <button onClick={() => handleActivate(row)} className="text-emerald-600 dark:text-emerald-400 hover:underline">Activate</button>}
+                    {config.destroy && <button onClick={() => handlePermanentDelete(row)} className="text-rose-700 dark:text-rose-300 hover:underline">Delete</button>}
                   </td>
                 )}
               </tr>

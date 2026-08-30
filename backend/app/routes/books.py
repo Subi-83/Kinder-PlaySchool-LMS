@@ -66,9 +66,40 @@ def _generate_default_barcode(level_id, book_id, copy_num=1):
 @jwt_required()
 @permission_required('book.view')
 def get_books():
-    """Get all books with inventory summary"""
-    books = BookTitle.query.order_by(BookTitle.title).all()
+    """Get physical book titles only; e-books have their own register."""
+    books = BookTitle.query.filter(BookTitle.copies.any()).order_by(BookTitle.title).all()
     return jsonify([b.to_dict() for b in books]), 200
+
+@books_bp.route('/ebooks', methods=['GET'])
+@jwt_required()
+@permission_required('book.view')
+def get_ebooks():
+    """Return informational e-book records; these have no issueable copies."""
+    ebooks = BookTitle.query.filter(BookTitle.ebook_count > 0).order_by(BookTitle.title).all()
+    return jsonify([b.to_dict() for b in ebooks]), 200
+
+@books_bp.route('/ebooks/<int:book_id>', methods=['DELETE'])
+@jwt_required()
+@permission_required('book.delete')
+def delete_ebook_record(book_id):
+    """Remove only the e-book record, preserving a shared physical title."""
+    book = BookTitle.query.get(book_id)
+    if not book or int(book.ebook_count or 0) <= 0:
+        return jsonify({'error': 'E-book record not found'}), 404
+    title = book.title
+    if book.copies.count() > 0:
+        book.ebook_count = 0
+    else:
+        db.session.delete(book)
+    db.session.commit()
+    current_user = get_current_user()
+    AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='DELETE_EBOOK_RECORD', module='Book', record_id=str(book_id),
+        details=f'Removed informational e-book record: {title}'
+    )
+    return jsonify({'message': 'E-book record removed'}), 200
 
 @books_bp.route('/copies', methods=['GET'])
 @jwt_required()
@@ -317,7 +348,7 @@ def update_book(book_id):
 @jwt_required()
 @permission_required('book.delete')
 def delete_book(book_id):
-    """Create an administrator approval request before deleting a book."""
+    """Admins delete immediately; other permitted users request approval."""
     book = BookTitle.query.get(book_id)
     if not book:
         return jsonify({'error': 'Book not found'}), 404
@@ -332,6 +363,26 @@ def delete_book(book_id):
         return jsonify({'error': f'Cannot delete book with {issued_copies} issued copies'}), 400
     
     current_user = get_current_user()
+    if current_user and current_user.role == 'ADMIN':
+        title = book.title
+        try:
+            pending = AuditLog.query.filter_by(action='DELETE_BOOK_REQUEST', module='Book', record_id=str(book_id)).first()
+            if pending:
+                pending.action = 'DELETE_BOOK_APPROVED'
+                pending.details = f'{pending.details} | Completed directly by administrator {current_user.username}'
+            BookCopy.query.filter_by(book_title_id=book_id).delete()
+            db.session.delete(book)
+            db.session.commit()
+            AuditLog.log_action(
+                user_id=current_user.user_id, username=current_user.username,
+                action='DELETE_BOOK_ADMIN', module='Book', record_id=str(book_id),
+                details=f'Administrator deleted book: {title}'
+            )
+            return jsonify({'message': f'Book {title} deleted successfully.'}), 200
+        except Exception:
+            db.session.rollback()
+            return jsonify({'error': 'Book cannot be deleted because it has historical issue or return records.'}), 400
+
     existing_request = AuditLog.query.filter_by(action='DELETE_BOOK_REQUEST', module='Book', record_id=str(book_id)).first()
     if existing_request:
         return jsonify({'message': 'Deletion is already waiting for administrator approval.', 'request_id': existing_request.audit_id}), 202
@@ -416,7 +467,7 @@ def update_book_copy(copy_id):
 @jwt_required()
 @permission_required('book.delete')
 def delete_book_copy(copy_id):
-    """Create an administrator approval request before deleting a copy."""
+    """Admins delete immediately; other permitted users request approval."""
     copy = BookCopy.query.get(copy_id)
     if not copy:
         return jsonify({'error': 'Book copy not found'}), 404
@@ -424,6 +475,26 @@ def delete_book_copy(copy_id):
         return jsonify({'error': 'Cannot delete copy while it is currently issued to a student'}), 400
         
     current_user = get_current_user()
+    if current_user and current_user.role == 'ADMIN':
+        barcode = copy.barcode or str(copy_id)
+        title = copy.title_ref.title if copy.title_ref else 'book'
+        try:
+            pending = AuditLog.query.filter_by(action='DELETE_COPY_REQUEST', module='BookCopy', record_id=str(copy_id)).first()
+            if pending:
+                pending.action = 'DELETE_COPY_APPROVED'
+                pending.details = f'{pending.details} | Completed directly by administrator {current_user.username}'
+            db.session.delete(copy)
+            db.session.commit()
+            AuditLog.log_action(
+                user_id=current_user.user_id, username=current_user.username,
+                action='DELETE_COPY_ADMIN', module='BookCopy', record_id=str(copy_id),
+                details=f'Administrator deleted copy {barcode} from {title}'
+            )
+            return jsonify({'message': f'Book copy {barcode} deleted successfully.'}), 200
+        except Exception:
+            db.session.rollback()
+            return jsonify({'error': 'Book copy cannot be deleted because it has historical issue or return records.'}), 400
+
     existing_request = AuditLog.query.filter_by(action='DELETE_COPY_REQUEST', module='BookCopy', record_id=str(copy_id)).first()
     if existing_request:
         return jsonify({'message': 'Deletion is already waiting for administrator approval.', 'request_id': existing_request.audit_id}), 202

@@ -65,6 +65,13 @@ api.interceptors.response.use(
     if (import.meta.env.DEV) {
       console.log(`[API] ✅ ${response.status} ${response.config.url}`)
     }
+    const method = String(response.config?.method || 'get').toLowerCase()
+    const message = response.data?.message
+    if (message && ['post', 'put', 'patch', 'delete'].includes(method) && !response.config?.url?.includes('/auth/login')) {
+      window.dispatchEvent(new CustomEvent('app-alert', {
+        detail: { message, type: response.data?.warning ? 'warning' : 'success' }
+      }))
+    }
     return response
   },
   (error) => {
@@ -80,6 +87,11 @@ api.interceptors.response.use(
 
     const status = error.response.status
     const url = error.config?.url || 'unknown'
+    const alertMessage = error.response.data?.error || error.response.data?.message || 'An error occurred'
+
+    window.dispatchEvent(new CustomEvent('app-alert', {
+      detail: { message: alertMessage, type: status >= 400 ? 'error' : 'warning' }
+    }))
     
     console.log(`[API] ❌ ${status} ${url}`)
 
@@ -351,6 +363,10 @@ export const studentsAPI = {
   deleteProgramme: (id) => {
     console.log('[API] 🗑️ Deleting programme:', id)
     return api.delete(`/students/programmes/${id}`)
+  },
+
+  deleteProgrammePermanent: (id) => {
+    return api.delete(`/students/programmes/${id}`, { params: { permanent: true } })
   },
   
   getGrades: () => {

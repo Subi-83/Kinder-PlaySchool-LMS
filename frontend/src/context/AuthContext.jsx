@@ -16,6 +16,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [permissions, setPermissions] = useState([])
+  const [loginPromptKey, setLoginPromptKey] = useState(0)
 
   useEffect(() => {
     const token = localStorage.getItem('access_token')
@@ -91,6 +92,9 @@ export function AuthProvider({ children }) {
         
         setUser(userData)
         setPermissions(userData.permissions || [])
+        // Layout consumes this one-time marker to show the admin login prompts.
+        sessionStorage.setItem('show_admin_login_prompts', 'true')
+        setLoginPromptKey((current) => current + 1)
         
         console.log('[Auth] ✅ Login successful!')
         console.log('[Auth] 👤 User:', userData.username)
@@ -113,6 +117,7 @@ export function AuthProvider({ children }) {
       console.error('[Auth] Logout error:', err)
     } finally {
       localStorage.removeItem('access_token')
+      sessionStorage.removeItem('show_admin_login_prompts')
       delete api.defaults.headers.common['Authorization']
       setUser(null)
       setPermissions([])
@@ -163,6 +168,7 @@ export function AuthProvider({ children }) {
     loading,
     error,
     permissions,
+    loginPromptKey,
     login,
     logout,
     hasPermission,

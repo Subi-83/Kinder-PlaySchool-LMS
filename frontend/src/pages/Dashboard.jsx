@@ -150,8 +150,8 @@ function Dashboard() {
             {[
               ['Available', stats.available, 'bg-emerald-500'],
               ['Issued', stats.issued, 'bg-cyan-500'],
-              // ['Damaged', stats.damaged, 'bg-amber-500'],
-              // ['Lost', stats.lost, 'bg-rose-500']
+              ['Damaged', stats.damaged, 'bg-amber-500'],
+              ['Lost', stats.lost, 'bg-rose-500']
             ].map(([label, value, color]) => (
               <div key={label}>
                 <div className="mb-1 flex justify-between text-sm">

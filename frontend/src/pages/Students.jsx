@@ -26,6 +26,13 @@ const emptyForm = () => ({
   library_access: true
 })
 
+const emptyReEnrollForm = () => ({
+  academic_year_id: '', programme_id: '', grade: '', section: '',
+  student_name: '', date_of_birth: '', gender: 'OTHER', school_name: '', student_email: '',
+  mother_name: '', mother_phone: '', mother_email: '', father_name: '', father_phone: '', father_email: '',
+  address: '', emergency_contact_name: '', emergency_contact_phone: '', medical_notes: '', library_access: true
+})
+
 function Students() {
   const { memberLabel, membersLabel, memberPrefix } = useAppSettings()
   const { user, hasPermission } = useAuth()
@@ -52,13 +59,9 @@ function Students() {
   const [importYear, setImportYear] = useState('')
   const [importProgramme, setImportProgramme] = useState('')
   const [importing, setImporting] = useState(false)
+  const [importReport, setImportReport] = useState(null)
   const [resetting, setResetting] = useState(false)
-  const [reEnrollForm, setReEnrollForm] = useState({
-    academic_year_id: '',
-    programme_id: '',
-    grade: '',
-    section: ''
-  })
+  const [reEnrollForm, setReEnrollForm] = useState(emptyReEnrollForm())
 
   // Additional Filter States
   const [filterYear, setFilterYear] = useState('')
@@ -165,12 +168,21 @@ function Students() {
       setSuccess('')
       await api.post('/students/enrollments', {
         student_id: reEnrollStudent.student_id,
-        ...reEnrollForm
+        ...reEnrollForm,
+        profile: {
+          student_name: reEnrollForm.student_name, date_of_birth: reEnrollForm.date_of_birth,
+          gender: reEnrollForm.gender, school_name: reEnrollForm.school_name, student_email: reEnrollForm.student_email,
+          mother_name: reEnrollForm.mother_name, mother_phone: reEnrollForm.mother_phone, mother_email: reEnrollForm.mother_email,
+          father_name: reEnrollForm.father_name, father_phone: reEnrollForm.father_phone, father_email: reEnrollForm.father_email,
+          address: reEnrollForm.address, emergency_contact_name: reEnrollForm.emergency_contact_name,
+          emergency_contact_phone: reEnrollForm.emergency_contact_phone, medical_notes: reEnrollForm.medical_notes,
+          library_access: reEnrollForm.library_access
+        }
       })
       setSuccess(`✅ ${reEnrollStudent.student_name} enrolled successfully!`)
       setReEnrollStudent(null)
       setShowEnrollmentDialog(false)
-      setReEnrollForm({ academic_year_id: '', programme_id: '', grade: '', section: '' })
+      setReEnrollForm(emptyReEnrollForm())
       await load()
       setTimeout(() => setSuccess(''), 4000)
     } catch (e) {
@@ -198,7 +210,14 @@ function Students() {
       academic_year_id: defaultYear,
       programme_id: activeEnrollment?.programme?.programme_id || programmes[0]?.programme_id || '',
       grade: activeEnrollment?.grade || '',
-      section: activeEnrollment?.section || ''
+      section: activeEnrollment?.section || '',
+      student_name: student.student_name || '', date_of_birth: student.date_of_birth || '',
+      gender: student.gender || 'OTHER', school_name: student.school_name || '', student_email: student.student_email || '',
+      mother_name: student.mother_name || '', mother_phone: student.mother_phone || '', mother_email: student.mother_email || '',
+      father_name: student.father_name || '', father_phone: student.father_phone || '', father_email: student.father_email || '',
+      address: student.address || '', emergency_contact_name: student.emergency_contact_name || '',
+      emergency_contact_phone: student.emergency_contact_phone || '', medical_notes: student.medical_notes || '',
+      library_access: activeEnrollment?.library_access ?? student.library_access ?? true
     })
     setExistingMatches([])
   }
@@ -218,6 +237,7 @@ function Students() {
       body.append('default_programme_id', importProgramme)
       const response = await api.post('/students/import-students', body, { headers: { 'Content-Type': 'multipart/form-data' } })
       const summary = response.data
+      setImportReport(summary)
       let msg = `✅ Imported ${summary.enrollments_created} enrollment(s): ${summary.new_students} new student(s), ${summary.existing_students} existing student(s).`
       if (summary.skipped?.length) {
         const skippedNotes = summary.skipped.map(s => `Row ${s.row}: ${s.reason}`).join('; ')
@@ -354,6 +374,7 @@ function Students() {
               onClick={() => {
                 setImportYear(academicYears.find((year) => year.is_current)?.academic_year_id || academicYears[0]?.academic_year_id || '')
                 setImportProgramme('')
+                setImportReport(null)
                 setShowImport(true)
               }}
               className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold shadow-sm transition-all"
@@ -375,6 +396,40 @@ function Students() {
 
       {error && <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-sm font-semibold">{error}</div>}
       {success && <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-sm font-semibold">{success}</div>}
+      {importReport?.existing_details?.length > 0 && (
+        <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-amber-200 dark:border-amber-800">
+            <div>
+              <h3 className="font-bold text-amber-900 dark:text-amber-200">Existing members found ({importReport.existing_details.length})</h3>
+              <p className="text-xs text-amber-700 dark:text-amber-400">Matched only by the child name and birthdate.</p>
+            </div>
+            <button type="button" onClick={() => setImportReport(null)} className="text-sm font-semibold text-amber-800 dark:text-amber-300">Close</button>
+          </div>
+          <div className="overflow-x-auto max-h-72">
+            <table className="w-full text-xs text-left">
+              <thead className="sticky top-0 bg-amber-100 dark:bg-amber-900/70 text-amber-950 dark:text-amber-100">
+                <tr>
+                  <th className="px-3 py-2">Excel row</th><th className="px-3 py-2">JK ID</th><th className="px-3 py-2">Child</th>
+                  <th className="px-3 py-2">Birthdate</th><th className="px-3 py-2">Programme</th><th className="px-3 py-2">Parents / Phones</th>
+                  <th className="px-3 py-2">Library</th><th className="px-3 py-2">Found in</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-200 dark:divide-amber-900 text-gray-800 dark:text-gray-200">
+                {importReport.existing_details.map((item, index) => (
+                  <tr key={`${item.row}-${item.student_uid}-${index}`}>
+                    <td className="px-3 py-2">{item.row}</td><td className="px-3 py-2 font-mono">{item.student_uid}</td>
+                    <td className="px-3 py-2 font-semibold">{item.student_name}</td><td className="px-3 py-2 whitespace-nowrap">{item.date_of_birth}</td>
+                    <td className="px-3 py-2">{item.programme}</td>
+                    <td className="px-3 py-2">{[item.mother_name && `${item.mother_name} (${item.mother_phone || '-'})`, item.father_name && `${item.father_name} (${item.father_phone || '-'})`].filter(Boolean).join(' / ') || '-'}</td>
+                    <td className="px-3 py-2">{item.library_access ? 'Yes' : 'No'}</td>
+                    <td className="px-3 py-2">{item.match_origin === 'DATABASE' ? 'Database before import' : 'Earlier row in this file'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* CREATE / EDIT FORM */}
       {showForm && (
@@ -407,7 +462,7 @@ function Students() {
                     <option value="">Select programme</option>
                     {programmes.map((p) => (
                       <option key={p.programme_id} value={p.programme_id}>
-                        {p.programme_code || p.programme_name} - {p.programme_name}
+                        {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
                       </option>
                     ))}
                   </select>
@@ -469,12 +524,14 @@ function Students() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="overflow-x-auto pb-2">
+          <div className="flex min-w-max gap-3">
           {/* Year Filter */}
+          <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Academic Year
           <select
             value={filterYear}
             onChange={(e) => setFilterYear(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">All Academic Years</option>
             {academicYears.map((y) => (
@@ -483,26 +540,30 @@ function Students() {
               </option>
             ))}
           </select>
+          </label>
 
           {/* Programme Filter */}
+          <label className="w-56 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Programme
           <select
             value={filterProgramme}
             onChange={(e) => setFilterProgramme(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">All Programmes</option>
             {programmes.map((p) => (
               <option key={p.programme_id} value={p.programme_id}>
-                {p.programme_code || p.programme_name}
+                {p.display_name || p.programme_code || p.programme_name}
               </option>
             ))}
           </select>
+          </label>
 
           {/* Grade Filter */}
+          <label className="w-44 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Grade
           <select
             value={filterGrade}
             onChange={(e) => setFilterGrade(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">All Grades</option>
             {availableGrades.map((g) => (
@@ -511,39 +572,47 @@ function Students() {
               </option>
             ))}
           </select>
+          </label>
 
           {/* Library Access Filter */}
+          <label className="w-52 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Library Access
           <select
             value={filterLibraryAccess}
             onChange={(e) => setFilterLibraryAccess(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">Library Access (All)</option>
             <option value="ENABLED">Library Access: Enabled</option>
             <option value="DISABLED">Library Access: Disabled</option>
           </select>
+          </label>
 
           {/* Subscription Filter */}
+          <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Subscription
           <select
             value={filterSubStatus}
             onChange={(e) => setFilterSubStatus(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">Subscription (All)</option>
             <option value="ACTIVE">Active Plan</option>
             <option value="EXPIRED">No / Expired Plan</option>
           </select>
+          </label>
 
           {/* Status Filter */}
+          <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Member Status
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
           >
             <option value="">Status (All)</option>
             <option value="ACTIVE">Active {membersLabel}</option>
             <option value="INACTIVE">Inactive {membersLabel}</option>
           </select>
+          </label>
+          </div>
         </div>
       </div>
 
@@ -579,7 +648,7 @@ function Students() {
                     <div className="text-xs text-gray-500 dark:text-gray-400">{s.school_name || 'N/A'}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 dark:text-white">{activeEnc?.programme?.programme_name || '—'}</div>
+                    <div className="font-medium text-gray-900 dark:text-white">{activeEnc?.programme?.display_name || activeEnc?.programme?.programme_name || '—'}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Grade: {activeEnc?.grade || '—'}</div>
                   </td>
 
@@ -682,8 +751,6 @@ function Students() {
                               setError('')
                               await api.delete(`/students/${s.student_id}`)
                               await load()
-                              setSuccess('JK member deletion request sent successfully.')
-                              setTimeout(() => setSuccess(''), 3000)
                             } catch (err) {
                               setError(err.data?.error || err.response?.data?.error || err.message || 'Could not request JK member deletion.')
                             }
@@ -716,7 +783,7 @@ function Students() {
             totalItems={totalItems}
             perPage={pageSize}
             onPageChange={setCurrentPage}
-            itemLabel="books"
+            itemLabel="members"
           />
         </div>
       )}
@@ -731,6 +798,7 @@ function Students() {
                   <span>📊</span> Import {membersLabel} from Excel / CSV
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Existing members are matched only by child name and birthdate. Shared parent details will not merge siblings or twins.</p>
               </div>
               <button
                 type="button"
@@ -776,7 +844,7 @@ function Students() {
                   <option value="">Auto-detect from Excel / Auto-create missing</option>
                   {programmes.map((p) => (
                     <option key={p.programme_id} value={p.programme_id}>
-                      {p.programme_code || p.programme_name} - {p.programme_name}
+                      {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
                     </option>
                   ))}
                 </select>
@@ -828,7 +896,7 @@ function Students() {
       {/* EXISTING / OLD STUDENT RE-ENROLLMENT MODAL DIALOG */}
       {showEnrollmentDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-xl w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-5xl w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
@@ -924,6 +992,33 @@ function Students() {
                   </button>
                 </div>
 
+                <div>
+                  <h4 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Member Profile — review and update</h4>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {[
+                      ['student_name', `${memberLabel} Name`, 'text', true], ['date_of_birth', 'Date of Birth', 'date', true],
+                      ['school_name', 'School Name'], ['student_email', 'Member / Contact Email', 'email'],
+                      ['mother_name', "Mother's Name"], ['mother_phone', "Mother's Phone", 'tel'], ['mother_email', "Mother's Email", 'email'],
+                      ['father_name', "Father's Name"], ['father_phone', "Father's Phone", 'tel'], ['father_email', "Father's Email", 'email'],
+                      ['emergency_contact_name', 'Emergency Contact Name'], ['emergency_contact_phone', 'Emergency Contact Phone', 'tel']
+                    ].map(([key, label, type = 'text', required = false]) => (
+                      <label key={key} className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">{label}{required ? ' *' : ''}
+                        <input required={required} type={type} value={reEnrollForm[key]} onChange={(e) => setReEnrollForm((form) => ({ ...form, [key]: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white" />
+                      </label>
+                    ))}
+                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Gender
+                      <select value={reEnrollForm.gender} onChange={(e) => setReEnrollForm((form) => ({ ...form, gender: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
+                    </label>
+                    <label className="flex items-center gap-2 self-end rounded-xl border border-emerald-200 p-2.5 text-xs font-bold uppercase dark:border-emerald-800 dark:text-gray-200"><input type="checkbox" checked={!!reEnrollForm.library_access} onChange={(e) => setReEnrollForm((form) => ({ ...form, library_access: e.target.checked }))} /> Library Access</label>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Address<textarea rows="3" value={reEnrollForm.address} onChange={(e) => setReEnrollForm((form) => ({ ...form, address: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white" /></label>
+                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Medical Notes<textarea rows="3" value={reEnrollForm.medical_notes} onChange={(e) => setReEnrollForm((form) => ({ ...form, medical_notes: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white" /></label>
+                  </div>
+                </div>
+
+                <h4 className="border-t border-gray-200 pt-4 text-sm font-bold text-gray-900 dark:border-gray-800 dark:text-white">New Academic-Year Enrollment</h4>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
@@ -957,7 +1052,7 @@ function Students() {
                       <option value="">Select Programme</option>
                       {programmes.map((p) => (
                         <option key={p.programme_id} value={p.programme_id}>
-                          {p.programme_code || p.programme_name} - {p.programme_name}
+                          {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
                         </option>
                       ))}
                     </select>

@@ -22,6 +22,7 @@ function Library() {
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 10
   const [loading, setLoading] = useState(true)
+  const [libraryTab, setLibraryTab] = useState('issue')
   // Selected entities for forms
   const [selectedIssueStudent, setSelectedIssueStudent] = useState(null)
   const [selectedIssueBook, setSelectedIssueBook] = useState(null)
@@ -364,6 +365,14 @@ function Library() {
         </div>
       )}
 
+      <div className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-white p-1.5 dark:border-[#292944] dark:bg-[#17172a]">
+        {[
+          ['issue', '📤 Issue Book'], ['return', '📥 Return Book'], ['history', '📋 Issue & Return History']
+        ].map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setLibraryTab(key)} className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-colors ${libraryTab === key ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#292944]'}`}>{label}</button>
+        ))}
+      </div>
+
       <div className="rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
@@ -392,9 +401,9 @@ function Library() {
       </div>
 
       {/* Forms Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {libraryTab !== 'history' && <div className="grid grid-cols-1 gap-6">
         {/* ISSUE BOOK FORM */}
-        <form onSubmit={submitIssue} className="p-6 rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] space-y-4 shadow-sm">
+        {libraryTab === 'issue' && <form onSubmit={submitIssue} className="p-6 rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] space-y-4 shadow-sm">
           <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-gray-800">
             <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
@@ -531,10 +540,10 @@ function Library() {
           >
             Confirm & Issue Book
           </button>
-        </form>
+        </form>}
 
         {/* RETURN BOOK FORM */}
-        <form onSubmit={submitReturn} className="p-6 rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] space-y-4 shadow-sm">
+        {libraryTab === 'return' && <form onSubmit={submitReturn} className="p-6 rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] space-y-4 shadow-sm">
           <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-gray-800">
             <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
@@ -724,11 +733,11 @@ function Library() {
           >
             Process Return & Fine Deduction
           </button>
-        </form>
-      </div>
+        </form>}
+      </div>}
 
       {/* Student Filter & Master Table */}
-      <div className="p-5 rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] shadow-sm space-y-4">
+      {libraryTab === 'history' && <div className="p-5 rounded-2xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#17172a] shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h3 className="font-bold text-gray-900 dark:text-white text-base">Book Issues & Return Records</h3>
@@ -808,7 +817,7 @@ function Library() {
           </table>
         </div>
         <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredHistory.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="records" />
-      </div>
+      </div>}
     </div>
   )
 }

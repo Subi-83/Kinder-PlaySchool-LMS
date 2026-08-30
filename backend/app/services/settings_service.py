@@ -194,6 +194,8 @@ class SettingsService:
             ('backup_frequency', 'daily', 'STRING', 'Backup', 'Backup frequency (daily/weekly/monthly)', True),
             ('backup_retention_days', '30', 'INTEGER', 'Backup', 'Number of days to keep backups', True),
             ('backup_time', '02:00', 'STRING', 'Backup', 'Time to run daily backup (HH:MM)', True),
+            ('backup_reminder_days', '7', 'INTEGER', 'Backup', 'Days between login backup reminders', True),
+            ('backup_last_export_date', '', 'STRING', 'Backup', 'Date of the last generated backup', False),
             
             # API Settings
             ('open_library_api_url', 'https://openlibrary.org/api/books', 'STRING', 'API', 'Open Library API URL', True),

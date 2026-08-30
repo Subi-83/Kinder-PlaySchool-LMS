@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useAppSettings } from '../context/AppSettingsContext'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 
@@ -95,6 +95,9 @@ function Login() {
                 required
                 disabled={loading}
               />
+              <div className="mt-2 text-right">
+                <Link to="/forgot-password" className="text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">Forgot password?</Link>
+              </div>
             </div>
 
             <button

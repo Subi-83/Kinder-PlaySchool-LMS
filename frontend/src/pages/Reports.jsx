@@ -8,7 +8,9 @@ const tabs = [
   { id: 'stock', label: 'Stock Summary', perm: 'report.stock' },
   { id: 'members', label: 'Members Summary', perm: 'report.member' },
   { id: 'students-detailed', label: 'JK Members Report', perm: 'report.member' },
+  { id: 'subscription-payments', label: 'Subscription Payments', perm: 'report.financial' },
   { id: 'books-detailed', label: 'Books Report', perm: 'report.stock' },
+  { id: 'ebooks-detailed', label: 'E-books Report', perm: 'report.stock' },
   { id: 'fines', label: 'Fines Report', perm: 'report.fine' },
   { id: 'financial', label: 'Financial Report', perm: 'report.financial' },
   { id: 'issue-return', label: 'Issue / Return Report', perm: 'report.issue_return' }
@@ -16,10 +18,18 @@ const tabs = [
 
 const pretty = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
-const moneyKeys = ['fines', 'financial', 'students-detailed']
+const moneyKeys = ['fines', 'financial', 'students-detailed', 'subscription-payments']
+const countFields = new Set([
+  'low_deposits', 'total_students', 'library_access_enabled', 'active_subscriptions',
+  'pending_subscriptions', 'total_payments', 'total_books', 'available', 'issued',
+  'damaged', 'lost', 'reserved', 'total_titles', 'total_copies', 'available_copies',
+  'issued_copies', 'damaged_copies', 'lost_copies', 'ebook_copies', 'total_records', 'overdue',
+  'active_issues', 'today_issues', 'today_returns', 'weekly_issues', 'weekly_returns',
+  'monthly_issues', 'monthly_returns'
+])
 
 const isMoneyField = (tabId, key) =>
-  moneyKeys.includes(tabId) && /(fine|deposit|damage|balance|collection|lost|amount)/i.test(key)
+  !countFields.has(key) && moneyKeys.includes(tabId) && /(fine|deposit|damage|balance|collection|lost|amount|payment|price|charge)/i.test(key)
 
 const formatVal = (tabId, key, value) => {
   if (typeof value === 'number') {
@@ -95,6 +105,10 @@ function Reports() {
   const [metricsPage, setMetricsPage] = useState(1)
   const [selectedMetrics, setSelectedMetrics] = useState([])
   const [selectedListFields, setSelectedListFields] = useState({})
+  const [academicYears, setAcademicYears] = useState([])
+  const [academicYearId, setAcademicYearId] = useState('')
+  const [studentReportGroup, setStudentReportGroup] = useState('personal')
+  const [studentSearch, setStudentSearch] = useState('')
 
   // Filter state for Students Detailed Report
   const [studentLevelFilter, setStudentLevelFilter] = useState('ALL')
@@ -108,6 +122,7 @@ function Reports() {
   const [authorFilter, setAuthorFilter] = useState('')
   const [availabilityFilter, setAvailabilityFilter] = useState('ALL')
   const [bookStatusFilter, setBookStatusFilter] = useState('ALL')
+  const [ebookSearch, setEbookSearch] = useState('')
 
   // Date Range Filters
   const [startDateFilter, setStartDateFilter] = useState('')
@@ -122,14 +137,18 @@ function Reports() {
     // Load metadata options for filters
     const loadFilterMetadata = async () => {
       try {
-        const [progRes, lvlRes, catRes] = await Promise.all([
-          api.get('/academic/programmes').catch(() => ({ data: [] })),
+        const [progRes, lvlRes, catRes, yearRes] = await Promise.all([
+          api.get('/students/programmes').catch(() => ({ data: [] })),
           api.get('/books/levels').catch(() => ({ data: [] })),
-          api.get('/books/categories').catch(() => ({ data: [] }))
+          api.get('/books/categories').catch(() => ({ data: [] })),
+          api.get('/students/academic-years').catch(() => ({ data: [] }))
         ])
         setProgrammes(progRes.data || [])
         setBookLevels(lvlRes.data || [])
         setBookCategories(catRes.data || [])
+        setAcademicYears(yearRes.data || [])
+        const currentYear = (yearRes.data || []).find((year) => year.is_current) || yearRes.data?.[0]
+        setAcademicYearId(currentYear?.academic_year_id ? String(currentYear.academic_year_id) : '')
       } catch (err) {
         console.error('Error loading filter options:', err)
       }
@@ -147,6 +166,7 @@ function Reports() {
     try {
       let url = `/reports/${tab.id}`
       const params = new URLSearchParams()
+      if (academicYearId) params.append('academic_year_id', academicYearId)
 
       if (tab.id === 'students-detailed') {
         if (studentLevelFilter !== 'ALL') params.append('level', studentLevelFilter)
@@ -155,6 +175,7 @@ function Reports() {
         if (depositStatusFilter !== 'ALL') params.append('deposit_status', depositStatusFilter)
         if (startDateFilter) params.append('start_date', startDateFilter)
         if (endDateFilter) params.append('end_date', endDateFilter)
+        if (studentSearch.trim()) params.append('search', studentSearch.trim())
       } else if (tab.id === 'books-detailed') {
         if (bookLevelFilter !== 'ALL') params.append('level', bookLevelFilter)
         if (categoryFilter !== 'ALL') params.append('category', categoryFilter)
@@ -163,6 +184,8 @@ function Reports() {
         if (bookStatusFilter !== 'ALL') params.append('book_status', bookStatusFilter)
         if (startDateFilter) params.append('start_date', startDateFilter)
         if (endDateFilter) params.append('end_date', endDateFilter)
+      } else if (tab.id === 'ebooks-detailed') {
+        if (ebookSearch.trim()) params.append('search', ebookSearch.trim())
       }
 
       const queryString = params.toString()
@@ -213,15 +236,31 @@ function Reports() {
     authorFilter,
     availabilityFilter,
     bookStatusFilter,
+    ebookSearch,
     startDateFilter,
     endDateFilter
+    , academicYearId, studentSearch
   ]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const scalar = useMemo(() => Object.entries(data).filter(([, value]) => !Array.isArray(value)), [data])
   const lists = useMemo(() => {
     const rawLists = Object.entries(data).filter(([, value]) => Array.isArray(value))
+    if (active === 'students-detailed') {
+      const students = data.students_list || []
+      const groupFields = {
+        personal: ['student_id', 'student_name', 'date_of_birth', 'gender', 'school', 'mother_name', 'mother_phone', 'father_name', 'father_phone'],
+        programme: ['student_id', 'student_name', 'academic_year', 'programme', 'grade', 'roll_number', 'library_access'],
+        deposits: ['student_id', 'student_name', 'academic_year', 'deposit_amount', 'outstanding_amount', 'deposit_status'],
+        subscriptions: ['student_id', 'student_name', 'academic_year', 'subscription_plan', 'subscription_status', 'subscription_start_date', 'subscription_end_date', 'subscription_amount']
+      }
+      const fields = groupFields[studentReportGroup]
+      const groupStudents = studentReportGroup === 'deposits'
+        ? students.filter((row) => row.subscription_status === 'Active')
+        : students
+      return [[`${studentReportGroup}_report`, groupStudents.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]]
+    }
     return [...rawLists, ...extraData]
-  }, [data, extraData])
+  }, [active, data, extraData, studentReportGroup])
   const metricsPerPage = 10
   const metricPages = Math.max(1, Math.ceil(scalar.length / metricsPerPage))
   const visibleMetrics = scalar.slice((metricsPage - 1) * metricsPerPage, metricsPage * metricsPerPage)
@@ -231,7 +270,7 @@ function Reports() {
     setSelectedListFields(Object.fromEntries(
       lists.map(([title, rows]) => [title, rows[0] ? Object.keys(rows[0]) : []])
     ))
-  }, [active, data, extraData])
+  }, [active, data, extraData, studentReportGroup])
 
   useEffect(() => {
     setMetricsPage(1)
@@ -258,8 +297,10 @@ function Reports() {
       hour12: true
     })
   }, [active])
+  const academicYearLabel = academicYears.find((year) => String(year.academic_year_id) === String(academicYearId))?.year_code || 'All Academic Years'
 
   const resetFilters = () => {
+    setStudentSearch('')
     setStudentLevelFilter('ALL')
     setLibraryAccessFilter('ALL')
     setSubStatusFilter('ALL')
@@ -267,6 +308,7 @@ function Reports() {
     setBookLevelFilter('ALL')
     setCategoryFilter('ALL')
     setAuthorFilter('')
+    setEbookSearch('')
     setAvailabilityFilter('ALL')
     setBookStatusFilter('ALL')
     setStartDateFilter('')
@@ -281,6 +323,7 @@ function Reports() {
       const headerRows = [
         `School Name,${JSON.stringify(schoolName)}`,
         `Report Type,${JSON.stringify(reportTitle)}`,
+        `Academic Year,${JSON.stringify(academicYearLabel)}`,
         `Date of Generation,${JSON.stringify(generatedDateStr)}`,
         `Generated By,${JSON.stringify(generatedBy)}`,
         ''
@@ -322,27 +365,26 @@ function Reports() {
           body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; padding: 15px; background: #fff; line-height: 1.4; }
           
           /* Header Styling */
-          .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #2563eb; padding-bottom: 10px; margin-bottom: 15px; }
-          .school-title { font-size: 20px; font-weight: 800; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
-          .report-subtitle { font-size: 15px; font-weight: 700; color: #2563eb; margin-top: 4px; }
+          .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
+          .school-title { font-size: 20px; font-weight: 700; color: #000; margin: 0; text-transform: uppercase; }
+          .report-subtitle { font-size: 15px; font-weight: 700; color: #000; margin-top: 4px; }
           
-          .meta-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; font-size: 11px; line-height: 1.5; text-align: right; }
+          .meta-card { background: #fff; border: 1px solid #000; padding: 8px 12px; font-size: 11px; line-height: 1.5; text-align: right; }
           .meta-card strong { color: #1e293b; }
           
           /* KPI Cards Grid */
           .kpi-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
-          .kpi-box { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; text-align: center; }
+          .kpi-box { background: #fff; border: 1px solid #000; padding: 8px 10px; text-align: center; }
           .kpi-title { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.5px; }
           .kpi-value { font-size: 16px; font-weight: 800; color: #0f172a; margin-top: 4px; }
           
           /* Section Headers */
-          .section-heading { font-size: 12px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 16px; margin-bottom: 8px; border-left: 4px solid #2563eb; padding-left: 8px; }
+          .section-heading { font-size: 12px; font-weight: 800; color: #000; text-transform: uppercase; margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #000; padding-bottom: 3px; }
           
           /* Table Styles */
           table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 11px; }
-          th { background-color: #1e293b; color: #ffffff; text-align: left; padding: 7px 10px; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid #1e293b; }
-          td { padding: 6px 10px; border: 1px solid #e2e8f0; color: #334155; }
-          tr:nth-child(even) td { background-color: #f8fafc; }
+          th { background-color: #fff; color: #000; text-align: left; padding: 7px 10px; font-weight: 700; font-size: 10px; text-transform: uppercase; border: 1px solid #000; }
+          td { padding: 6px 10px; border: 1px solid #000; color: #000; }
           .num-col { text-align: right; font-variant-numeric: tabular-nums; }
           
           /* Footer */
@@ -352,19 +394,19 @@ function Reports() {
           @media print {
             body { padding: 0; }
             .kpi-container { grid-template-columns: repeat(4, 1fr); }
-            th { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: #1e293b !important; color: #ffffff !important; }
-            tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: #f8fafc !important; }
+            th { background-color: #fff !important; color: #000 !important; }
           }
         </style>
       </head>
       <body>
         <div class="report-header">
           <div>
-            <h1 class="school-title">🏫 ${schoolName}</h1>
-            <div class="report-subtitle">📊 ${reportTitle.toUpperCase()}</div>
+            <h1 class="school-title">${schoolName}</h1>
+            <div class="report-subtitle">${reportTitle.toUpperCase()}</div>
           </div>
           <div class="meta-card">
             <div><strong>Date of Report:</strong> ${generatedDateStr}</div>
+            <div><strong>Academic Year:</strong> ${academicYearLabel}</div>
             <div><strong>Generated By:</strong> ${generatedBy}</div>
             <div><strong>System:</strong> LAN Library Management</div>
           </div>
@@ -518,6 +560,11 @@ function Reports() {
         {/* Filter Controls Panel for Students Report */}
         {active === 'students-detailed' && (
           <div className="p-5 bg-blue-50/40 dark:bg-[#121222] border-b border-gray-200 dark:border-[#292944] space-y-4">
+            <div className="flex flex-wrap gap-1 border-b border-gray-400 pb-3">
+              {[
+                ['personal', 'Personal'], ['programme', 'Programme'], ['deposits', 'Deposits'], ['subscriptions', 'Subscriptions']
+              ].map(([key, label]) => <button key={key} type="button" onClick={() => setStudentReportGroup(key)} className={`rounded-lg border px-4 py-2 text-xs font-bold transition-colors ${studentReportGroup === key ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:bg-blue-50 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-gray-300'}`}>{label}</button>)}
+            </div>
             <div className="flex justify-between items-center">
               <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-2">
                 <span>🔍</span> Filter JK Members Report
@@ -529,7 +576,18 @@ function Reports() {
                 Reset All Filters
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Search members
+              <input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Name, JK ID, parent, or phone..." className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-white" />
+            </label>
+            <div className="overflow-x-auto pb-2">
+            <div className="flex min-w-max gap-3 text-xs [&>div]:w-52 [&>div]:shrink-0">
+              <div>
+                <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Academic Year</label>
+                <select value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-gray-900 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-white">
+                  <option value="">All Academic Years</option>
+                  {academicYears.map((year) => <option key={year.academic_year_id} value={year.academic_year_id}>{year.year_name || year.year_code}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Level / Grade</label>
                 <select
@@ -540,7 +598,7 @@ function Reports() {
                   <option value="ALL">All Levels / Grades</option>
                   {programmes.map((p) => (
                     <option key={p.programme_id} value={p.programme_name}>
-                      {p.programme_name}
+                      {p.display_name || p.programme_name}
                     </option>
                   ))}
                   <option value="Level 1">Level 1</option>
@@ -590,7 +648,7 @@ function Reports() {
                 </select>
               </div>
 
-              <div>
+              <div className="!w-80">
                 <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Date Range (Created)</label>
                 <div className="flex items-center gap-1">
                   <input
@@ -609,6 +667,19 @@ function Reports() {
                 </div>
               </div>
             </div>
+            </div>
+          </div>
+        )}
+
+        {active === 'subscription-payments' && (
+          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-gray-200 bg-emerald-50/50 p-5 dark:border-[#292944] dark:bg-[#121222]">
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300">Academic Year
+              <select value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)} className="mt-1 block min-w-60 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-white">
+                <option value="">All Academic Years</option>
+                {academicYears.map((year) => <option key={year.academic_year_id} value={year.academic_year_id}>{year.year_name || year.year_code}</option>)}
+              </select>
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Plan fees are reported separately from member deposits.</p>
           </div>
         )}
 
@@ -626,7 +697,8 @@ function Reports() {
                 Reset All Filters
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
+            <div className="overflow-x-auto pb-2">
+            <div className="flex min-w-max gap-3 text-xs [&>div]:w-52 [&>div]:shrink-0">
               <div>
                 <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Book Reading Level</label>
                 <select
@@ -700,7 +772,7 @@ function Reports() {
                 </select>
               </div>
 
-              <div>
+              <div className="!w-80">
                 <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Date Added Range</label>
                 <div className="flex items-center gap-1">
                   <input
@@ -719,6 +791,17 @@ function Reports() {
                 </div>
               </div>
             </div>
+            </div>
+          </div>
+        )}
+
+        {active === 'ebooks-detailed' && (
+          <div className="flex flex-wrap items-end gap-3 border-b border-gray-200 bg-violet-50/50 p-5 dark:border-[#292944] dark:bg-[#121222]">
+            <label className="min-w-72 flex-1 text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300">Search E-book Register
+              <input value={ebookSearch} onChange={(event) => setEbookSearch(event.target.value)} placeholder="Title, author, ISBN, or publisher..." className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal normal-case text-gray-900 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-white" />
+            </label>
+            <button type="button" onClick={() => setEbookSearch('')} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-gray-200">Clear</button>
+            <p className="w-full text-xs text-gray-500 dark:text-gray-400">Information-only records. E-books are not included in physical stock, issue, return, available, lost, or damaged counts.</p>
           </div>
         )}
 

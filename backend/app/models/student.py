@@ -1,5 +1,6 @@
 from app import db
 from datetime import datetime
+import re
 
 class Student(db.Model):
     """Student Model - Stores student information (permanent record)"""
@@ -126,7 +127,7 @@ class Student(db.Model):
         if enrollment:
             return {
                 'academic_year': enrollment.academic_year.year_code if enrollment.academic_year else None,
-                'programme': enrollment.programme.programme_name if enrollment.programme else None,
+                'programme': enrollment.programme.display_name if enrollment.programme else None,
                 'roll_number': enrollment.roll_number,
                 'grade': enrollment.grade
             }
@@ -194,33 +195,27 @@ class Student(db.Model):
 
     @classmethod
     def find_duplicate_candidates(cls, data, exclude_student_id=None):
-        """Find student masters sharing a supplied reliable identifier.
+        """Find an existing member by the child's own name and birthdate.
 
-        Parent contacts are the contact fields currently stored by this LMS.
-        A matching contact or an exact name/date-of-birth pair is treated as a
-        possible duplicate and must be selected as an old student instead of
-        creating another master record.
+        Parent names, phone numbers and email addresses are deliberately not
+        identity fields: siblings and twins commonly share those details.
         """
-        contact_fields = ('student_email', 'mother_phone', 'father_phone', 'mother_email', 'father_email')
-        conditions = []
-        for field in contact_fields:
-            value = str(data.get(field) or '').strip()
-            if value:
-                column = getattr(cls, field)
-                conditions.append(db.func.lower(column) == value.lower())
-
         name = str(data.get('student_name') or '').strip()
         dob = data.get('date_of_birth')
-        if name and dob:
-            try:
-                dob = datetime.strptime(str(dob).split('T')[0], '%Y-%m-%d').date()
-                conditions.append(db.and_(db.func.lower(cls.student_name) == name.lower(), cls.date_of_birth == dob))
-            except ValueError:
-                pass
-
-        if not conditions:
+        if not name or not dob:
             return []
-        query = cls.query.filter(db.or_(*conditions))
+
+        try:
+            if not hasattr(dob, 'year'):
+                dob = datetime.strptime(str(dob).split('T')[0], '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return []
+
+        normalized_name = re.sub(r'\s+', ' ', name).strip().lower()
+        query = cls.query.filter(
+            db.func.lower(db.func.trim(cls.student_name)) == normalized_name,
+            cls.date_of_birth == dob,
+        )
         if exclude_student_id:
             query = query.filter(cls.student_id != exclude_student_id)
         return query.order_by(cls.student_name).all()

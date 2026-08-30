@@ -9,6 +9,8 @@ function Deposits() {
   const { user, hasPermission } = useAuth()
   const { memberLabel, membersLabel } = useAppSettings()
   const [deposits, setDeposits] = useState([])
+  const [academicYears, setAcademicYears] = useState([])
+  const [academicYearId, setAcademicYearId] = useState('')
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [selectedStudent, setSelectedStudent] = useState(null)
@@ -18,6 +20,7 @@ function Deposits() {
   const [correctionForm, setCorrectionForm] = useState({ transaction_id: '', corrected_amount: '', reason: '' })
   const [submittingCorrection, setSubmittingCorrection] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [depositTab, setDepositTab] = useState('payment')
   const pageSize = 10
   const [topUpData, setTopUpData] = useState({
     amount: '',
@@ -29,7 +32,15 @@ function Deposits() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const depositsRes = await api.get('/deposits')
+      const [depositsRes, yearsRes] = await Promise.all([
+        api.get('/deposits', { params: academicYearId ? { academic_year_id: academicYearId } : {} }),
+        api.get('/students/academic-years')
+      ])
+      setAcademicYears(yearsRes.data || [])
+      if (!academicYearId) {
+        const current = (yearsRes.data || []).find((year) => year.is_current)
+        if (current) setAcademicYearId(String(current.academic_year_id))
+      }
       const eligibleDepositStudents = depositsRes.data || []
       setDeposits(eligibleDepositStudents)
       // Clear stale selections (for example, after Library Access is disabled).
@@ -45,9 +56,13 @@ function Deposits() {
     }
   }
 
+  useEffect(() => { loadData() }, [academicYearId])
+
   useEffect(() => {
-    loadData()
-  }, [])
+    setCurrentPage(1)
+    setSelectedStudent(null)
+    setShowLowDeposits(false)
+  }, [academicYearId])
 
   const handleTopUp = async (e) => {
     e.preventDefault()
@@ -60,6 +75,7 @@ function Deposits() {
         student_id: selectedStudent.student_id,
         amount: parseFloat(topUpData.amount),
         description: topUpData.description
+        ,academic_year_id: academicYearId
       })
       setMessage(`✅ Deposit recorded successfully! Updated deposit account for ${selectedStudent.student_name}.`)
       setTopUpData({ amount: '', description: 'Deposit payment' })
@@ -144,9 +160,20 @@ function Deposits() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Library Deposit Management</h2>
           <p className="text-gray-500 dark:text-gray-400">
-            Record deposit payments and monitor {memberLabel.toLowerCase()} balances for members with Library Access.
+            Record deposit payments and monitor balances for actively subscribed {membersLabel.toLowerCase()}.
           </p>
         </div>
+        <label className="w-full text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300 sm:w-64">Academic Year
+          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} className="mt-1 block w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm font-semibold text-gray-900 shadow-sm dark:border-gray-700 dark:bg-[#17172a] dark:text-white">
+            {academicYears.map((year) => <option key={year.academic_year_id} value={year.academic_year_id}>{year.year_name || year.year_code}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-900 dark:bg-blue-950/30">
+        <span className="font-semibold text-gray-700 dark:text-gray-200">Subscribed members: <strong>{deposits.length}</strong></span>
+        <span className="font-semibold text-amber-700 dark:text-amber-300">Low deposit: <strong>{lowDepositAccounts.length}</strong></span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">Counts are for the selected academic year only.</span>
       </div>
 
       {/* Low Deposit Warning Banner */}
@@ -194,7 +221,15 @@ function Deposits() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-white p-1.5 dark:border-[#292944] dark:bg-[#17172a]">
+        {[
+          ['payment', '💳 Payment & Overview'], ['accounts', `📋 ${memberLabel} Deposit Accounts`]
+        ].map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setDepositTab(key)} className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-colors ${depositTab === key ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#292944]'}`}>{label}</button>
+        ))}
+      </div>
+
+      {depositTab === 'payment' && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top-up / Deposit Form Section */}
         <div className="bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-sm space-y-4">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -300,10 +335,10 @@ function Deposits() {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Deposits Table */}
-      <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-hidden">
+      {depositTab === 'accounts' && <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 dark:border-[#292944] flex justify-between items-center">
           <h4 className="font-bold text-gray-900 dark:text-white text-base">📋 {memberLabel} Library Deposit Accounts</h4>
           <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Only showing members with Library Access enabled</span>
@@ -373,6 +408,7 @@ function Deposits() {
                             deposit_balance: d.current_balance,
                             outstanding_balance: d.outstanding_balance
                           })
+                          setDepositTab('payment')
                           window.scrollTo({ top: 0, behavior: 'smooth' })
                         }}
                         className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-lg font-semibold hover:bg-blue-100 text-xs transition-colors"
@@ -387,7 +423,7 @@ function Deposits() {
               {deposits.length === 0 && (
                 <tr>
                   <td colSpan="7" className="p-8 text-center text-gray-500 dark:text-gray-400">
-                    No deposit accounts found for {membersLabel} with Library Access.
+                    No actively subscribed {membersLabel.toLowerCase()} found for this academic year.
                   </td>
                 </tr>
               )}
@@ -397,7 +433,7 @@ function Deposits() {
         <div className="px-5 py-4 border-t border-gray-200 dark:border-[#292944]">
           <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={deposits.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="accounts" />
         </div>
-      </div>
+      </div>}
     </div>
   )
 }
