@@ -9,12 +9,14 @@ function Deposits() {
   const { user, hasPermission } = useAuth()
   const { memberLabel, membersLabel } = useAppSettings()
   const [deposits, setDeposits] = useState([])
+  const [refundDue, setRefundDue] = useState([])
   const [academicYears, setAcademicYears] = useState([])
   const [academicYearId, setAcademicYearId] = useState('')
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [showLowDeposits, setShowLowDeposits] = useState(false)
+  const [showRefundDue, setShowRefundDue] = useState(false)
   const [correction, setCorrection] = useState(null)
   const [correctionTransactions, setCorrectionTransactions] = useState([])
   const [correctionForm, setCorrectionForm] = useState({ transaction_id: '', corrected_amount: '', reason: '' })
@@ -28,12 +30,14 @@ function Deposits() {
   })
 
   const canTopUp = hasPermission('deposit.topup') || user?.role === 'ADMIN'
+  const canRefund = hasPermission('deposit.refund') || user?.role === 'ADMIN'
 
   const loadData = async () => {
     try {
       setLoading(true)
-      const [depositsRes, yearsRes] = await Promise.all([
+      const [depositsRes, refundRes, yearsRes] = await Promise.all([
         api.get('/deposits', { params: academicYearId ? { academic_year_id: academicYearId } : {} }),
+        api.get('/deposits/refund-due', { params: academicYearId ? { academic_year_id: academicYearId } : {} }),
         api.get('/students/academic-years')
       ])
       setAcademicYears(yearsRes.data || [])
@@ -43,6 +47,7 @@ function Deposits() {
       }
       const eligibleDepositStudents = depositsRes.data || []
       setDeposits(eligibleDepositStudents)
+      setRefundDue(refundRes.data || [])
       // Clear stale selections (for example, after Library Access is disabled).
       setSelectedStudent((current) => (
         current && !eligibleDepositStudents.some((account) => account.student_id === current.student_id)
@@ -62,6 +67,7 @@ function Deposits() {
     setCurrentPage(1)
     setSelectedStudent(null)
     setShowLowDeposits(false)
+    setShowRefundDue(false)
   }, [academicYearId])
 
   const handleTopUp = async (e) => {
@@ -110,6 +116,16 @@ function Deposits() {
       setMessage('❌ ' + (err.response?.data?.error || 'Could not submit correction request.'))
     } finally {
       setSubmittingCorrection(false)
+    }
+  }
+
+  const refundDeposit = async (account) => {
+    if (!window.confirm(`Return the complete deposit of ₹${Number(account.current_balance || 0).toFixed(2)} to ${account.student_name}?`)) return
+    try {
+      await api.post(`/deposits/refund/${account.student_id}`, { academic_year_id: academicYearId })
+      await loadData()
+    } catch (_) {
+      // The common Alert.jsx displays the API error.
     }
   }
 
@@ -171,10 +187,30 @@ function Deposits() {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-900 dark:bg-blue-950/30">
-        <span className="font-semibold text-gray-700 dark:text-gray-200">Subscribed members: <strong>{deposits.length}</strong></span>
+        <span className="font-semibold text-gray-700 dark:text-gray-200">Deposit accounts: <strong>{deposits.length}</strong></span>
         <span className="font-semibold text-amber-700 dark:text-amber-300">Low deposit: <strong>{lowDepositAccounts.length}</strong></span>
+        <span className="font-semibold text-rose-700 dark:text-rose-300">Refund due: <strong>{refundDue.length}</strong></span>
         <span className="text-xs text-gray-500 dark:text-gray-400">Counts are for the selected academic year only.</span>
       </div>
+
+      {refundDue.length > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-rose-300 bg-rose-50 shadow-sm dark:border-rose-800 dark:bg-rose-950/40">
+          <button type="button" onClick={() => setShowRefundDue((current) => !current)} aria-expanded={showRefundDue} className="flex w-full items-start gap-3 p-4 text-left hover:bg-rose-100/70 dark:hover:bg-rose-950/70">
+            <span className="text-2xl">⚠</span>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-rose-900 dark:text-rose-200">Deposit Refund Due ({refundDue.length})</h4>
+              <p className="mt-1 text-xs text-rose-800 dark:text-rose-300">These members have a deposit balance but are not enrolled in the selected academic year.</p>
+            </div>
+            <span className={`text-lg text-rose-800 transition-transform ${showRefundDue ? 'rotate-180' : ''}`}>⌄</span>
+          </button>
+          {showRefundDue && <div className="border-t border-rose-200 px-4 pb-4 pt-3 dark:border-rose-800">
+            <div className="flex flex-wrap gap-2">{refundDue.map((account) => <div key={account.deposit_account_id} className="flex items-center gap-2 rounded-lg bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-900 dark:bg-rose-900/60 dark:text-rose-100">
+              <span>{account.student_name} ({account.student_uid}) · Return ₹{Number(account.current_balance || 0).toFixed(2)}{account.previous_academic_year ? ` · Last enrolled ${account.previous_academic_year}` : ''}</span>
+              {canRefund && <button type="button" onClick={() => refundDeposit(account)} className="rounded-md bg-rose-700 px-2 py-1 font-bold text-white hover:bg-rose-800">Refund</button>}
+            </div>)}</div>
+          </div>}
+        </div>
+      )}
 
       {/* Low Deposit Warning Banner */}
       {lowDepositAccounts.length > 0 && (
@@ -341,7 +377,7 @@ function Deposits() {
       {depositTab === 'accounts' && <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 dark:border-[#292944] flex justify-between items-center">
           <h4 className="font-bold text-gray-900 dark:text-white text-base">📋 {memberLabel} Library Deposit Accounts</h4>
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Only showing members with Library Access enabled</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Existing balances are carried forward when members re-enrol</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
@@ -375,16 +411,19 @@ function Deposits() {
                       className={`px-2.5 py-1 rounded-full font-bold ${
                         d.subscription_status === 'ACTIVE'
                           ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                          : d.subscription_status === 'PENDING'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                           : d.subscription_status === 'EXPIRED'
                           ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
                           : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
                       }`}
                     >
-                      {d.subscription_status === 'ACTIVE' ? 'Active' : d.subscription_status === 'EXPIRED' ? 'Expired' : 'Not Subscribed'}
+                      {d.subscription_status === 'ACTIVE' ? 'Active' : d.subscription_status === 'PENDING' ? 'Plan Payment Pending' : d.subscription_status === 'EXPIRED' ? 'Expired' : 'Plan Not Selected'}
                     </span>
                   </td>
                   <td className="px-4 py-3 font-bold text-emerald-600 dark:text-emerald-400">
                     ₹{Number(d.current_balance || 0).toFixed(2)}
+                    {d.deposit_forwarded && <div className="mt-1 text-[10px] font-bold uppercase text-blue-600 dark:text-blue-300">Forwarded from previous year</div>}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     <span

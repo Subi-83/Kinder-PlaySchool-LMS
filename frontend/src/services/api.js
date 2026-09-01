@@ -88,9 +88,10 @@ api.interceptors.response.use(
     const status = error.response.status
     const url = error.config?.url || 'unknown'
     const alertMessage = error.response.data?.error || error.response.data?.message || 'An error occurred'
+    const isWarning = Boolean(error.response.data?.warning) || status === 409
 
     window.dispatchEvent(new CustomEvent('app-alert', {
-      detail: { message: alertMessage, type: status >= 400 ? 'error' : 'warning' }
+      detail: { message: alertMessage, type: isWarning ? 'warning' : 'error' }
     }))
     
     console.log(`[API] ❌ ${status} ${url}`)
@@ -588,9 +589,9 @@ export const subscriptionsAPI = {
     return api.post('/subscriptions/assign', { student_id: studentId, plan_id: planId })
   },
   
-  renew: (subscriptionId, planId, amount) => {
+  renew: (subscriptionId, planId, amount, paymentMethod) => {
     console.log('[API] 📋 Renewing subscription:', subscriptionId)
-    return api.post(`/subscriptions/renew/${subscriptionId}`, { plan_id: planId, amount })
+    return api.post(`/subscriptions/renew/${subscriptionId}`, { plan_id: planId, amount, payment_method: paymentMethod })
   },
 
   upgrade: (subscriptionId, planId) => {

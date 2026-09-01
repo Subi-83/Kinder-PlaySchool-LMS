@@ -16,6 +16,8 @@ function Subscriptions() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
   const [upgradingSubscription, setUpgradingSubscription] = useState(null)
+  const [renewingSubscription, setRenewingSubscription] = useState(null)
+  const [renewData, setRenewData] = useState({ plan_id: '', amount: '', payment_method: '' })
   const [upgradePlanId, setUpgradePlanId] = useState('')
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)
   const [plansPage, setPlansPage] = useState(1)
@@ -133,9 +135,25 @@ function Subscriptions() {
     }
   }
 
-  const handleRenew = async (subId, planId) => {
+  const openRenew = (subscription) => {
+    const planId = subscription.plan?.subscription_plan_id || subscription.subscription_plan_id || ''
+    const plan = plans.find((item) => item.subscription_plan_id === Number(planId))
+    setRenewingSubscription(subscription)
+    setRenewData({ plan_id: String(planId), amount: String(plan?.price ?? subscription.amount_paid ?? ''), payment_method: '' })
+  }
+
+  const handleRenew = async (e) => {
+    e.preventDefault()
+    if (!renewingSubscription || !renewData.plan_id || !renewData.payment_method) {
+      setMessage('Please select a plan and payment method.')
+      return
+    }
     try {
-      await api.post(`/subscriptions/renew/${subId}`, { plan_id: planId })
+      await api.post(`/subscriptions/renew/${renewingSubscription.subscription_id}`, {
+        plan_id: Number(renewData.plan_id), amount: Number(renewData.amount), payment_method: renewData.payment_method
+      })
+      setRenewingSubscription(null)
+      setRenewData({ plan_id: '', amount: '', payment_method: '' })
       setMessage('✅ Subscription renewed successfully!')
       await loadData()
       setTimeout(() => setMessage(''), 3000)
@@ -331,6 +349,44 @@ function Subscriptions() {
         </div>
       )}
 
+      {subscriptionTab === 'records' && renewingSubscription && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+          <form onSubmit={handleRenew} className="w-full max-w-lg space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#2a2a4a] dark:bg-[#17172a]">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Renew Subscription</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{renewingSubscription.student_name}</p>
+            </div>
+            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Subscription Plan
+              <select required value={renewData.plan_id} onChange={(e) => {
+                const plan = plans.find((item) => item.subscription_plan_id === Number(e.target.value))
+                setRenewData({ ...renewData, plan_id: e.target.value, amount: String(plan?.price ?? '') })
+              }} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]">
+                <option value="">-- Choose Plan --</option>
+                {plans.filter((plan) => plan.is_active).map((plan) => <option key={plan.subscription_plan_id} value={plan.subscription_plan_id}>{plan.plan_name} - ₹{plan.price}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Amount Paid
+              <input required type="number" min="0" step="0.01" value={renewData.amount} onChange={(e) => setRenewData({ ...renewData, amount: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]" />
+            </label>
+            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Payment Method
+              <select required value={renewData.payment_method} onChange={(e) => setRenewData({ ...renewData, payment_method: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]">
+                <option value="">-- Select Payment Method --</option>
+                <option value="UPI">UPI</option>
+                <option value="BANK_TRANSFER">Bank Transfer</option>
+                <option value="CASH">Cash</option>
+                <option value="CARD">Card</option>
+                <option value="CHEQUE">Cheque</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => { setRenewingSubscription(null); setRenewData({ plan_id: '', amount: '', payment_method: '' }) }} className="rounded-xl bg-gray-200 px-4 py-2 font-semibold text-gray-700 dark:bg-[#292944] dark:text-gray-200">Cancel</button>
+              <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700">Confirm Renewal</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Assign Subscription Section */}
       {subscriptionTab === 'assign' && canAssign && (
         <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
@@ -457,7 +513,7 @@ function Subscriptions() {
                     )}
                     {sub.status === 'EXPIRED' && canAssign && (
                       <button
-                        onClick={() => handleRenew(sub.subscription_id, sub.plan?.subscription_plan_id)}
+                        onClick={() => openRenew(sub)}
                         className="px-3 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors"
                       >
                         ↻ Re-Subscribe / Renew

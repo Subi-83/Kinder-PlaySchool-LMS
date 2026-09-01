@@ -4,11 +4,11 @@ import api from '../services/api'
 import { HolidayCalendar } from './Settings'
 
 function HolidayCalendarPage() {
-  const { user, hasPermission } = useAuth()
+  const { user, hasAnyPermission } = useAuth()
   const [holidays, setHolidays] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const canEdit = user?.role === 'ADMIN' || hasPermission('settings.view')
+  const canEdit = user?.role === 'ADMIN' || hasAnyPermission(['holiday.create', 'holiday.edit', 'holiday.delete'])
 
   const loadHolidays = async () => {
     try {

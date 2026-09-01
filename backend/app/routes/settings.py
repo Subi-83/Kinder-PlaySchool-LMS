@@ -169,7 +169,7 @@ def update_setting(key):
 # Holidays endpoints
 @settings_bp.route('/holidays', methods=['GET'])
 @jwt_required()
-@permission_required('settings.view')
+@permission_required('holiday.view')
 def get_holidays():
     """Get all holidays"""
     start_date = request.args.get('start_date')
@@ -192,7 +192,7 @@ def get_holidays():
 
 @settings_bp.route('/holidays', methods=['POST'])
 @jwt_required()
-@admin_required
+@permission_required('holiday.create')
 def create_holiday():
     """Create a single holiday or every date in an inclusive range."""
     data = request.get_json() or {}
@@ -245,7 +245,7 @@ def create_holiday():
 
 @settings_bp.route('/holidays/<int:holiday_id>', methods=['PUT'])
 @jwt_required()
-@admin_required
+@permission_required('holiday.edit')
 def update_holiday(holiday_id):
     """Update a holiday"""
     holiday = Holiday.query.get(holiday_id)
@@ -269,7 +269,7 @@ def update_holiday(holiday_id):
 
 @settings_bp.route('/holidays/<int:holiday_id>', methods=['DELETE'])
 @jwt_required()
-@admin_required
+@permission_required('holiday.delete')
 def delete_holiday(holiday_id):
     """Delete a holiday"""
     holiday = Holiday.query.get(holiday_id)

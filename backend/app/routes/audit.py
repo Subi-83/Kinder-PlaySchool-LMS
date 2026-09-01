@@ -28,7 +28,7 @@ def get_admin_notifications():
                'CREATE_HOLIDAY', 'UPDATE_HOLIDAY', 'DELETE_HOLIDAY', 'UPDATE_SETTINGS', 'UPDATE_SETTING',
                'DELETE_BOOK_REQUEST', 'DELETE_COPY_REQUEST', 'DELETE_STUDENT_REQUEST', 'DELETE_BOOK_APPROVED', 'DELETE_COPY_APPROVED', 'DELETE_STUDENT_APPROVED',
                'DELETE_BOOK_REJECTED', 'DELETE_COPY_REJECTED', 'BOOK_CONDITION_REVIEW_COMPLETED',
-               'DEPOSIT_CORRECTION_REQUEST', 'DEPOSIT_CORRECTION_APPROVED', 'DEPOSIT_CORRECTION_REJECTED']
+               'DEPOSIT_CORRECTION_REQUEST', 'DEPOSIT_CORRECTION_APPROVED', 'DEPOSIT_CORRECTION_REJECTED', 'DEPOSIT_REFUND']
     logs = AuditLog.query.filter(AuditLog.action.in_(actions)).order_by(AuditLog.created_at.desc()).limit(50).all()
     pending = {'DELETE_BOOK_REQUEST', 'DELETE_COPY_REQUEST', 'DELETE_STUDENT_REQUEST', 'DEPOSIT_CORRECTION_REQUEST'}
     review_cutoff = datetime.utcnow() - timedelta(days=365)
@@ -72,6 +72,35 @@ def get_admin_notifications():
         ),
         'requires_approval': False,
     } for account in low_accounts]
+    enrolled_current_ids = db.session.query(StudentEnrollment.student_id).filter(
+        StudentEnrollment.academic_year_id == current_year.academic_year_id,
+        StudentEnrollment.library_access == True
+    ) if current_year else None
+    earlier_member_ids = db.session.query(StudentEnrollment.student_id).join(AcademicYear).filter(
+        AcademicYear.start_date < current_year.start_date,
+        StudentEnrollment.library_access == True
+    ) if current_year else None
+    refund_accounts = [] if not current_year else DepositAccount.query.join(Student).filter(
+        Student.is_active == True,
+        DepositAccount.current_balance > 0,
+        DepositAccount.student_id.in_(earlier_member_ids),
+        ~DepositAccount.student_id.in_(enrolled_current_ids)
+    ).order_by(Student.student_name).all()
+    deposit_refund_notifications = [{
+        'audit_id': f'deposit-refund-{current_year.academic_year_id}-{account.deposit_account_id}',
+        'record_id': str(account.student_id),
+        'action': 'DEPOSIT_REFUND_DUE',
+        'module': 'Deposit',
+        'username': 'System',
+        'created_at': current_year.start_date.strftime('%Y-%m-%d'),
+        'details': (
+            f'{account.student.student_name if account.student else "JK Member"} '
+            f'({account.student.student_uid if account.student else account.student_id}) has not been re-enrolled for '
+            f'{current_year.year_code}, or Library Subscription was selected as No. '
+            f'Return the deposit balance of ₹{float(account.current_balance or 0):.2f}.'
+        ),
+        'requires_approval': False,
+    } for account in refund_accounts]
     today = datetime.now().date()
     today_key = today.strftime('%Y-%m-%d')
     daily_answer = AuditLog.query.filter(
@@ -104,8 +133,8 @@ def get_admin_notifications():
                 pass
         log_notifications.append(item)
     return jsonify({
-        'notifications': daily_holiday_notification + low_deposit_notifications + review_notifications + log_notifications,
-        'pending_count': len(low_deposit_notifications) + sum(1 for log in logs if log.action in pending)
+        'notifications': daily_holiday_notification + deposit_refund_notifications + low_deposit_notifications + review_notifications + log_notifications,
+        'pending_count': len(deposit_refund_notifications) + len(low_deposit_notifications) + sum(1 for log in logs if log.action in pending)
     }), 200
 
 @audit_bp.route('/deposit-corrections/<int:audit_id>/<string:decision>', methods=['POST'])

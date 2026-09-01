@@ -5,7 +5,7 @@ from app.models.subscription import SubscriptionPlan, StudentSubscription
 from app.models.student import Student
 from app.models.academic import AcademicYear, StudentEnrollment
 from app.models.audit import AuditLog
-from app.middleware.auth_middleware import permission_required, get_current_user
+from app.middleware.auth_middleware import permission_required, permission_required_any, get_current_user
 from datetime import datetime, timedelta
 
 subscriptions_bp = Blueprint('subscriptions', __name__, url_prefix='/api/subscriptions')
@@ -161,7 +161,7 @@ def get_eligible_students():
 
 @subscriptions_bp.route('/student-subscriptions', methods=['GET'])
 @jwt_required()
-@permission_required('subscription.view')
+@permission_required_any(['subscription.view', 'subscription.payment.view'])
 def get_all_student_subscriptions():
     """Get all student subscriptions history"""
     today = datetime.now().date()
@@ -194,7 +194,7 @@ def get_student_subscriptions(student_id):
 
 @subscriptions_bp.route('/payments/<int:subscription_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('subscription.edit')
+@permission_required('subscription.payment.edit')
 def update_subscription_payment(subscription_id):
     """Update subscription payment only; never changes the library deposit."""
     subscription = StudentSubscription.query.get(subscription_id)
@@ -312,8 +312,12 @@ def renew_subscription(subscription_id):
     if not subscription:
         return jsonify({'error': 'Subscription not found'}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     plan_id = data.get('plan_id')
+    payment_method = (data.get('payment_method') or '').strip().upper()
+    allowed_payment_methods = {'UPI', 'BANK_TRANSFER', 'CASH', 'CARD', 'CHEQUE', 'OTHER'}
+    if payment_method not in allowed_payment_methods:
+        return jsonify({'error': 'Please select a valid payment method'}), 400
     
     if plan_id:
         plan = SubscriptionPlan.query.get(plan_id)
@@ -329,8 +333,18 @@ def renew_subscription(subscription_id):
     subscription.status = 'ACTIVE'
     subscription.amount_paid = data.get('amount', subscription.plan_ref.price if subscription.plan_ref else 0)
     subscription.payment_date = datetime.now().date()
+    subscription.payment_method = payment_method
     
     db.session.commit()
+
+    current_user = get_current_user()
+    AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='RENEW_SUBSCRIPTION', module='Subscription',
+        record_id=str(subscription.student_id),
+        details=f'Renewed subscription for {subscription.student_ref.student_name}; payment method: {payment_method}'
+    )
     
     return jsonify(subscription.to_dict()), 200
 

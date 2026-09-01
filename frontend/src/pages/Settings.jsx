@@ -25,7 +25,6 @@ const SETTING_LABELS = {
   'date_format': 'Date Display Format',
   'time_format': 'Time Display Format',
   'issue_period_days': 'Default Issue Period (Days)',
-  'max_books_per_student': 'Max Books Allowed Per JK Member',
   'barcode_lookup_enabled': 'Barcode / ISBN Lookup',
   'holiday_adjustment': 'Automatic Holiday Due Adjustment',
   'late_fine_per_day': 'Late Fine Per Day',
@@ -893,6 +892,24 @@ function SystemSettingsTable({ canEdit }) {
 // 🏛️ MAIN SETTINGS PAGE CONTAINER
 // ============================================================
 
+function MemberGroupsSettings({ canEdit }) {
+  const [groups, setGroups] = useState([])
+  const [showAdd, setShowAdd] = useState(false)
+  const [form, setForm] = useState({ group_name: '', singular_label: 'Student', plural_label: 'Students', library_enabled: false, programmes_enabled: false, subscriptions_enabled: false })
+  const load = () => api.get('/students/member-groups').then((response) => setGroups(response.data || [])).catch(() => {})
+  useEffect(() => { load() }, [])
+  const save = async (event) => {
+    event.preventDefault(); await api.post('/students/member-groups', form); setShowAdd(false)
+    setForm({ group_name: '', singular_label: 'Student', plural_label: 'Students', library_enabled: false, programmes_enabled: false, subscriptions_enabled: false }); await load()
+  }
+  const update = async (group, changes) => { await api.put(`/students/member-groups/${group.group_code}`, { ...group, ...changes }); await load() }
+  return <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-[#292944] dark:bg-[#17172a]">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold text-gray-900 dark:text-white">Student / Member Groups</h3><p className="text-xs text-gray-500">Create separate record pages and choose whether each group uses library features.</p></div>{canEdit && <button onClick={() => setShowAdd(!showAdd)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">+ Add Group</button>}</div>
+    {showAdd && <form onSubmit={save} className="mt-4 grid gap-3 rounded-xl border bg-gray-50 p-4 dark:border-[#292944] dark:bg-[#10101d] md:grid-cols-3"><input required value={form.group_name} onChange={(e) => setForm({...form,group_name:e.target.value})} placeholder="Group name" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.singular_label} onChange={(e) => setForm({...form,singular_label:e.target.value})} placeholder="Singular label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.plural_label} onChange={(e) => setForm({...form,plural_label:e.target.value})} placeholder="Plural label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><label className="text-xs"><input type="checkbox" checked={form.library_enabled} onChange={(e) => setForm({...form,library_enabled:e.target.checked})}/> Library access</label><label className="text-xs"><input type="checkbox" checked={form.programmes_enabled} onChange={(e) => setForm({...form,programmes_enabled:e.target.checked})}/> Programmes</label><label className="text-xs"><input type="checkbox" checked={form.subscriptions_enabled} onChange={(e) => setForm({...form,subscriptions_enabled:e.target.checked})}/> Subscriptions</label><button className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white">Create Group</button></form>}
+    <div className="mt-4 grid gap-3 md:grid-cols-2">{groups.map((group) => <div key={group.group_code} className="rounded-xl border p-4 dark:border-[#292944]"><div className="flex items-start justify-between"><div><div className="font-bold">{group.group_name}</div><div className="text-xs text-gray-500">{group.member_count} records · {group.group_code}</div></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${group.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{group.is_active ? 'ACTIVE' : 'INACTIVE'}</span></div><div className="mt-3 flex flex-wrap gap-2 text-[11px]"><span>Library: {group.library_enabled ? 'Yes' : 'No'}</span><span>Programme: {group.programmes_enabled ? 'Yes' : 'No'}</span><span>Subscription: {group.subscriptions_enabled ? 'Yes' : 'No'}</span></div>{canEdit && group.group_code !== 'JK_MEMBERS' && <button onClick={() => update(group, { is_active: !group.is_active })} className="mt-3 text-xs font-bold text-blue-600">{group.is_active ? 'Deactivate' : 'Activate'}</button>}</div>)}</div>
+  </div>
+}
+
 function Settings() {
   const { user, hasPermission } = useAuth()
   const canEdit = user?.role === 'ADMIN' || hasPermission('settings.view')
@@ -912,6 +929,7 @@ function Settings() {
 
       </div>
 
+      <MemberGroupsSettings canEdit={canEdit} />
       <SystemSettingsTable canEdit={canEdit} />
     </div>
   )

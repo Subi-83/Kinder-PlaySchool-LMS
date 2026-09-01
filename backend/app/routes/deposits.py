@@ -5,6 +5,7 @@ from app.models.deposit import DepositAccount, DepositTransaction
 from app.models.student import Student
 from app.models.academic import AcademicYear, StudentEnrollment
 from app.models.subscription import StudentSubscription
+from app.models.library import BookIssue
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from app.services.settings_service import SettingsService
@@ -12,11 +13,30 @@ import json
 
 deposits_bp = Blueprint('deposits', __name__, url_prefix='/api/deposits')
 
+def _refund_due_accounts(academic_year):
+    """Balances from earlier-year members who were not re-enrolled in this year."""
+    if not academic_year:
+        return []
+    continuing_library_members = db.session.query(StudentEnrollment.student_id).filter(
+        StudentEnrollment.academic_year_id == academic_year.academic_year_id,
+        StudentEnrollment.library_access == True
+    )
+    earlier_library_members = db.session.query(StudentEnrollment.student_id).join(AcademicYear).filter(
+        AcademicYear.start_date < academic_year.start_date,
+        StudentEnrollment.library_access == True
+    )
+    return DepositAccount.query.join(Student).filter(
+        Student.is_active == True,
+        DepositAccount.current_balance > 0,
+        DepositAccount.student_id.in_(earlier_library_members),
+        ~DepositAccount.student_id.in_(continuing_library_members)
+    ).order_by(Student.student_name).all()
+
 @deposits_bp.route('/', methods=['GET'])
 @jwt_required()
 @permission_required('deposit.view')
 def get_deposits():
-    """Get deposit accounts only for actively subscribed library members."""
+    """Get this year's deposit accounts, including balances carried by re-enrolment."""
     year_id = request.args.get('academic_year_id', type=int)
     academic_year = AcademicYear.query.get(year_id) if year_id else AcademicYear.get_current()
     if not academic_year:
@@ -27,21 +47,117 @@ def get_deposits():
         StudentEnrollment.academic_year_id == academic_year.academic_year_id,
         StudentEnrollment.library_access == True,
         StudentSubscription.academic_year_id == academic_year.academic_year_id,
-        StudentSubscription.status == 'ACTIVE'
+        StudentSubscription.status.in_(['ACTIVE', 'PENDING'])
     ).distinct().all()
     for s in library_students:
         if not DepositAccount.query.filter_by(student_id=s.student_id).first():
             db.session.add(DepositAccount(student_id=s.student_id))
     db.session.commit()
 
-    accounts = DepositAccount.query.join(Student).join(StudentEnrollment).join(StudentSubscription, StudentSubscription.student_id == Student.student_id).filter(
+    subscribed_student_ids = db.session.query(StudentSubscription.student_id).filter(
+        StudentSubscription.academic_year_id == academic_year.academic_year_id,
+        StudentSubscription.status.in_(['ACTIVE', 'PENDING'])
+    )
+    accounts = DepositAccount.query.join(Student).join(StudentEnrollment).filter(
         StudentEnrollment.academic_year_id == academic_year.academic_year_id,
         StudentEnrollment.library_access == True,
-        StudentSubscription.academic_year_id == academic_year.academic_year_id,
-        StudentSubscription.status == 'ACTIVE',
+        db.or_(DepositAccount.current_balance > 0, DepositAccount.student_id.in_(subscribed_student_ids)),
         Student.is_active == True
     ).distinct().order_by(Student.student_name).all()
-    return jsonify([a.to_dict() for a in accounts]), 200
+
+    result = []
+    threshold = SettingsService.get_float('low_deposit_threshold', 300)
+    for account in accounts:
+        item = account.to_dict()
+        year_subscription = StudentSubscription.query.filter_by(
+            student_id=account.student_id,
+            academic_year_id=academic_year.academic_year_id
+        ).order_by(StudentSubscription.subscription_id.desc()).first()
+        prior_enrollment = StudentEnrollment.query.join(AcademicYear).filter(
+            StudentEnrollment.student_id == account.student_id,
+            AcademicYear.start_date < academic_year.start_date
+        ).first()
+        item['subscription_status'] = year_subscription.status if year_subscription else 'NOT_SUBSCRIBED'
+        item['active_subscription'] = year_subscription.to_dict() if year_subscription else None
+        item['deposit_forwarded'] = bool(prior_enrollment and float(account.current_balance or 0) > 0)
+        item['is_low_balance'] = bool(
+            year_subscription and year_subscription.status == 'ACTIVE'
+            and float(account.current_balance or 0) <= threshold
+        )
+        result.append(item)
+    return jsonify(result), 200
+
+@deposits_bp.route('/refund-due', methods=['GET'])
+@jwt_required()
+@permission_required('deposit.view')
+def get_refund_due_accounts():
+    """List earlier-year balances that should be returned unless the member re-enrols."""
+    year_id = request.args.get('academic_year_id', type=int)
+    academic_year = AcademicYear.query.get(year_id) if year_id else AcademicYear.get_current()
+    if not academic_year:
+        return jsonify([]), 200
+
+    result = []
+    for account in _refund_due_accounts(academic_year):
+        item = account.to_dict()
+        previous = StudentEnrollment.query.join(AcademicYear).filter(
+            StudentEnrollment.student_id == account.student_id,
+            AcademicYear.start_date < academic_year.start_date
+        ).order_by(AcademicYear.start_date.desc()).first()
+        item['previous_academic_year'] = previous.academic_year.year_code if previous and previous.academic_year else None
+        item['refund_for_academic_year'] = academic_year.year_code
+        result.append(item)
+    return jsonify(result), 200
+
+@deposits_bp.route('/refund/<int:student_id>', methods=['POST'])
+@jwt_required()
+@permission_required('deposit.refund')
+def refund_deposit(student_id):
+    """Return the complete balance when next-year library subscription is declined."""
+    data = request.get_json() or {}
+    year_id = data.get('academic_year_id')
+    academic_year = AcademicYear.query.get(year_id) if year_id else AcademicYear.get_current()
+    if not academic_year:
+        return jsonify({'error': 'Select a valid academic year.'}), 400
+
+    continuing = StudentEnrollment.query.filter_by(
+        student_id=student_id,
+        academic_year_id=academic_year.academic_year_id,
+        library_access=True
+    ).first()
+    if continuing:
+        return jsonify({'error': 'Deposit cannot be refunded because Library Subscription is Yes for this academic year.'}), 400
+    if BookIssue.query.filter(
+        BookIssue.student_id == student_id,
+        BookIssue.status.in_(['ACTIVE', 'OVERDUE'])
+    ).count() > 0:
+        return jsonify({'error': 'Return all issued books before refunding the deposit.'}), 400
+
+    account = DepositAccount.query.filter_by(student_id=student_id).first()
+    if not account or float(account.current_balance or 0) <= 0:
+        return jsonify({'error': 'No deposit balance is available to refund.'}), 400
+
+    amount = float(account.current_balance)
+    current_user = get_current_user()
+    transaction = DepositTransaction(
+        deposit_account_id=account.deposit_account_id,
+        transaction_type='REFUND',
+        amount=-amount,
+        balance_after=0,
+        description=f'Deposit returned because Library Subscription is No for {academic_year.year_code}',
+        created_by=current_user.user_id if current_user else None
+    )
+    account.current_balance = 0
+    account.last_transaction_date = db.func.now()
+    db.session.add(transaction)
+    db.session.commit()
+    AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'SYSTEM',
+        action='DEPOSIT_REFUND', module='Deposit', record_id=str(student_id),
+        details=f'Refunded ₹{amount:.2f} for {academic_year.year_code}'
+    )
+    return jsonify({'message': f'Deposit of ₹{amount:.2f} refunded successfully.', 'transaction': transaction.to_dict()}), 200
 
 @deposits_bp.route('/student/<int:student_id>', methods=['GET'])
 @jwt_required()

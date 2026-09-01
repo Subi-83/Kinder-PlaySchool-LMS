@@ -9,16 +9,16 @@ const navItems = [
   { path: '/notifications', label: 'Notifications', icon: '🔔', permissions: [], adminOnly: true },
   { path: '/students', label: 'JK Members', icon: '👨‍🎓', permissions: ['student.view'] },
   { path: '/books', label: 'Books', icon: '📚', permissions: ['book.view'] },
-  { path: '/ebooks', label: 'E-books', icon: '💻', permissions: ['book.view'] },
+  { path: '/ebooks', label: 'E-books', icon: '💻', permissions: ['ebook.view'] },
   { path: '/subscriptions', label: 'Subscriptions', icon: '📋', permissions: ['subscription.view'] },
-  { path: '/subscription-payments', label: 'Subscription Payments', icon: '💳', permissions: ['subscription.view'] },
+  { path: '/subscription-payments', label: 'Subscription Payments', icon: '💳', permissions: ['subscription.payment.view'] },
   { path: '/library', label: 'Library', icon: '📖', permissions: ['book.issue'] },
   { path: '/deposits', label: 'Deposits', icon: '💰', permissions: ['deposit.view'] },
   { path: '/master-data', label: 'Master Data', icon: '🗂️', permissions: ['programme.view', 'book.edit'] },
   { path: '/reports', label: 'Reports', icon: '📈', permissions: ['report.stock'] },
   { path: '/users', label: 'Users', icon: '👥', permissions: ['user.view'] },
   { path: '/settings', label: 'Settings', icon: '⚙️', permissions: ['settings.view'] },
-  { path: '/holiday-calendar', label: 'Holiday Calendar', icon: '📅', permissions: ['settings.view'] },
+  { path: '/holiday-calendar', label: 'Holiday Calendar', icon: '📅', permissions: ['holiday.view'] },
   { path: '/audit', label: 'Audit Logs', icon: '📜', permissions: ['audit.view'] },
   { path: '/profile', label: 'My Profile', icon: '👤', permissions: [] },
 ]
@@ -31,6 +31,7 @@ function Sidebar({ collapsed, onToggle }) {
     .map((word) => word[0]).join('').toUpperCase()
   const canViewSettings = user?.role === 'ADMIN' || hasPermission('settings.view')
   const [notificationData, setNotificationData] = useState({ notifications: [], pending_count: 0 })
+  const [memberGroups, setMemberGroups] = useState([])
 
   const loadNotifications = async () => {
     if (user?.role !== 'ADMIN') return
@@ -47,7 +48,15 @@ function Sidebar({ collapsed, onToggle }) {
     return () => clearInterval(timer)
   }, [user?.role])
 
-  const filteredItems = navItems.filter(item => {
+  useEffect(() => {
+    if (!hasPermission('student.view') && user?.role !== 'ADMIN') return
+    api.get('/students/member-groups').then((response) => setMemberGroups((response.data || []).filter((group) => group.is_active && group.group_code !== 'JK_MEMBERS'))).catch(() => {})
+  }, [user?.role, hasPermission])
+
+  const allNavItems = navItems.flatMap((item) => item.path === '/students'
+    ? [item, ...memberGroups.map((group) => ({ path: `/member-groups/${group.group_code}`, label: group.group_name, icon: '👧', permissions: ['student.view'] }))]
+    : [item])
+  const filteredItems = allNavItems.filter(item => {
     if (item.adminOnly && user?.role !== 'ADMIN') return false
     if (item.permissions.length === 0) return true
     return hasAnyPermission(item.permissions)

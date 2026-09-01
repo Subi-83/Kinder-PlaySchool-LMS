@@ -573,7 +573,8 @@ def books_detailed_report():
 
     book_titles = query.order_by(BookTitle.title).all()
     results = []
-    copy_results = []
+    lost_book_results = []
+    issued_book_results = []
 
     for b in book_titles:
         level_name = b.level_ref.level_name if b.level_ref else (b.level_ref.level_code if b.level_ref else 'General')
@@ -631,18 +632,32 @@ def books_detailed_report():
             'lost_quantity': lost_copies,
             'book_status': status_str
         })
-        copy_results.extend({
-            'book_id': copy.barcode or '-',
-            'book_title': b.title,
-            'copy_number': copy.copy_number,
-            'accession_number': copy.accession_number or '-',
-            'purchase_year': copy.purchase_year or '-',
-            'purchase_price': float(copy.purchase_price) if copy.purchase_price is not None else None,
-            'condition': copy.condition,
-            'status': copy.status,
-            'location': copy.location or '-',
-            'notes': copy.notes or '-'
-        } for copy in copies)
+        for copy in copies:
+            if copy.status == 'LOST':
+                lost_book_results.append({
+                    'book_id': copy.barcode or '-',
+                    'name': b.title,
+                    'author': b.author,
+                    'publisher': b.publisher or '-',
+                    'price': float(b.mrp) if b.mrp is not None else None,
+                    'condition': copy.condition,
+                    'location': copy.location or '-',
+                    'notes': copy.notes or '-'
+                })
+            elif copy.status == 'ISSUED':
+                current_issue = copy.issues.filter(
+                    BookIssue.status.in_(['ACTIVE', 'OVERDUE'])
+                ).order_by(BookIssue.issue_id.desc()).first()
+                issued_book_results.append({
+                    'book_id': copy.barcode or '-',
+                    'name': b.title,
+                    'author': b.author,
+                    'member_id': current_issue.student_ref.student_uid if current_issue and current_issue.student_ref else '-',
+                    'member_name': current_issue.student_ref.student_name if current_issue and current_issue.student_ref else '-',
+                    'issue_date': current_issue.issue_date.strftime('%Y-%m-%d') if current_issue and current_issue.issue_date else '-',
+                    'due_date': current_issue.due_date.strftime('%Y-%m-%d') if current_issue and current_issue.due_date else '-',
+                    'status': current_issue.status if current_issue else 'ISSUED'
+                })
 
     return jsonify({
         'total_titles': len(results),
@@ -651,8 +666,16 @@ def books_detailed_report():
         'issued_copies': sum(int(r['issued_quantity']) for r in results),
         'damaged_copies': sum(int(r['damaged_quantity']) for r in results),
         'lost_copies': sum(int(r['lost_quantity']) for r in results),
-        'books_list': results,
-        'physical_copy_register': copy_results
+        'books_list': [{
+            'book_id': row['book_id'],
+            'name': row['book_title'],
+            'author': row['author'],
+            'publisher': row['publisher'],
+            'price': row['mrp'],
+            'available_books': row['available_quantity']
+        } for row in results],
+        'lost_books_list': lost_book_results,
+        'issued_books_list': issued_book_results
     }), 200
 
 

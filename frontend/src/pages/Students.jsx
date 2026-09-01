@@ -166,7 +166,7 @@ function Students() {
     try {
       setError('')
       setSuccess('')
-      await api.post('/students/enrollments', {
+      const response = await api.post('/students/enrollments', {
         student_id: reEnrollStudent.student_id,
         ...reEnrollForm,
         profile: {
@@ -179,7 +179,7 @@ function Students() {
           library_access: reEnrollForm.library_access
         }
       })
-      setSuccess(`✅ ${reEnrollStudent.student_name} enrolled successfully!`)
+      setSuccess(response.data?.message || `${reEnrollStudent.student_name} enrolled successfully!`)
       setReEnrollStudent(null)
       setShowEnrollmentDialog(false)
       setReEnrollForm(emptyReEnrollForm())
@@ -1009,7 +1009,12 @@ function Students() {
                     <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Gender
                       <select value={reEnrollForm.gender} onChange={(e) => setReEnrollForm((form) => ({ ...form, gender: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
                     </label>
-                    <label className="flex items-center gap-2 self-end rounded-xl border border-emerald-200 p-2.5 text-xs font-bold uppercase dark:border-emerald-800 dark:text-gray-200"><input type="checkbox" checked={!!reEnrollForm.library_access} onChange={(e) => setReEnrollForm((form) => ({ ...form, library_access: e.target.checked }))} /> Library Access</label>
+                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Library Subscription for Next Course
+                      <select value={reEnrollForm.library_access ? 'YES' : 'NO'} onChange={(e) => setReEnrollForm((form) => ({ ...form, library_access: e.target.value === 'YES' }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white">
+                        <option value="YES">Yes — carry deposit and plan forward</option>
+                        <option value="NO">No — deposit refund required</option>
+                      </select>
+                    </label>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                     <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Address<textarea rows="3" value={reEnrollForm.address} onChange={(e) => setReEnrollForm((form) => ({ ...form, address: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white" /></label>

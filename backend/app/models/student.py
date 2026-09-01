@@ -2,12 +2,40 @@ from app import db
 from datetime import datetime
 import re
 
+class MemberGroup(db.Model):
+    """Configurable student/member group with optional library features."""
+    __tablename__ = 'member_groups'
+
+    group_code = db.Column(db.String(40), primary_key=True)
+    group_name = db.Column(db.String(100), nullable=False)
+    singular_label = db.Column(db.String(100), nullable=False, default='Student')
+    plural_label = db.Column(db.String(100), nullable=False, default='Students')
+    library_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    programmes_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    subscriptions_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'group_code': self.group_code,
+            'group_name': self.group_name,
+            'singular_label': self.singular_label,
+            'plural_label': self.plural_label,
+            'library_enabled': self.library_enabled,
+            'programmes_enabled': self.programmes_enabled,
+            'subscriptions_enabled': self.subscriptions_enabled,
+            'is_active': self.is_active,
+            'member_count': Student.query.filter_by(member_group_code=self.group_code, is_active=True).count(),
+        }
+
 class Student(db.Model):
     """Student Model - Stores student information (permanent record)"""
     __tablename__ = 'students'
     
     student_id = db.Column(db.Integer, primary_key=True)
     student_uid = db.Column(db.String(20), unique=True, nullable=False, comment='Permanent member ID: JK0001')
+    member_group_code = db.Column(db.String(40), db.ForeignKey('member_groups.group_code'), nullable=False, default='JK_MEMBERS')
     student_name = db.Column(db.String(100), nullable=False)
     date_of_birth = db.Column(db.Date, nullable=False)
     gender = db.Column(db.Enum('MALE', 'FEMALE', 'OTHER'), nullable=True)
@@ -33,6 +61,7 @@ class Student(db.Model):
     issues = db.relationship('BookIssue', backref='student_ref', lazy='dynamic')
     subscriptions = db.relationship('StudentSubscription', backref='student_ref', lazy='dynamic')
     damage_records = db.relationship('DamageLossRecord', backref='student_ref', lazy='dynamic')
+    member_group = db.relationship('MemberGroup', backref=db.backref('members', lazy='dynamic'))
     
     def __repr__(self):
         return f'<Student {self.student_uid} - {self.student_name}>'
@@ -51,6 +80,8 @@ class Student(db.Model):
         return {
             'student_id': self.student_id,
             'student_uid': self.student_uid,
+            'member_group_code': self.member_group_code,
+            'member_group': self.member_group.to_dict() if self.member_group else None,
             'student_name': self.student_name,
             'date_of_birth': self.date_of_birth.strftime('%Y-%m-%d') if self.date_of_birth else None,
             'age': self.get_age(),
@@ -94,6 +125,7 @@ class Student(db.Model):
         return {
             'student_id': self.student_id,
             'student_uid': self.student_uid,
+            'member_group_code': self.member_group_code,
             'student_name': self.student_name,
             'date_of_birth': self.date_of_birth.strftime('%Y-%m-%d') if self.date_of_birth else None,
             'age': self.get_age(),

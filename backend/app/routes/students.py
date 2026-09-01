@@ -2,10 +2,11 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from sqlalchemy import text
 from app import db
-from app.models.student import Student
+from app.models.student import Student, MemberGroup
 from app.models.academic import AcademicYear, Programme, StudentEnrollment, GradeLevel
 from app.models.deposit import DepositAccount
 from app.models.library import BookIssue
+from app.models.subscription import StudentSubscription
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from datetime import datetime, timedelta
@@ -16,6 +17,43 @@ import csv
 import re
 
 students_bp = Blueprint('students', __name__, url_prefix='/api/students')
+
+def _carry_subscription_to_academic_year(student_id, academic_year, library_access):
+    """Copy the latest plan into a new year without duplicating last year's payment."""
+    if not library_access:
+        return None
+    existing = StudentSubscription.query.filter_by(
+        student_id=student_id,
+        academic_year_id=academic_year.academic_year_id
+    ).order_by(StudentSubscription.subscription_id.desc()).first()
+    if existing:
+        return existing
+    previous = StudentSubscription.query.filter(
+        StudentSubscription.student_id == student_id,
+        StudentSubscription.academic_year_id != academic_year.academic_year_id
+    ).order_by(StudentSubscription.created_at.desc(), StudentSubscription.subscription_id.desc()).first()
+    if not previous or not previous.plan_ref:
+        return None
+
+    start_date = max(datetime.now().date(), academic_year.start_date)
+    end_date = min(
+        academic_year.end_date,
+        start_date + timedelta(days=previous.plan_ref.duration_months * 30)
+    )
+    carried = StudentSubscription(
+        student_id=student_id,
+        subscription_plan_id=previous.subscription_plan_id,
+        academic_year_id=academic_year.academic_year_id,
+        start_date=start_date,
+        end_date=end_date,
+        status='PENDING',
+        amount_paid=0,
+        payment_date=None,
+        payment_method=None,
+        notes=f'Plan carried forward from academic year {previous.academic_year_ref.year_code if previous.academic_year_ref else previous.academic_year_id}; payment pending'
+    )
+    db.session.add(carried)
+    return carried
 
 XLSX_NS = {'x': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
 
@@ -261,8 +299,103 @@ def _match_subscription_plan(value):
 @permission_required('student.view')
 def get_students():
     """Get all students"""
-    students = Student.query.filter_by(is_active=True).order_by(Student.student_name).all()
+    students = Student.query.filter_by(is_active=True, member_group_code='JK_MEMBERS').order_by(Student.student_name).all()
     return jsonify([s.to_dict() for s in students]), 200
+
+@students_bp.route('/member-groups', methods=['GET'])
+@jwt_required()
+@permission_required('student.view')
+def get_member_groups():
+    groups = MemberGroup.query.order_by(MemberGroup.group_name).all()
+    return jsonify([group.to_dict() for group in groups]), 200
+
+@students_bp.route('/member-groups', methods=['POST'])
+@jwt_required()
+@permission_required('settings.view')
+def create_member_group():
+    data = request.get_json() or {}
+    name = str(data.get('group_name') or '').strip()
+    code = re.sub(r'[^A-Z0-9]+', '_', str(data.get('group_code') or name).upper()).strip('_')
+    if not name or not code:
+        return jsonify({'error': 'Group name is required.'}), 400
+    if MemberGroup.query.get(code):
+        return jsonify({'error': 'A group with this code already exists.', 'warning': True}), 409
+    group = MemberGroup(
+        group_code=code, group_name=name,
+        singular_label=str(data.get('singular_label') or 'Student').strip(),
+        plural_label=str(data.get('plural_label') or 'Students').strip(),
+        library_enabled=bool(data.get('library_enabled', False)),
+        programmes_enabled=bool(data.get('programmes_enabled', False)),
+        subscriptions_enabled=bool(data.get('subscriptions_enabled', False)),
+    )
+    db.session.add(group); db.session.commit()
+    return jsonify({'message': f'{name} group created.', 'group': group.to_dict()}), 201
+
+@students_bp.route('/member-groups/<string:group_code>', methods=['PUT'])
+@jwt_required()
+@permission_required('settings.view')
+def update_member_group(group_code):
+    group = MemberGroup.query.get(group_code)
+    if not group:
+        return jsonify({'error': 'Member group not found.'}), 404
+    data = request.get_json() or {}
+    for field in ('group_name', 'singular_label', 'plural_label', 'library_enabled', 'programmes_enabled', 'subscriptions_enabled', 'is_active'):
+        if field in data:
+            setattr(group, field, data[field])
+    db.session.commit()
+    return jsonify({'message': f'{group.group_name} group updated.', 'group': group.to_dict()}), 200
+
+@students_bp.route('/member-groups/<string:group_code>', methods=['DELETE'])
+@jwt_required()
+@permission_required('settings.view')
+def delete_member_group(group_code):
+    group = MemberGroup.query.get(group_code)
+    if not group:
+        return jsonify({'error': 'Member group not found.'}), 404
+    if group_code == 'JK_MEMBERS' or group.members.count() > 0:
+        return jsonify({'error': 'Groups containing members cannot be deleted. Deactivate the group instead.', 'warning': True}), 409
+    db.session.delete(group); db.session.commit()
+    return jsonify({'message': f'{group.group_name} group deleted.'}), 200
+
+@students_bp.route('/group/<string:group_code>', methods=['GET'])
+@jwt_required()
+@permission_required('student.view')
+def get_group_members(group_code):
+    group = MemberGroup.query.get(group_code)
+    if not group:
+        return jsonify({'error': 'Member group not found.'}), 404
+    members = Student.query.filter_by(member_group_code=group_code, is_active=True).order_by(Student.student_name).all()
+    return jsonify({'group': group.to_dict(), 'members': [member.to_dict() for member in members]}), 200
+
+@students_bp.route('/group/<string:group_code>', methods=['POST'])
+@jwt_required()
+@permission_required('student.create')
+def create_group_member(group_code):
+    group = MemberGroup.query.filter_by(group_code=group_code, is_active=True).first()
+    if not group:
+        return jsonify({'error': 'Active member group not found.'}), 404
+    data = request.get_json() or {}
+    name = str(data.get('student_name') or '').strip()
+    try:
+        dob = datetime.strptime(str(data.get('date_of_birth') or ''), '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'Member name and a valid date of birth are required.'}), 400
+    if not name:
+        return jsonify({'error': 'Member name is required.'}), 400
+    member = Student(
+        student_uid=Student.generate_uid(), member_group_code=group_code,
+        student_name=name, date_of_birth=dob, gender=data.get('gender') or 'OTHER',
+        school_name=data.get('school_name') or group.group_name,
+        student_email=data.get('student_email') or None,
+        mother_name=data.get('mother_name') or None, mother_phone=data.get('mother_phone') or None,
+        mother_email=data.get('mother_email') or None, father_name=data.get('father_name') or None,
+        father_phone=data.get('father_phone') or None, father_email=data.get('father_email') or None,
+        address=data.get('address') or None, emergency_contact_name=data.get('emergency_contact_name') or None,
+        emergency_contact_phone=data.get('emergency_contact_phone') or None, medical_notes=data.get('medical_notes') or None,
+        library_access=False
+    )
+    db.session.add(member); db.session.commit()
+    return jsonify({'message': f'{group.singular_label} added successfully.', 'member': member.to_dict()}), 201
 
 @students_bp.route('/search', methods=['GET'])
 @jwt_required()
@@ -272,7 +405,7 @@ def search_students():
     q = (request.args.get('q') or '').strip()
     library_only = (request.args.get('library_only') or '').lower() in ('true', '1', 'yes')
     
-    query = Student.query.filter_by(is_active=True)
+    query = Student.query.filter_by(is_active=True, member_group_code='JK_MEMBERS')
     if library_only:
         query = query.filter(Student.library_access == True)
         
@@ -359,42 +492,10 @@ def create_student():
 def update_student(student_id):
     """Update a student"""
     try:
+        data = request.get_json() or {}
         student = Student.query.get(student_id)
         if not student:
             return jsonify({'error': 'Student not found'}), 404
-
-        profile = data.get('profile') or {}
-        before_profile = {}
-        if profile:
-            if not str(profile.get('student_name') or '').strip():
-                return jsonify({'error': 'Member name is required.'}), 400
-            try:
-                profile_dob = datetime.strptime(str(profile.get('date_of_birth') or ''), '%Y-%m-%d').date()
-            except (TypeError, ValueError):
-                return jsonify({'error': 'A valid date of birth is required.'}), 400
-
-            profile_fields = (
-                'student_name', 'gender', 'school_name', 'student_email',
-                'mother_name', 'mother_phone', 'mother_email', 'father_name',
-                'father_phone', 'father_email', 'address', 'emergency_contact_name',
-                'emergency_contact_phone', 'medical_notes'
-            )
-            for field in profile_fields:
-                if field in profile:
-                    before_profile[field] = getattr(student, field, None)
-                    value = profile[field]
-                    if isinstance(value, str):
-                        value = value.strip() or None
-                    setattr(student, field, value)
-            before_profile['date_of_birth'] = student.date_of_birth
-            before_profile['library_access'] = student.library_access
-            student.date_of_birth = profile_dob
-            student.library_access = bool(profile.get('library_access', student.library_access))
-
-        if student.library_access and not DepositAccount.query.filter_by(student_id=student.student_id).first():
-            db.session.add(DepositAccount(student_id=student.student_id))
-        
-        data = request.get_json() or {}
         
         # Update fields
         if 'student_name' in data and data['student_name']:
@@ -436,6 +537,9 @@ def update_student(student_id):
             student.library_access = bool(data['library_access'])
         if 'is_active' in data:
             student.is_active = data['is_active']
+
+        if student.library_access and not DepositAccount.query.filter_by(student_id=student.student_id).first():
+            db.session.add(DepositAccount(student_id=student.student_id))
 
         # Profile edits deliberately never change academic history.  Use the
         # enrollment endpoint for every new year/programme/class assignment.
@@ -770,6 +874,39 @@ def create_enrollment():
         if not student:
             return jsonify({'error': 'Student not found'}), 404
 
+        # Re-enrolment carries the member's complete personal data forward and
+        # allows it to be reviewed/updated for the selected academic year.
+        profile = data.get('profile') or {}
+        before_profile = {}
+        if profile:
+            if not str(profile.get('student_name') or '').strip():
+                return jsonify({'error': 'Member name is required.'}), 400
+            try:
+                profile_dob = datetime.strptime(str(profile.get('date_of_birth') or ''), '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return jsonify({'error': 'A valid date of birth is required.'}), 400
+
+            profile_fields = (
+                'student_name', 'gender', 'school_name', 'student_email',
+                'mother_name', 'mother_phone', 'mother_email', 'father_name',
+                'father_phone', 'father_email', 'address', 'emergency_contact_name',
+                'emergency_contact_phone', 'medical_notes'
+            )
+            for field in profile_fields:
+                if field in profile:
+                    before_profile[field] = getattr(student, field, None)
+                    value = profile[field]
+                    if isinstance(value, str):
+                        value = value.strip() or None
+                    setattr(student, field, value)
+            before_profile['date_of_birth'] = student.date_of_birth
+            before_profile['library_access'] = student.library_access
+            student.date_of_birth = profile_dob
+            student.library_access = bool(profile.get('library_access', student.library_access))
+
+        if student.library_access and not DepositAccount.query.filter_by(student_id=student.student_id).first():
+            db.session.add(DepositAccount(student_id=student.student_id))
+
         programme = Programme.query.filter_by(programme_id=programme_id, is_active=True).first()
         academic_year = AcademicYear.query.filter_by(academic_year_id=academic_year_id, is_active=True).first()
         if not programme or not academic_year:
@@ -781,11 +918,20 @@ def create_enrollment():
             programme_id=programme_id,
         ).first()
         if existing_enrollment:
+            for enc in StudentEnrollment.query.filter_by(student_id=student_id, status='ACTIVE').all():
+                if enc.enrollment_id != existing_enrollment.enrollment_id:
+                    enc.status = 'COMPLETED'
+                    enc.completion_date = datetime.now().date()
             existing_enrollment.grade = str(data.get('grade') or '').strip() or None
             existing_enrollment.section = str(data.get('section') or '').strip() or None
             existing_enrollment.library_access = bool(data.get('library_access', student.library_access))
             existing_enrollment.status = 'ACTIVE'
             existing_enrollment.completion_date = None
+            carried_subscription = _carry_subscription_to_academic_year(
+                student_id, academic_year, existing_enrollment.library_access
+            )
+            deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
+            refund_due = bool(not existing_enrollment.library_access and deposit_account and float(deposit_account.current_balance or 0) > 0)
             db.session.commit()
             current_user = get_current_user()
             AuditLog.log_action(
@@ -795,8 +941,10 @@ def create_enrollment():
                 details=f'Updated member profile and existing enrollment for student {student.student_id}'
             )
             return jsonify({
-                'message': 'Member profile and existing enrollment updated.',
+                'message': 'Member profile and existing enrollment updated.' + (' Subscription plan and deposit carried forward; payment is pending.' if carried_subscription and carried_subscription.status == 'PENDING' else '') + (' Library Subscription is No; deposit refund is now due.' if refund_due else ''),
                 'enrollment': existing_enrollment.to_dict(),
+                'subscription': carried_subscription.to_dict() if carried_subscription else None,
+                'deposit_refund_due': refund_due,
             }), 200
 
         # Preserve old records.  The new enrollment is appended; only a prior
@@ -820,6 +968,11 @@ def create_enrollment():
         )
         
         db.session.add(enrollment)
+        carried_subscription = _carry_subscription_to_academic_year(
+            student_id, academic_year, enrollment.library_access
+        )
+        deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
+        refund_due = bool(not enrollment.library_access and deposit_account and float(deposit_account.current_balance or 0) > 0)
         db.session.commit()
         
         current_user = get_current_user()
@@ -834,7 +987,12 @@ def create_enrollment():
             details=f'Created enrollment and updated profile for student {enrollment.student_id}; profile fields reviewed: {", ".join(before_profile.keys()) or "none"}'
         )
         
-        return jsonify(enrollment.to_dict()), 201
+        return jsonify({
+            'message': 'Member re-enrolled successfully.' + (' Subscription plan and deposit carried forward; payment is pending.' if carried_subscription and carried_subscription.status == 'PENDING' else '') + (' Library Subscription is No; deposit refund is now due.' if refund_due else ''),
+            'enrollment': enrollment.to_dict(),
+            'subscription': carried_subscription.to_dict() if carried_subscription else None,
+            'deposit_refund_due': refund_due,
+        }), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

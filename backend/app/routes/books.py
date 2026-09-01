@@ -3,7 +3,8 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models.book import BookTitle, BookCopy, BookLevel, BookCategory, BookLevelSequence
 from app.models.audit import AuditLog
-from app.middleware.auth_middleware import permission_required, get_current_user
+from app.middleware.auth_middleware import permission_required, permission_required_any, get_current_user
+from app.services.permission_service import PermissionService
 from app.services.settings_service import SettingsService
 import requests
 import json
@@ -72,7 +73,7 @@ def get_books():
 
 @books_bp.route('/ebooks', methods=['GET'])
 @jwt_required()
-@permission_required('book.view')
+@permission_required('ebook.view')
 def get_ebooks():
     """Return informational e-book records; these have no issueable copies."""
     ebooks = BookTitle.query.filter(BookTitle.ebook_count > 0).order_by(BookTitle.title).all()
@@ -80,7 +81,7 @@ def get_ebooks():
 
 @books_bp.route('/ebooks/<int:book_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('book.delete')
+@permission_required('ebook.delete')
 def delete_ebook_record(book_id):
     """Remove only the e-book record, preserving a shared physical title."""
     book = BookTitle.query.get(book_id)
@@ -145,13 +146,17 @@ def get_book(book_id):
 
 @books_bp.route('/', methods=['POST'])
 @jwt_required()
-@permission_required('book.create')
+@permission_required_any(['book.create', 'ebook.create'])
 def create_book():
     """Create a new book title or add copy to existing book title"""
     data = request.get_json() or {}
     create_physical_copy = data.get('create_physical_copy', True)
     if isinstance(create_physical_copy, str):
         create_physical_copy = create_physical_copy.lower() in ('true', '1', 'yes')
+    required_permission = 'book.create' if create_physical_copy else 'ebook.create'
+    current_user = get_current_user()
+    if not PermissionService.user_has_permission(current_user, required_permission):
+        return jsonify({'error': 'Permission denied', 'required_permission': required_permission}), 403
     
     title = (data.get('title') or '').strip()
     author = (data.get('author') or '').strip()
@@ -172,22 +177,15 @@ def create_book():
         ).first()
 
     if existing:
-        # Update e-book inventory without inventing a physical copy when this
-        # submission represents an e-book-only holding.
+        # E-books are information-only records. Do not silently overwrite an
+        # existing record when the add form is submitted more than once.
         if not create_physical_copy:
-            if data.get('ebook_count') not in (None, ''):
-                existing.ebook_count = ebook_count
-            if _to_float(data.get('mrp')) is not None:
-                existing.mrp = _to_float(data.get('mrp'))
-            db.session.commit()
-            current_user = get_current_user()
-            AuditLog.log_action(
-                user_id=current_user.user_id if current_user else None,
-                username=current_user.username if current_user else 'system',
-                action='UPDATE_EBOOK_INVENTORY', module='Book', record_id=str(existing.book_title_id),
-                details=f'Updated e-book inventory for {existing.title} to {existing.ebook_count}; no physical copy added.'
-            )
-            return jsonify(existing.to_dict()), 200
+            matched_by = 'ISBN' if isbn and (existing.isbn or '').strip().lower() == isbn.lower() else 'title and author'
+            return jsonify({
+                'error': f'Duplicate e-book: a record with this {matched_by} already exists. Use Edit to update it.',
+                'warning': True,
+                'existing_book_id': existing.book_title_id
+            }), 409
 
         # Add a new physical copy under the existing title.
         copy_count = existing.copies.count()
@@ -275,7 +273,7 @@ def create_book():
 
 @books_bp.route('/<int:book_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required_any(['book.edit', 'ebook.edit'])
 def update_book(book_id):
     """Update a book"""
     book = BookTitle.query.get(book_id)
@@ -283,6 +281,33 @@ def update_book(book_id):
         return jsonify({'error': 'Book not found'}), 404
     
     data = request.get_json() or {}
+    ebook_request = data.get('create_physical_copy') is False
+    required_permission = 'ebook.edit' if ebook_request else 'book.edit'
+    if not PermissionService.user_has_permission(get_current_user(), required_permission):
+        return jsonify({'error': 'Permission denied', 'required_permission': required_permission}), 403
+    title = (data.get('title', book.title) or '').strip()
+    author = (data.get('author', book.author) or '').strip()
+    isbn = (data.get('isbn', book.isbn) or '').strip() or None
+
+    duplicate = None
+    if isbn:
+        duplicate = BookTitle.query.filter(
+            BookTitle.book_title_id != book_id,
+            db.func.lower(db.func.trim(BookTitle.isbn)) == isbn.lower()
+        ).first()
+    if not duplicate and title and author:
+        duplicate = BookTitle.query.filter(
+            BookTitle.book_title_id != book_id,
+            db.func.lower(db.func.trim(BookTitle.title)) == title.lower(),
+            db.func.lower(db.func.trim(BookTitle.author)) == author.lower()
+        ).first()
+    if duplicate:
+        return jsonify({
+            'error': 'Duplicate book: another record already has this ISBN or title and author.',
+            'warning': True,
+            'existing_book_id': duplicate.book_title_id
+        }), 409
+
     tracked_fields = ('title', 'author', 'isbn', 'level_id', 'mrp', 'ebook_count', 'category_id', 'publication_year', 'publisher', 'description')
     before_values = {field: getattr(book, field, None) for field in tracked_fields}
     

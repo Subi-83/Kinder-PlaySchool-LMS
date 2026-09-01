@@ -3,7 +3,7 @@ Models Package - Contains all database models for Kinder Park Library System
 """
 
 from app.models.user import User, Permission, RolePermission, UserPermission
-from app.models.student import Student
+from app.models.student import Student, MemberGroup
 from app.models.academic import AcademicYear, Programme, StudentEnrollment, GradeLevel
 from app.models.book import BookLevel, BookCategory, BookTitle, BookCopy, BookLevelSequence
 from app.models.library import BookIssue, BookReturn, DamageLossRecord
@@ -21,6 +21,7 @@ __all__ = [
     
     # Student models
     'Student',
+    'MemberGroup',
     
     # Academic models
     'AcademicYear',

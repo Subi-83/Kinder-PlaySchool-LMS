@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
+import { useAuth } from '../context/AuthContext'
 
 function SubscriptionPayments() {
+  const { user, hasPermission } = useAuth()
+  const canEdit = user?.role === 'ADMIN' || hasPermission('subscription.payment.edit')
   const [years, setYears] = useState([])
   const [yearId, setYearId] = useState('')
   const [rows, setRows] = useState([])
@@ -37,6 +40,7 @@ function SubscriptionPayments() {
   const visible = rows.slice((page - 1) * pageSize, page * pageSize)
 
   const openEdit = (row) => {
+    if (!canEdit) return
     setEditing(row)
     setForm({ amount_paid: row.amount_paid ?? '', payment_date: row.payment_date || '', payment_method: row.payment_method || '', payment_proof_url: row.payment_proof_url || '' })
   }

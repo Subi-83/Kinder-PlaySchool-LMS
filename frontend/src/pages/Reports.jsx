@@ -16,9 +16,16 @@ const tabs = [
   { id: 'issue-return', label: 'Issue / Return Report', perm: 'report.issue_return' }
 ]
 
-const pretty = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+const FIELD_LABELS = { book_id: 'Book ID', available_books: 'No. of Available Books' }
+const pretty = (key) => FIELD_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
-const moneyKeys = ['fines', 'financial', 'students-detailed', 'subscription-payments']
+const BOOK_FIELD_ORDER = {
+  books_list: ['book_id', 'name', 'author', 'publisher', 'price', 'available_books'],
+  lost_books_list: ['book_id', 'name', 'author', 'publisher', 'price', 'condition', 'location', 'notes'],
+  issued_books_list: ['book_id', 'name', 'author', 'member_id', 'member_name', 'issue_date', 'due_date', 'status']
+}
+
+const moneyKeys = ['fines', 'financial', 'students-detailed', 'subscription-payments', 'books-detailed']
 const countFields = new Set([
   'low_deposits', 'total_students', 'library_access_enabled', 'active_subscriptions',
   'pending_subscriptions', 'total_payments', 'total_books', 'available', 'issued',
@@ -54,6 +61,7 @@ function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggle
   const perPage = 10
   const totalPages = Math.max(1, Math.ceil(rows.length / perPage))
   const visibleRows = rows.slice((page - 1) * perPage, page * perPage)
+  const tableFields = rows[0] ? Object.keys(rows[0]) : selectedFields
 
   useEffect(() => setPage(1), [rows, activeTab])
 
@@ -64,7 +72,7 @@ function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggle
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
-              <tr>{rows[0] && Object.keys(rows[0]).map(head => (
+              <tr>{tableFields.map(head => (
                 <th className="px-5 py-3.5" key={head}>
                   <label className="inline-flex items-center gap-2 cursor-pointer whitespace-nowrap">
                     <input type="checkbox" checked={selectedFields.includes(head)} onChange={() => onToggleField(head)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
@@ -259,6 +267,12 @@ function Reports() {
         : students
       return [[`${studentReportGroup}_report`, groupStudents.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]]
     }
+    if (active === 'books-detailed') {
+      return rawLists.map(([title, rows]) => {
+        const fields = BOOK_FIELD_ORDER[title] || (rows[0] ? Object.keys(rows[0]) : [])
+        return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
+      })
+    }
     return [...rawLists, ...extraData]
   }, [active, data, extraData, studentReportGroup])
   const metricsPerPage = 10
@@ -268,7 +282,7 @@ function Reports() {
   useEffect(() => {
     setSelectedMetrics(scalar.map(([key]) => key))
     setSelectedListFields(Object.fromEntries(
-      lists.map(([title, rows]) => [title, rows[0] ? Object.keys(rows[0]) : []])
+      lists.map(([title, rows]) => [title, rows[0] ? Object.keys(rows[0]) : (active === 'books-detailed' ? BOOK_FIELD_ORDER[title] || [] : [])])
     ))
   }, [active, data, extraData, studentReportGroup])
 

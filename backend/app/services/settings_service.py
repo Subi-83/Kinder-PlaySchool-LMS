@@ -168,7 +168,6 @@ class SettingsService:
             
             # Library Settings
             ('issue_period_days', '14', 'INTEGER', 'Library', 'Default book issue period in days', True),
-            ('max_books_per_student', '3', 'INTEGER', 'Library', 'Maximum books a student can borrow', True),
             ('barcode_lookup_enabled', 'true', 'BOOLEAN', 'Library', 'Enable barcode/ISBN lookup via API', True),
             ('holiday_adjustment', 'true', 'BOOLEAN', 'Library', 'Adjust due dates for holidays', True),
             

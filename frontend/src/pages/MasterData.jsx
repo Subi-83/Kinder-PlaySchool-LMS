@@ -54,13 +54,13 @@ const TABS = {
     columns: [
       { key: 'programme_code', label: 'Code' },
       { key: 'programme_name', label: 'Name' },
-      { key: 'grade_level', label: 'Grade Level' },
+      { key: 'grade_level', label: 'Age Group' },
       { key: 'is_active', label: 'Active', type: 'bool' },
     ],
     fields: [
       { key: 'programme_code', label: 'Code', required: true },
       { key: 'programme_name', label: 'Name', required: true },
-      { key: 'grade_level', label: 'Grade Level' },
+      { key: 'grade_level', label: 'Age Group' },
       { key: 'description', label: 'Description' },
     ],
   },

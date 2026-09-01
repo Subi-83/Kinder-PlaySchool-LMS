@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
+import { showAlert } from '../components/common/Alert'
 import { useAuth } from '../context/AuthContext'
 
 const emptyForm = () => ({
@@ -17,21 +18,19 @@ function EBooks() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
-  const [error, setError] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 10
-  const canCreate = user?.role === 'ADMIN' || hasPermission('book.create')
-  const canEdit = user?.role === 'ADMIN' || hasPermission('book.edit')
-  const canDelete = user?.role === 'ADMIN' || hasPermission('book.delete')
+  const canCreate = user?.role === 'ADMIN' || hasPermission('ebook.create')
+  const canEdit = user?.role === 'ADMIN' || hasPermission('ebook.edit')
+  const canDelete = user?.role === 'ADMIN' || hasPermission('ebook.delete')
 
   const load = async () => {
     try {
       setLoading(true)
-      setError('')
       const response = await api.get('/books/ebooks')
       setEbooks(response.data || [])
-    } catch (err) {
-      setError(err.response?.data?.error || 'Unable to load e-book records.')
+    } catch {
+      // API errors are displayed by Alert.jsx.
     } finally {
       setLoading(false)
     }
@@ -68,18 +67,22 @@ function EBooks() {
 
   const submit = async (event) => {
     event.preventDefault()
+    if (!form.title.trim() || !form.author.trim()) {
+      showAlert('Enter both the e-book title and author.', 'warning')
+      return
+    }
     try {
       setSaving(true)
-      setError('')
       const payload = { ...form, ebook_count: Math.max(1, Number(form.ebook_count) || 1), create_physical_copy: false }
       if (editing) await api.put(`/books/${editing}`, payload)
       else await api.post('/books/', payload)
+      showAlert(editing ? 'E-book updated successfully.' : 'E-book added successfully.', 'success')
       setShowForm(false)
       setEditing(null)
       setForm(emptyForm())
       await load()
-    } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Unable to save the e-book record.')
+    } catch {
+      // API errors, including duplicate warnings, are displayed by Alert.jsx.
     } finally {
       setSaving(false)
     }
@@ -88,11 +91,10 @@ function EBooks() {
   const remove = async (book) => {
     if (!window.confirm(`Remove the e-book record for "${book.title}"? Physical copies, if any, will remain.`)) return
     try {
-      setError('')
       await api.delete(`/books/ebooks/${book.book_title_id}`)
       await load()
-    } catch (err) {
-      setError(err.response?.data?.error || 'Unable to remove the e-book record.')
+    } catch {
+      // API errors are displayed by Alert.jsx.
     }
   }
 
@@ -105,8 +107,6 @@ function EBooks() {
         </div>
         {canCreate && <button onClick={openAdd} className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700">+ Add E-book</button>}
       </div>
-
-      {error && <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
 
       <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-[#292944] dark:bg-[#17172a]">
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, author, ISBN, or publisher..." className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white" />

@@ -17,7 +17,7 @@ from app.config import get_config
 from app.models import (
     User, Permission, RolePermission, UserPermission,
     AcademicYear, Programme, GradeLevel, StudentEnrollment,
-    Student, BookLevel, BookCategory, BookTitle, BookCopy,
+    Student, MemberGroup, BookLevel, BookCategory, BookTitle, BookCopy,
     BookIssue, BookReturn, DamageLossRecord,
     DepositAccount, DepositTransaction,
     SubscriptionPlan, StudentSubscription,
@@ -36,6 +36,9 @@ def seed_database():
         permissions_data = [
             ('USERS', 'user.view', 'View Users', 'Can view system user list'),
             ('USERS', 'user.manage', 'Manage Users', 'Can create, edit, disable system users'),
+            ('USERS', 'user.create', 'Create Users', 'Can create system users'),
+            ('USERS', 'user.edit', 'Edit Users', 'Can edit system users and permissions'),
+            ('USERS', 'user.delete', 'Delete Users', 'Can disable or delete system users'),
             ('STUDENTS', 'student.view', 'View Students', 'Can view student profiles and roster'),
             ('STUDENTS', 'student.create', 'Create Students', 'Can create new student records'),
             ('STUDENTS', 'student.edit', 'Edit Students', 'Can edit student details'),
@@ -48,16 +51,23 @@ def seed_database():
             ('SUBSCRIPTIONS', 'subscription.create', 'Create Subscriptions', 'Can assign or create subscriptions'),
             ('SUBSCRIPTIONS', 'subscription.edit', 'Edit Subscriptions', 'Can edit subscription details'),
             ('SUBSCRIPTIONS', 'subscription.delete', 'Delete Subscriptions', 'Can cancel or delete subscriptions'),
+            ('SUBSCRIPTION PAYMENTS', 'subscription.payment.view', 'View Subscription Payments Page', 'Can view academic-year subscription payments'),
+            ('SUBSCRIPTION PAYMENTS', 'subscription.payment.edit', 'Edit Subscription Payments', 'Can correct subscription payment details'),
             ('BOOKS', 'book.view', 'View Books', 'Can search and view catalog'),
             ('BOOKS', 'book.create', 'Create Books', 'Can add new book titles and copies'),
             ('BOOKS', 'book.edit', 'Edit Books', 'Can edit book catalog'),
             ('BOOKS', 'book.delete', 'Delete Books', 'Can delete books'),
+            ('E-BOOKS', 'ebook.view', 'View E-books Page', 'Can view information-only e-book records'),
+            ('E-BOOKS', 'ebook.create', 'Create E-books', 'Can add information-only e-book records'),
+            ('E-BOOKS', 'ebook.edit', 'Edit E-books', 'Can edit information-only e-book records'),
+            ('E-BOOKS', 'ebook.delete', 'Delete E-books', 'Can delete information-only e-book records'),
             ('LIBRARY', 'book.issue', 'Issue Books', 'Can issue books to students'),
             ('LIBRARY', 'book.return', 'Return Books', 'Can process book returns'),
             ('DAMAGE', 'damage.create', 'Record Damage', 'Can record book damage or loss'),
             ('DEPOSITS', 'deposit.view', 'View Deposits', 'Can view deposit accounts'),
             ('DEPOSITS', 'deposit.topup', 'Top-up Deposit', 'Can process deposit top-ups'),
             ('DEPOSITS', 'deposit.adjust', 'Adjust Deposit', 'Can adjust deposit balances'),
+            ('DEPOSITS', 'deposit.refund', 'Refund Deposit', 'Can return the complete deposit when next-year library subscription is declined'),
             ('REPORTS', 'report.stock', 'Stock Report', 'Can view stock report'),
             ('REPORTS', 'report.member', 'Member Report', 'Can view member report'),
             ('REPORTS', 'report.fine', 'Fine Report', 'Can view fine report'),
@@ -66,6 +76,9 @@ def seed_database():
             ('SETTINGS', 'settings.view', 'View Settings', 'Can view system settings'),
             ('AUDIT', 'audit.view', 'View Audit Logs', 'Can view audit logs'),
             ('HOLIDAYS', 'holiday.view', 'View Holidays', 'Can view holidays'),
+            ('HOLIDAYS', 'holiday.create', 'Create Holidays', 'Can add holidays to the calendar'),
+            ('HOLIDAYS', 'holiday.edit', 'Edit Holidays', 'Can edit holidays in the calendar'),
+            ('HOLIDAYS', 'holiday.delete', 'Delete Holidays', 'Can delete holidays from the calendar'),
             ('BACKUP', 'backup.create', 'Create Backup', 'Can create database backups'),
             ('EXPORT', 'export.create', 'Export Data', 'Can export data'),
         ]
@@ -128,6 +141,19 @@ def seed_database():
 
         # No role-level defaults. Administrators grant permissions per user.
         RolePermission.query.delete()
+        db.session.commit()
+
+        for group_data in (
+            ('JK_MEMBERS', 'JK Members', 'JK Member', 'JK Members', True, True, True),
+            ('KINDER_PARK', 'Kinder Park', 'Kinder Park Student', 'Kinder Park Students', False, False, False),
+        ):
+            if not MemberGroup.query.get(group_data[0]):
+                db.session.add(MemberGroup(
+                    group_code=group_data[0], group_name=group_data[1],
+                    singular_label=group_data[2], plural_label=group_data[3],
+                    library_enabled=group_data[4], programmes_enabled=group_data[5],
+                    subscriptions_enabled=group_data[6]
+                ))
         db.session.commit()
 
         # ----------------------------------------------------
@@ -825,7 +851,6 @@ def seed_database():
             ('school_name', 'Kinder Park Preschool & Reading Club', 'STRING', 'GENERAL', 'Official institution name'),
             ('fine_per_day', '5.00', 'DECIMAL', 'LIBRARY', 'Daily overdue fine in INR'),
             ('default_issue_days', '14', 'INTEGER', 'LIBRARY', 'Standard issue period in days'),
-            ('max_books_default', '2', 'INTEGER', 'LIBRARY', 'Default max books allowed per student'),
             ('currency_symbol', '₹', 'STRING', 'FINANCE', 'Currency symbol used in display'),
             ('warning_threshold_default', '100.00', 'DECIMAL', 'FINANCE', 'Minimum balance warning threshold'),
         ]

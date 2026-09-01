@@ -27,6 +27,7 @@ import HolidayCalendarPage from './pages/HolidayCalendarPage'
 import SubscriptionPayments from './pages/SubscriptionPayments'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import GroupMembers from './pages/GroupMembers'
 
 function App() {
   return (
@@ -46,17 +47,18 @@ function App() {
             }>
               <Route index element={<Dashboard />} />
               <Route path="students" element={<Students />} />
+              <Route path="member-groups/:groupCode" element={<ProtectedRoute requiredPermissions={['student.view']}><GroupMembers /></ProtectedRoute>} />
               <Route path="books" element={<Books />} />
-              <Route path="ebooks" element={<EBooks />} />
+              <Route path="ebooks" element={<ProtectedRoute requiredPermissions={['ebook.view']}><EBooks /></ProtectedRoute>} />
               <Route path="library" element={<Library />} />
               <Route path="deposits" element={<Deposits />} />
               <Route path="subscriptions" element={<Subscriptions />} />
-              <Route path="subscription-payments" element={<SubscriptionPayments />} />
+              <Route path="subscription-payments" element={<ProtectedRoute requiredPermissions={['subscription.payment.view']}><SubscriptionPayments /></ProtectedRoute>} />
               <Route path="master-data" element={<MasterData />} />
               <Route path="reports" element={<Reports />} />
               <Route path="users" element={<Users />} />
               <Route path="settings" element={<Settings />} />
-              <Route path="holiday-calendar" element={<HolidayCalendarPage />} />
+              <Route path="holiday-calendar" element={<ProtectedRoute requiredPermissions={['holiday.view']}><HolidayCalendarPage /></ProtectedRoute>} />
               <Route path="audit" element={<AuditLogs />} />
               <Route path="profile" element={<Profile />} />
               <Route path="notifications" element={<Notifications />} />
