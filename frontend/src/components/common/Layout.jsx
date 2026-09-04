@@ -121,15 +121,43 @@ function Layout() {
   // it, so collapsing/expanding the sidebar left the content margin
   // wrong (overlap or a big empty gap) instead of moving with it.
   const [collapsed, setCollapsed] = useState(false)
+  // Mobile nav is a separate concern from desktop collapse: below the
+  // `lg` breakpoint the sidebar renders as an off-canvas drawer instead
+  // of a persistent column, so it needs its own open/close state.
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Notification polling lives here (not in Sidebar) so both the sidebar
+  // nav badge and the header bell read one shared count instead of each
+  // polling the API independently.
+  const [notificationCount, setNotificationCount] = useState(0)
+
+  useEffect(() => {
+    if (user?.role !== 'ADMIN') return undefined
+    let active = true
+    const loadNotifications = () => {
+      api.get('/audit/notifications')
+        .then((response) => { if (active) setNotificationCount(response.data?.pending_count || 0) })
+        .catch(() => {})
+    }
+    loadNotifications()
+    const timer = setInterval(loadNotifications, 30000)
+    return () => { active = false; clearInterval(timer) }
+  }, [user?.role])
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-[#0f0f1a]">
       <AdminLoginPrompts user={user} loginPromptKey={loginPromptKey} />
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(c => !c)}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
+        notificationCount={notificationCount}
+      />
       <div
-        className={`flex-1 min-w-0 flex flex-col min-h-screen transition-all duration-300 ${collapsed ? 'ml-[72px]' : 'ml-64'}`}
+        className={`flex-1 min-w-0 flex flex-col min-h-screen transition-all duration-300 ${collapsed ? 'lg:ml-[72px]' : 'lg:ml-64'}`}
       >
-        <Header user={user} />
+        <Header user={user} notificationCount={notificationCount} onOpenMobileMenu={() => setMobileOpen(true)} />
         <main className="flex-1 min-h-0 overflow-y-auto p-4 lg:p-6">
           <Outlet />
         </main>

@@ -1,7 +1,22 @@
 import React, { useState, useEffect } from 'react'
+import {
+  Plus, X, Pencil, Trash2, CheckCircle2, XCircle, ShieldCheck, ShieldAlert, Lock,
+  Search, GraduationCap, BookOpen, ClipboardList, Library, Wallet, BarChart3,
+  Users as UsersIcon, Settings, FolderKanban, ScrollText, User as UserIcon
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
+import { PageHeader, Button, Badge, EmptyState, LoadingState, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+
+const USER_COLUMNS = [
+  { key: 'username', label: 'Username', locked: true },
+  { key: 'email', label: 'Email' },
+  { key: 'role', label: 'Role' },
+  { key: 'status', label: 'Status' },
+  { key: 'last_login', label: 'Last Login' },
+  { key: 'actions', label: 'Actions', locked: true },
+]
 
 function Users() {
   const { user, hasPermission } = useAuth()
@@ -10,7 +25,7 @@ function Users() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [formData, setFormData] = useState({
@@ -24,6 +39,7 @@ function Users() {
   })
   const [selectedTab, setSelectedTab] = useState('ALL')
   const [searchQuery, setSearchQuery] = useState('')
+  const { isVisible, toggle, reset, hiddenCount } = useColumnVisibility('users', USER_COLUMNS)
 
   const canCreate = hasPermission('user.create') || user?.role === 'ADMIN'
   const canEdit = hasPermission('user.edit') || user?.role === 'ADMIN'
@@ -54,9 +70,13 @@ function Users() {
     setCurrentPage(1)
   }, [users.length])
 
+  const { sortedItems: sortedUsers, requestSort, directionFor } = useSortableData(users, null, (row, key) => {
+    if (key === 'status') return row.is_active ? 1 : 0
+    return row[key]
+  })
   const totalItems = users.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-  const paginatedUsers = users.slice(
+  const paginatedUsers = sortedUsers.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   )
@@ -66,10 +86,10 @@ function Users() {
     try {
       if (editing) {
         await api.put(`/users/${editing}`, formData)
-        setMessage('✅ User updated successfully!')
+        setMessage({ type: 'success', text: 'User updated successfully!' })
       } else {
         await api.post('/users', formData)
-        setMessage('✅ User created successfully!')
+        setMessage({ type: 'success', text: 'User created successfully!' })
       }
       setShowForm(false)
       setEditing(null)
@@ -83,9 +103,9 @@ function Users() {
         permissions: []
       })
       await loadData()
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error saving user'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error saving user' })
     }
   }
 
@@ -93,11 +113,11 @@ function Users() {
     if (!window.confirm('Are you sure you want to delete this user?')) return
     try {
       await api.delete(`/users/${id}`)
-      setMessage('✅ User deleted successfully!')
+      setMessage({ type: 'success', text: 'User deleted successfully!' })
       await loadData()
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error deleting user'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error deleting user' })
     }
   }
 
@@ -129,17 +149,17 @@ function Users() {
 
   const getModuleIcon = (moduleName) => {
     const name = (moduleName || '').toLowerCase()
-    if (name.includes('student')) return '👨‍🎓'
-    if (name.includes('book')) return '📚'
-    if (name.includes('sub')) return '📋'
-    if (name.includes('lib')) return '📖'
-    if (name.includes('dep')) return '💰'
-    if (name.includes('rep')) return '📈'
-    if (name.includes('user')) return '👥'
-    if (name.includes('set')) return '⚙️'
-    if (name.includes('master') || name.includes('prog')) return '🗂️'
-    if (name.includes('audit')) return '📜'
-    return '🔐'
+    if (name.includes('student')) return GraduationCap
+    if (name.includes('book')) return BookOpen
+    if (name.includes('sub')) return ClipboardList
+    if (name.includes('lib')) return Library
+    if (name.includes('dep')) return Wallet
+    if (name.includes('rep')) return BarChart3
+    if (name.includes('user')) return UsersIcon
+    if (name.includes('set')) return Settings
+    if (name.includes('master') || name.includes('prog')) return FolderKanban
+    if (name.includes('audit')) return ScrollText
+    return ShieldAlert
   }
 
   const filteredModules = Object.entries(permissionsByModule).reduce((acc, [module, modulePerms]) => {
@@ -160,41 +180,40 @@ function Users() {
   }, {})
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading users...</p>
-        </div>
-      </div>
-    )
+    return <LoadingState label="Loading users…" />
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Users</h2>
-          <p className="text-gray-500 dark:text-gray-400">Manage system users and permissions</p>
-        </div>
-        {canCreate && (
-          <button
+      <PageHeader
+        title="Users"
+        description="Manage system users and permissions"
+        actions={canCreate && (
+          <Button
+            variant={showForm ? 'secondary' : 'primary'}
+            icon={showForm ? X : Plus}
             onClick={() => {
               setShowForm(!showForm)
               setEditing(null)
               setFormData({ username: '', email: '', password: '', full_name: '', role: 'STAFF', is_active: true, permissions: [] })
             }}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
           >
-            {showForm ? '✕ Cancel' : '+ Add User'}
-          </button>
+            {showForm ? 'Cancel' : 'Add User'}
+          </Button>
         )}
-      </div>
+      />
 
       {message && (
-        <div className={`p-4 rounded-lg ${message.includes('✅') ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'} border`}>
-          <p className={`${message.includes('✅') ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
-            {message}
+        <div className={`flex items-start gap-2 p-4 rounded-lg border ${
+          message.type === 'success'
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+        }`}>
+          {message.type === 'success'
+            ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-green-700 dark:text-green-400" aria-hidden="true" />
+            : <XCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-700 dark:text-red-400" aria-hidden="true" />}
+          <p className={message.type === 'success' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}>
+            {message.text}
           </p>
         </div>
       )}
@@ -277,7 +296,7 @@ function Users() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 p-4 rounded-xl border border-blue-500/20 dark:border-blue-500/30">
                   <div>
                     <h4 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      <span>🛡️</span> Staff Module Permissions
+                      <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" aria-hidden="true" /> Staff Module Permissions
                     </h4>
                     <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
                       Permissions are granted individually by an administrator. New staff users receive no permissions by default.
@@ -287,23 +306,27 @@ function Users() {
                     <span className="px-3 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold text-xs rounded-full border border-blue-500/20">
                       {formData.permissions.length} of {permissions.length} Granted
                     </span>
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
+                      variant="primary"
+                      icon={CheckCircle2}
                       onClick={() => setFormData(prev => ({
                         ...prev,
                         permissions: permissions.map(p => p.permission_code)
                       }))}
-                      className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
                     >
-                      ✓ Allow All
-                    </button>
-                    <button
+                      Allow All
+                    </Button>
+                    <Button
                       type="button"
+                      size="sm"
+                      variant="secondary"
+                      icon={XCircle}
                       onClick={() => setFormData(prev => ({ ...prev, permissions: [] }))}
-                      className="px-3 py-1.5 text-xs font-semibold bg-gray-200 dark:bg-[#2a2a4a] hover:bg-gray-300 dark:hover:bg-[#3a3a5a] text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
                     >
-                      ✕ Clear All
-                    </button>
+                      Clear All
+                    </Button>
                   </div>
                 </div>
 
@@ -323,6 +346,7 @@ function Users() {
                     </button>
                     {Object.entries(permissionsByModule).map(([mod, modPerms]) => {
                       const count = modPerms.filter(p => formData.permissions.includes(p.permission_code)).length
+                      const ModuleIcon = getModuleIcon(mod)
                       return (
                         <button
                           key={mod}
@@ -334,7 +358,7 @@ function Users() {
                               : 'bg-gray-100 dark:bg-[#1a1a2e] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-[#2a2a4a]'
                           }`}
                         >
-                          <span>{getModuleIcon(mod)}</span>
+                          <ModuleIcon className="h-3.5 w-3.5" aria-hidden="true" />
                           <span>{mod}</span>
                           {count > 0 && (
                             <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-bold ${
@@ -356,14 +380,15 @@ function Users() {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-gray-50 dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     />
-                    <span className="absolute left-2.5 top-2 text-xs text-gray-400">🔍</span>
+                    <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
                     {searchQuery && (
                       <button
                         type="button"
                         onClick={() => setSearchQuery('')}
-                        className="absolute right-2 top-1.5 text-xs text-gray-400 hover:text-gray-600"
+                        className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                        aria-label="Clear filter"
                       >
-                        ✕
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
                     )}
                   </div>
@@ -376,6 +401,7 @@ function Users() {
                     const editableInModule = modulePermissions
                     const allEditableSelected = editableInModule.length > 0 &&
                       editableInModule.every(p => formData.permissions.includes(p.permission_code))
+                    const ModuleIcon = getModuleIcon(module)
 
                     return (
                       <div
@@ -389,7 +415,7 @@ function Users() {
                         <div>
                           <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-gray-100/70 dark:bg-[#1a1a2e] rounded-t-xl border-b border-gray-200 dark:border-[#2a2a4a]">
                             <div className="flex items-center gap-2">
-                              <span className="text-base">{getModuleIcon(module)}</span>
+                              <ModuleIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" aria-hidden="true" />
                               <div>
                                 <h5 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
                                   {module}
@@ -434,23 +460,23 @@ function Users() {
                                   }`}
                                   title={locked ? 'Default Staff permission — cannot be changed here' : ''}
                                 >
-                                  <input
-                                    type="checkbox"
+                                  <Checkbox
                                     checked={isChecked}
                                     disabled={locked}
                                     onChange={() => {}}
-                                    className={`mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none ${locked ? 'opacity-60' : ''}`}
+                                    size="sm"
+                                    className="mt-0.5 pointer-events-none"
                                   />
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-1">
                                       <span className={`text-xs font-semibold flex items-center gap-1 ${
                                         isChecked ? 'text-blue-900 dark:text-blue-200' : 'text-gray-800 dark:text-gray-200'
                                       } ${locked ? 'text-gray-500 dark:text-gray-400' : ''}`}>
-                                        {locked && <span title="Default permission">🔒</span>}
+                                        {locked && <Lock className="h-3 w-3" aria-hidden="true" title="Default permission" />}
                                         {permission.permission_name}
                                       </span>
                                       {isChecked && !locked && (
-                                        <span className="text-blue-600 dark:text-blue-400 text-xs font-bold">✓</span>
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
                                       )}
                                     </div>
                                     {permission.description && (
@@ -469,93 +495,121 @@ function Users() {
                   })}
 
                   {Object.keys(filteredModules).length === 0 && (
-                    <div className="col-span-full py-8 text-center text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-[#0f0f1a] rounded-xl border border-dashed border-gray-300 dark:border-[#2a2a4a]">
-                      No matching permissions found for "{searchQuery}"
+                    <div className="col-span-full">
+                      <EmptyState
+                        icon={Search}
+                        title="No matching permissions found"
+                        description={`No permissions match "${searchQuery}".`}
+                      />
                     </div>
                   )}
                 </div>
               </div>
             )}
             <div className="flex gap-3 pt-2">
-              <button type="submit" className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">
+              <Button type="submit" variant="primary">
                 {editing ? 'Update User' : 'Create User'}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => { setShowForm(false); setEditing(null) }}
-                className="px-4 py-2 bg-gray-200 dark:bg-[#2a2a4a] hover:bg-gray-300 dark:hover:bg-[#3a3a5a] text-gray-700 dark:text-gray-200 rounded-lg transition-colors"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>
       )}
 
       <div className="bg-white dark:bg-[#1a1a2e] rounded-xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#2a2a4a]">
+          <ColumnVisibilityMenu
+            columns={USER_COLUMNS}
+            isVisible={isVisible}
+            onToggle={toggle}
+            onReset={reset}
+            hiddenCount={hiddenCount}
+          />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-[#0f0f1a]">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Username</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Login</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                <SortableTh sortKey="username" direction={directionFor('username')} onSort={requestSort}
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 ${isVisible('username') ? '' : 'hidden'}`}>
+                  Username
+                </SortableTh>
+                <SortableTh sortKey="email" direction={directionFor('email')} onSort={requestSort}
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 ${isVisible('email') ? '' : 'hidden'}`}>
+                  Email
+                </SortableTh>
+                <SortableTh sortKey="role" direction={directionFor('role')} onSort={requestSort}
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 ${isVisible('role') ? '' : 'hidden'}`}>
+                  Role
+                </SortableTh>
+                <SortableTh sortKey="status" direction={directionFor('status')} onSort={requestSort}
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 ${isVisible('status') ? '' : 'hidden'}`}>
+                  Status
+                </SortableTh>
+                <SortableTh sortKey="last_login" direction={directionFor('last_login')} onSort={requestSort}
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 ${isVisible('last_login') ? '' : 'hidden'}`}>
+                  Last Login
+                </SortableTh>
+                <th className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider ${isVisible('actions') ? '' : 'hidden'}`}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
               {paginatedUsers.map(u => (
                 <tr key={u.user_id} className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a]">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{u.username}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{u.email}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+                  <td className={`px-4 py-3 text-sm font-medium text-gray-900 dark:text-white ${isVisible('username') ? '' : 'hidden'}`}>{u.username}</td>
+                  <td className={`px-4 py-3 text-sm text-gray-500 dark:text-gray-400 ${isVisible('email') ? '' : 'hidden'}`}>{u.email}</td>
+                  <td className={`px-4 py-3 text-sm ${isVisible('role') ? '' : 'hidden'}`}>
+                    <Badge tone={u.role === 'ADMIN' ? 'primary' : 'info'} icon={u.role === 'ADMIN' ? ShieldCheck : UserIcon}>
                       {u.role}
-                    </span>
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
+                  <td className={`px-4 py-3 text-sm ${isVisible('status') ? '' : 'hidden'}`}>
+                    <Badge tone={u.is_active ? 'success' : 'danger'} icon={u.is_active ? CheckCircle2 : XCircle}>
                       {u.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{u.last_login || 'Never'}</td>
-                  <td className="px-4 py-3 text-sm">
+                  <td className={`px-4 py-3 text-sm text-gray-500 dark:text-gray-400 ${isVisible('last_login') ? '' : 'hidden'}`}>{u.last_login || 'Never'}</td>
+                  <td className={`px-4 py-3 text-sm ${isVisible('actions') ? '' : 'hidden'}`}>
                     <div className="flex gap-2">
                       {canEdit && u.user_id !== 1 && (
-                        <button
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={Pencil}
                           onClick={() => {
                             setEditing(u.user_id)
                             setFormData({ ...u, password: '', permissions: u.permissions || [] })
                             setShowForm(true)
                           }}
-                          className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
                         >
                           Edit
-                        </button>
+                        </Button>
                       )}
                       {canDelete && u.user_id !== 1 && u.user_id !== user?.user_id && (
-                        <button
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          icon={Trash2}
                           onClick={() => handleDelete(u.user_id)}
-                          className="px-3 py-1 text-sm bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                         >
                           Delete
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </td>
                 </tr>
               ))}
-              {users.length === 0 && (
-                <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    No users found
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
+          {users.length === 0 && (
+            <EmptyState icon={UsersIcon} title="No users found" description="Add a user to get started." />
+          )}
         </div>
 
         {users.length > 0 && (
@@ -575,5 +629,5 @@ function Users() {
   )
 }
 
-// ✅ MAKE SURE THIS IS AT THE BOTTOM - DEFAULT EXPORT
+// MAKE SURE THIS IS AT THE BOTTOM - DEFAULT EXPORT
 export default Users

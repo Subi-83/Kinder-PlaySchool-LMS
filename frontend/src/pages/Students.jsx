@@ -1,8 +1,24 @@
 import React, { useEffect, useState } from 'react'
+import {
+  Plus, X, UserSearch, FileSpreadsheet, Trash2, Pencil, UserPlus,
+  CheckCircle2, XCircle, GraduationCap, Search, AlertTriangle
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { useAppSettings } from '../context/AppSettingsContext'
+import { PageHeader, Button, IconButton, Badge, EmptyState, LoadingState, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+
+const STUDENT_COLUMNS = [
+  { key: 'roll', label: 'Roll & ID', locked: true },
+  { key: 'name', label: 'Name', locked: true },
+  { key: 'programme', label: 'Programme / Grade' },
+  { key: 'library', label: 'Library Access' },
+  { key: 'deposit', label: 'Deposit & Fines' },
+  { key: 'subscription', label: 'Subscription' },
+  { key: 'parents', label: 'Parents' },
+  { key: 'actions', label: 'Actions', locked: true },
+]
 
 const emptyForm = () => ({
   student_name: '',
@@ -72,13 +88,15 @@ function Students() {
   const [filterLibraryAccess, setFilterLibraryAccess] = useState('')
   const [filterSubStatus, setFilterSubStatus] = useState('')
 
+  const { isVisible, toggle, reset: resetColumns, hiddenCount } = useColumnVisibility('students', STUDENT_COLUMNS)
+
   const canCreate = user?.role === 'ADMIN' || hasPermission('student.create')
   const canEdit = user?.role === 'ADMIN' || hasPermission('student.edit')
   const canDelete = user?.role === 'ADMIN' || hasPermission('student.delete')
 
   const handleResetAll = async () => {
     const confirmation = window.prompt(
-      '⚠️ WARNING: This will permanently DELETE ALL JK member records, enrollments, deposit accounts, and reset all roll numbers to 0001!\n\nType "RESET" to confirm:'
+      'WARNING: This will permanently DELETE ALL JK member records, enrollments, deposit accounts, and reset all roll numbers to 0001!\n\nType "RESET" to confirm:'
     )
     if (confirmation !== 'RESET') return
     try {
@@ -86,7 +104,7 @@ function Students() {
       setError('')
       setSuccess('')
       const res = await api.post('/students/reset-all')
-      setSuccess(`✅ ${res.data?.message || 'All student data cleared and roll numbers reset to 0001 successfully.'}`)
+      setSuccess(res.data?.message || 'All student data cleared and roll numbers reset to 0001 successfully.')
       await load()
       setTimeout(() => setSuccess(''), 5000)
     } catch (e) {
@@ -126,7 +144,7 @@ function Students() {
       await api.put(`/students/${student.student_id}`, {
         library_access: newAccess
       })
-      setSuccess(`✅ Library access ${newAccess ? 'ENABLED' : 'DISABLED'} for ${student.student_name}`)
+      setSuccess(`Library access ${newAccess ? 'ENABLED' : 'DISABLED'} for ${student.student_name}`)
       await load()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
@@ -141,10 +159,10 @@ function Students() {
       setSuccess('')
       if (editing) {
         await api.put(`/students/${editing}`, form)
-        setSuccess('✅ JK member updated successfully.')
+        setSuccess('JK member updated successfully.')
       } else {
         await api.post('/students/', form)
-        setSuccess('✅ JK member created successfully.')
+        setSuccess('JK member created successfully.')
       }
       setShowForm(false)
       setEditing(null)
@@ -238,7 +256,7 @@ function Students() {
       const response = await api.post('/students/import-students', body, { headers: { 'Content-Type': 'multipart/form-data' } })
       const summary = response.data
       setImportReport(summary)
-      let msg = `✅ Imported ${summary.enrollments_created} enrollment(s): ${summary.new_students} new student(s), ${summary.existing_students} existing student(s).`
+      let msg = `Imported ${summary.enrollments_created} enrollment(s): ${summary.new_students} new student(s), ${summary.existing_students} existing student(s).`
       if (summary.skipped?.length) {
         const skippedNotes = summary.skipped.map(s => `Row ${s.row}: ${s.reason}`).join('; ')
         msg += ` (${summary.skipped.length} row(s) skipped: ${skippedNotes})`
@@ -297,6 +315,16 @@ function Students() {
     search || filterYear || filterProgramme || filterGrade || filterSchool || filterStatus || filterLibraryAccess || filterSubStatus
   )
 
+  const { sortedItems: sortedStudents, requestSort, directionFor } = useSortableData(filtered, null, (row, key) => {
+    const activeEnc = row.enrollments?.find((e) => e.status === 'ACTIVE') || row.current_enrollment
+    if (key === 'roll') return activeEnc?.roll_number || row.student_uid
+    if (key === 'programme') return activeEnc?.programme?.display_name || activeEnc?.programme?.programme_name
+    if (key === 'library') return row.library_access ? 1 : 0
+    if (key === 'deposit') return Number(row.deposit_balance || 0)
+    if (key === 'subscription') return row.active_subscription?.plan?.plan_name || ''
+    return row[key]
+  })
+
   const resetFilters = () => {
     setSearch('')
     setFilterYear('')
@@ -308,9 +336,9 @@ function Students() {
     setFilterSubStatus('')
   }
 
-  const totalItems = filtered.length
+  const totalItems = sortedStudents.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-  const paginatedStudents = filtered.slice(
+  const paginatedStudents = sortedStudents.slice(
   (currentPage - 1) * pageSize,
   currentPage * pageSize
   )
@@ -329,36 +357,30 @@ function Students() {
     ['student_email', 'JK member email', 'email', true]
   ]
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading student data...</p>
-        </div>
-      </div>
-    )
+    return <LoadingState label="Loading student data…" />
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap justify-between items-center gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{membersLabel} & Library Memberships</h2>
-          <p className="text-gray-500 dark:text-gray-400">Manage {memberLabel.toLowerCase()} profiles, roll numbers, deposit balances, and library access privileges.</p>
-        </div>
-        {canCreate && (
-          <div className="flex flex-wrap gap-2">
-            <button
+      <PageHeader
+        title={`${membersLabel} & Library Memberships`}
+        description={`Manage ${memberLabel.toLowerCase()} profiles, roll numbers, deposit balances, and library access privileges.`}
+        actions={canCreate && (
+          <>
+            <Button
+              variant="primary"
+              icon={showForm ? X : Plus}
               onClick={() => {
                 setForm(emptyForm())
                 setEditing(null)
                 setShowForm((v) => !v)
               }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-sm transition-all"
             >
-              {showForm ? '✕ Cancel' : `+ New ${memberLabel}`}
-            </button>
-            <button
+              {showForm ? 'Cancel' : `New ${memberLabel}`}
+            </Button>
+            <Button
+              variant="success"
+              icon={UserSearch}
               onClick={() => {
                 setError('')
                 setExistingSearch('')
@@ -366,36 +388,48 @@ function Students() {
                 setReEnrollStudent(null)
                 setShowEnrollmentDialog(true)
               }}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition-all"
             >
               Existing / Old {memberLabel}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              icon={FileSpreadsheet}
+              className="!bg-violet-600 hover:!bg-violet-700 !text-white"
               onClick={() => {
                 setImportYear(academicYears.find((year) => year.is_current)?.academic_year_id || academicYears[0]?.academic_year_id || '')
                 setImportProgramme('')
                 setImportReport(null)
                 setShowImport(true)
               }}
-              className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold shadow-sm transition-all"
             >
               Import Excel
-            </button>
+            </Button>
             {canDelete && (
-              <button
+              <Button
+                variant="danger"
+                icon={Trash2}
+                loading={resetting}
                 onClick={handleResetAll}
-                disabled={resetting}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-sm transition-all disabled:opacity-50"
               >
-                {resetting ? 'Resetting…' : '🗑 Reset All'}
-              </button>
+                {resetting ? 'Resetting…' : 'Reset All'}
+              </Button>
             )}
-          </div>
+          </>
         )}
-      </div>
+      />
 
-      {error && <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-sm font-semibold">{error}</div>}
-      {success && <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-sm font-semibold">{success}</div>}
+      {error && (
+        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-sm font-semibold flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-sm font-semibold flex items-start gap-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>{success}</span>
+        </div>
+      )}
       {importReport?.existing_details?.length > 0 && (
         <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-amber-200 dark:border-amber-800">
@@ -437,16 +471,28 @@ function Students() {
           <h3 className="font-bold text-gray-900 dark:text-white text-lg">{editing ? `Edit ${memberLabel} Record` : `Create New ${memberLabel}`}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {textFields.filter(([key]) => !editing || key !== 'grade').map(([key, label, type, optional]) => (
-              <label key={key} className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                {label}{optional ? '' : ' *'}
-                <input
-                  required={!optional}
-                  type={type || 'text'}
-                  value={form[key]}
-                  onChange={(e) => set(key, e.target.value)}
-                  className="mt-1 w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </label>
+              <React.Fragment key={key}>
+                {key === 'student_name' && (
+                  <div className="md:col-span-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    Basic information
+                  </div>
+                )}
+                {key === 'mother_name' && (
+                  <div className="md:col-span-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800 pt-3 mt-1">
+                    Parent &amp; contact details
+                  </div>
+                )}
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                  {label}{optional ? '' : ' *'}
+                  <input
+                    required={!optional}
+                    type={type || 'text'}
+                    value={form[key]}
+                    onChange={(e) => set(key, e.target.value)}
+                    className="mt-1 w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </label>
+              </React.Fragment>
             ))}
 
             {!editing && (
@@ -489,39 +535,50 @@ function Students() {
 
             <div className="flex items-center gap-3 pt-4">
               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={form.library_access}
                   onChange={(e) => set('library_access', e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
                 />
                 Enable Library Borrowing Privileges
               </label>
             </div>
           </div>
 
-          <button className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
+          <Button type="submit" variant="primary">
             {editing ? `Update ${memberLabel}` : `Save ${memberLabel}`}
-          </button>
+          </Button>
         </form>
       )}
 
       {/* FILTER BAR */}
       <div className="bg-white dark:bg-[#17172a] rounded-2xl p-5 border border-gray-200 dark:border-[#292944] shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search by Name, ${memberPrefix} ID, Roll No, Phone...`}
-            className="w-full md:w-80 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" aria-hidden="true" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search by Name, ${memberPrefix} ID, Roll No, Phone...`}
+              className="w-full pl-9 pr-4 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
 
-          {hasActiveFilters && (
-            <button onClick={resetFilters} className="text-xs font-semibold text-rose-500 hover:underline">
-              Clear All Filters
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <ColumnVisibilityMenu
+              columns={STUDENT_COLUMNS}
+              isVisible={isVisible}
+              onToggle={toggle}
+              onReset={resetColumns}
+              hiddenCount={hiddenCount}
+            />
+            {hasActiveFilters && (
+              <button onClick={resetFilters} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-500 hover:underline">
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                Clear All Filters
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto pb-2">
@@ -621,14 +678,14 @@ function Students() {
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
             <tr>
-              <th className="px-4 py-3">Roll & {memberPrefix} ID</th>
-              <th className="px-4 py-3">{memberLabel} Name</th>
-              <th className="px-4 py-3">Programme / Grade</th>
-              <th className="px-4 py-3 text-center">Library Access</th>
-              <th className="px-4 py-3">Deposit & Fines</th>
-              <th className="px-4 py-3">Subscription</th>
-              <th className="px-4 py-3">Parents</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <SortableTh sortKey="roll" direction={directionFor('roll')} onSort={requestSort} className={`px-4 py-3 ${isVisible('roll') ? '' : 'hidden'}`}>Roll & {memberPrefix} ID</SortableTh>
+              <SortableTh sortKey="student_name" direction={directionFor('student_name')} onSort={requestSort} className={`px-4 py-3 ${isVisible('name') ? '' : 'hidden'}`}>{memberLabel} Name</SortableTh>
+              <SortableTh sortKey="programme" direction={directionFor('programme')} onSort={requestSort} className={`px-4 py-3 ${isVisible('programme') ? '' : 'hidden'}`}>Programme / Grade</SortableTh>
+              <SortableTh sortKey="library" direction={directionFor('library')} onSort={requestSort} className={`px-4 py-3 text-center ${isVisible('library') ? '' : 'hidden'}`}>Library Access</SortableTh>
+              <SortableTh sortKey="deposit" direction={directionFor('deposit')} onSort={requestSort} className={`px-4 py-3 ${isVisible('deposit') ? '' : 'hidden'}`}>Deposit & Fines</SortableTh>
+              <SortableTh sortKey="subscription" direction={directionFor('subscription')} onSort={requestSort} className={`px-4 py-3 ${isVisible('subscription') ? '' : 'hidden'}`}>Subscription</SortableTh>
+              <th className={`px-4 py-3 ${isVisible('parents') ? '' : 'hidden'}`}>Parents</th>
+              <th className={`px-4 py-3 text-right ${isVisible('actions') ? '' : 'hidden'}`}>Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
@@ -637,38 +694,42 @@ function Students() {
               const activeSub = s.active_subscription
               return (
                 <tr key={s.student_id} className="hover:bg-blue-50/20 dark:hover:bg-[#19192e] transition-colors">
-                  <td className="px-4 py-3">
+                  <td className={`px-4 py-3 ${isVisible('roll') ? '' : 'hidden'}`}>
                     <div className="font-bold text-blue-600 dark:text-blue-400 font-mono">
                       {activeEnc?.roll_number || '—'}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{s.student_uid}</div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={`px-4 py-3 ${isVisible('name') ? '' : 'hidden'}`}>
                     <div className="font-bold text-gray-900 dark:text-white">{s.student_name}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">{s.school_name || 'N/A'}</div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={`px-4 py-3 ${isVisible('programme') ? '' : 'hidden'}`}>
                     <div className="font-medium text-gray-900 dark:text-white">{activeEnc?.programme?.display_name || activeEnc?.programme?.programme_name || '—'}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Grade: {activeEnc?.grade || '—'}</div>
                   </td>
 
                   {/* Library Access Toggle Button */}
-                  <td className="px-4 py-3 text-center">
+                  <td className={`px-4 py-3 text-center ${isVisible('library') ? '' : 'hidden'}`}>
                     <button
                       onClick={() => toggleLibraryAccess(s)}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all shadow-xs ${
+                      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all shadow-xs ${
                         s.library_access
                           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-200'
                           : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 hover:bg-rose-200'
                       }`}
                       title="Click to toggle library access"
                     >
-                      {s.library_access ? '✓ Enabled' : '✕ Disabled'}
+                      {s.library_access ? (
+                        <><CheckCircle2 className="h-3 w-3" aria-hidden="true" /> Enabled</>
+                      ) : (
+                        <><XCircle className="h-3 w-3" aria-hidden="true" /> Disabled</>
+                      )}
                     </button>
                   </td>
 
                   {/* Deposit & Outstanding Unpaid Balance */}
-                  <td className="px-4 py-3 text-xs">
+                  <td className={`px-4 py-3 text-xs ${isVisible('deposit') ? '' : 'hidden'}`}>
                     <div>Deposit: <strong>₹{Number(s.deposit_balance || 0).toFixed(2)}</strong></div>
                     {s.outstanding_balance > 0 ? (
                       <div className="text-rose-500 font-bold">Unpaid: ₹{Number(s.outstanding_balance).toFixed(2)}</div>
@@ -678,7 +739,7 @@ function Students() {
                   </td>
 
                   {/* Subscription Plan & Limit */}
-                  <td className="px-4 py-3 text-xs">
+                  <td className={`px-4 py-3 text-xs ${isVisible('subscription') ? '' : 'hidden'}`}>
                     {activeSub ? (
                       <div>
                         <div className="font-bold text-emerald-600 dark:text-emerald-400">{activeSub.plan?.plan_name}</div>
@@ -691,84 +752,99 @@ function Students() {
                     )}
                   </td>
 
-                  <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300">
+                  <td className={`px-4 py-3 text-xs text-gray-700 dark:text-gray-300 ${isVisible('parents') ? '' : 'hidden'}`}>
                     <div>{s.mother_name} ({s.mother_phone})</div>
                     <div className="text-gray-500">{s.father_name} ({s.father_phone})</div>
                   </td>
 
-                  <td className="py-3 flex items-center gap-2">
-                    {canEdit && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setEditing(s.student_id)
-                            setError('')
-                            setSuccess('')
-                            const enc = activeEnc
-                            setForm({
-                              student_name: s.student_name || '',
-                              date_of_birth: s.date_of_birth ? s.date_of_birth.split('T')[0] : '',
-                              gender: s.gender || 'OTHER',
-                              school_name: s.school_name || '',
-                              student_email: s.student_email || '',
-                              programme_id: enc?.programme_id || enc?.programme?.programme_id || '',
-                              academic_year_id: enc?.academic_year_id || enc?.academic_year?.academic_year_id || '',
-                              grade: enc?.grade || '',
-                              mother_name: s.mother_name || '',
-                              mother_phone: s.mother_phone || '',
-                              mother_email: s.mother_email || '',
-                              father_name: s.father_name || '',
-                              father_phone: s.father_phone || '',
-                              father_email: s.father_email || '',
-                              address: s.address || '',
-                              emergency_contact_name: s.emergency_contact_name || '',
-                              emergency_contact_phone: s.emergency_contact_phone || '',
-                              medical_notes: s.medical_notes || '',
-                              library_access: s.library_access ?? true
-                            })
-                            setShowForm(true)
-                          }}
-                          className="px-2.5 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-200 dark:hover:bg-blue-900/50 font-medium transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            selectExistingStudent(s)
-                            setShowEnrollmentDialog(true)
-                          }}
-                          className="px-2.5 py-1 text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/80 rounded-md font-semibold transition-colors border border-emerald-300 dark:border-emerald-800"
-                        >
-                          + Re-Enroll
-                        </button>
-                      </>
-                    )}
-                    {canDelete && (
-                      <button
-                        onClick={async () => {
-                          if (window.confirm(`Delete student ${s.student_name}?`)) {
-                            try {
+                  <td className={`py-3 ${isVisible('actions') ? '' : 'hidden'}`}>
+                    <div className="flex items-center gap-1 justify-end pr-2">
+                      {canEdit && (
+                        <>
+                          <IconButton
+                            icon={Pencil}
+                            label={`Edit ${s.student_name}`}
+                            variant="subtle"
+                            size="sm"
+                            onClick={() => {
+                              setEditing(s.student_id)
                               setError('')
-                              await api.delete(`/students/${s.student_id}`)
-                              await load()
-                            } catch (err) {
-                              setError(err.data?.error || err.response?.data?.error || err.message || 'Could not request JK member deletion.')
+                              setSuccess('')
+                              const enc = activeEnc
+                              setForm({
+                                student_name: s.student_name || '',
+                                date_of_birth: s.date_of_birth ? s.date_of_birth.split('T')[0] : '',
+                                gender: s.gender || 'OTHER',
+                                school_name: s.school_name || '',
+                                student_email: s.student_email || '',
+                                programme_id: enc?.programme_id || enc?.programme?.programme_id || '',
+                                academic_year_id: enc?.academic_year_id || enc?.academic_year?.academic_year_id || '',
+                                grade: enc?.grade || '',
+                                mother_name: s.mother_name || '',
+                                mother_phone: s.mother_phone || '',
+                                mother_email: s.mother_email || '',
+                                father_name: s.father_name || '',
+                                father_phone: s.father_phone || '',
+                                father_email: s.father_email || '',
+                                address: s.address || '',
+                                emergency_contact_name: s.emergency_contact_name || '',
+                                emergency_contact_phone: s.emergency_contact_phone || '',
+                                medical_notes: s.medical_notes || '',
+                                library_access: s.library_access ?? true
+                              })
+                              setShowForm(true)
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              selectExistingStudent(s)
+                              setShowEnrollmentDialog(true)
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/80 rounded-md font-semibold transition-colors border border-emerald-300 dark:border-emerald-800"
+                          >
+                            <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                            Re-Enroll
+                          </button>
+                        </>
+                      )}
+                      {canDelete && (
+                        <IconButton
+                          icon={Trash2}
+                          label={`Delete ${s.student_name}`}
+                          variant="ghost"
+                          size="sm"
+                          className="text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+                          onClick={async () => {
+                            if (window.confirm(`Delete student ${s.student_name}?`)) {
+                              try {
+                                setError('')
+                                await api.delete(`/students/${s.student_id}`)
+                                await load()
+                              } catch (err) {
+                                setError(err.data?.error || err.response?.data?.error || err.message || 'Could not request JK member deletion.')
+                              }
                             }
-                          }
-                        }}
-                        className="px-2.5 py-1 text-xs bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-md hover:bg-rose-200 dark:hover:bg-rose-900/50 font-medium transition-colors"
-                      >
-                        Delete
-                      </button>
-                    )}
+                          }}
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               )
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan="8" className="p-8 text-center text-gray-500 dark:text-gray-400">
-                  No {membersLabel} match your filter criteria.
+                <td colSpan="8" className="p-0">
+                  <EmptyState
+                    icon={Search}
+                    title={`No ${membersLabel} found`}
+                    description={`No ${membersLabel.toLowerCase()} match your filter criteria.`}
+                    action={hasActiveFilters && (
+                      <Button variant="outline" size="sm" icon={X} onClick={resetFilters}>
+                        Clear filters
+                      </Button>
+                    )}
+                  />
                 </td>
               </tr>
             )}
@@ -791,25 +867,24 @@ function Students() {
       {/* EXCEL IMPORT MODAL DIALOG */}
       {showImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-lg w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative">
+          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-lg w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                  <span>📊</span> Import {membersLabel} from Excel / CSV
+                  <FileSpreadsheet className="h-5 w-5 text-violet-600" aria-hidden="true" /> Import {membersLabel} from Excel / CSV
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
                 <p className="text-[11px] text-gray-400 mt-1">Existing members are matched only by child name and birthdate. Shared parent details will not merge siblings or twins.</p>
               </div>
-              <button
-                type="button"
+              <IconButton
+                icon={X}
+                label="Close"
+                variant="ghost"
                 onClick={() => {
                   setShowImport(false)
                   setStudentExcelFile(null)
                 }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl font-bold p-1 cursor-pointer"
-              >
-                ✕
-              </button>
+              />
             </div>
 
             <form onSubmit={importStudentSpreadsheet} className="space-y-4">
@@ -870,23 +945,25 @@ function Students() {
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => {
                     setShowImport(false)
                     setStudentExcelFile(null)
                   }}
-                  className="px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  disabled={importing || !studentExcelFile || !importYear}
-                  className="px-5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                  variant="secondary"
+                  className="!bg-violet-600 hover:!bg-violet-700 !text-white"
+                  loading={importing}
+                  disabled={!studentExcelFile || !importYear}
                 >
                   {importing ? 'Processing & Importing Data…' : 'Start Bulk Import'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -900,22 +977,21 @@ function Students() {
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                  <span>🎓</span> Re-Enroll Existing / Old {memberLabel}
+                  <GraduationCap className="h-5 w-5 text-emerald-600" aria-hidden="true" /> Re-Enroll Existing / Old {memberLabel}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Search for an existing {memberLabel.toLowerCase()} record to enroll them into a new academic year.</p>
               </div>
-              <button
-                type="button"
+              <IconButton
+                icon={X}
+                label="Close"
+                variant="ghost"
                 onClick={() => {
                   setShowEnrollmentDialog(false)
                   setReEnrollStudent(null)
                   setExistingMatches([])
                   setExistingSearch('')
                 }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl font-bold p-1 cursor-pointer"
-              >
-                ✕
-              </button>
+              />
             </div>
 
             {!reEnrollStudent ? (
@@ -930,13 +1006,9 @@ function Students() {
                     placeholder={`Enter ${memberLabel} Name, ${memberPrefix} ID, or Phone Number...`}
                     className="flex-1 px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
-                  <button
-                    type="button"
-                    onClick={searchExistingStudents}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
-                  >
+                  <Button type="button" variant="success" icon={Search} onClick={searchExistingStudents}>
                     Search
-                  </button>
+                  </Button>
                 </div>
 
                 {existingMatches.length > 0 && (
@@ -954,21 +1026,20 @@ function Students() {
                             DOB: {st.date_of_birth || 'N/A'} | Mother: {st.mother_name || 'N/A'} ({st.mother_phone || '—'})
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          className="px-3 py-1 bg-emerald-600 text-white font-bold text-xs rounded-lg hover:bg-emerald-700 cursor-pointer"
-                        >
+                        <Button type="button" variant="success" size="sm">
                           Select
-                        </button>
+                        </Button>
                       </div>
                     ))}
                   </div>
                 )}
 
                 {existingSearch && existingMatches.length === 0 && (
-                  <div className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
-                    No matching JK member found. Double-check the search or create a new JK member record.
-                  </div>
+                  <EmptyState
+                    icon={UserSearch}
+                    title={`No matching ${memberLabel.toLowerCase()} found`}
+                    description="Double-check the search or create a new record instead."
+                  />
                 )}
               </div>
             ) : (
@@ -1017,8 +1088,24 @@ function Students() {
                     </label>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Address<textarea rows="3" value={reEnrollForm.address} onChange={(e) => setReEnrollForm((form) => ({ ...form, address: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white" /></label>
-                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Medical Notes<textarea rows="3" value={reEnrollForm.medical_notes} onChange={(e) => setReEnrollForm((form) => ({ ...form, medical_notes: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white" /></label>
+                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
+                      Address
+                      <textarea
+                        rows="3"
+                        value={reEnrollForm.address}
+                        onChange={(e) => setReEnrollForm((form) => ({ ...form, address: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
+                      Medical Notes
+                      <textarea
+                        rows="3"
+                        value={reEnrollForm.medical_notes}
+                        onChange={(e) => setReEnrollForm((form) => ({ ...form, medical_notes: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+                      />
+                    </label>
                   </div>
                 </div>
 
@@ -1091,23 +1178,20 @@ function Students() {
                 </div>
 
                 <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                  <button
+                  <Button
                     type="button"
+                    variant="secondary"
                     onClick={() => {
                       setShowEnrollmentDialog(false)
                       setReEnrollStudent(null)
                       setExistingMatches([])
                     }}
-                    className="px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all cursor-pointer"
                   >
                     Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
-                  >
+                  </Button>
+                  <Button type="submit" variant="success">
                     Complete Re-Enrollment
-                  </button>
+                  </Button>
                 </div>
               </form>
             )}

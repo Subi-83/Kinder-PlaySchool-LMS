@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  GraduationCap, Sparkles, BookOpen, CheckCircle2, BookOpenCheck, AlarmClock,
+  ArrowUpRight, ArrowDownRight, AlertTriangle
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import { useAppSettings } from '../context/AppSettingsContext'
+import StatCard from '../components/ui/StatCard'
+import Card, { CardHeader } from '../components/ui/Card'
+import { LoadingState } from '../components/ui/LoadingState'
+import Badge from '../components/ui/Badge'
 
 function Dashboard() {
   const { user, isAuthenticated } = useAuth()
@@ -87,24 +95,26 @@ function Dashboard() {
     return () => { isMounted = false }
   }, [isAuthenticated])
 
-  if (loading) return <div className="h-64 grid place-items-center text-gray-500 dark:text-gray-400">Loading dashboard…</div>
+  if (loading) return <LoadingState label="Loading dashboard…" />
 
   const cards = [
-    [membersLabel, stats.total_students, '👩‍🎓', 'blue', '/students'],
-    ['Active memberships', stats.active_members, '✨', 'violet', '/subscriptions'],
-    ['Books in library', (stats.total_books - stats.lost), '📚', 'amber', '/books'],
-    ['Available now', stats.available, '✅', 'emerald', '/books'],
-    ['Currently issued', stats.active_issues, '📖', 'cyan', '/library'],
-    ['Overdue', stats.overdue, '⏰', 'rose', '/library'],
-    ['Today issues', stats.today_issues, '↗', 'indigo', '/library'],
-    ['Today returns', stats.today_returns, '↙', 'green', '/library']
+    { label: membersLabel, value: stats.total_students, icon: GraduationCap, tone: 'blue', to: '/students' },
+    { label: 'Active memberships', value: stats.active_members, icon: Sparkles, tone: 'violet', to: '/subscriptions' },
+    { label: 'Books in library', value: stats.total_books - stats.lost, icon: BookOpen, tone: 'amber', to: '/books' },
+    { label: 'Available now', value: stats.available, icon: CheckCircle2, tone: 'emerald', to: '/books' },
+    { label: 'Currently issued', value: stats.active_issues, icon: BookOpenCheck, tone: 'cyan', to: '/library' },
+    { label: 'Overdue', value: stats.overdue, icon: AlarmClock, tone: 'rose', to: '/library' },
+    { label: 'Today issues', value: stats.today_issues, icon: ArrowUpRight, tone: 'indigo', to: '/library' },
+    { label: 'Today returns', value: stats.today_returns, icon: ArrowDownRight, tone: 'green', to: '/library' },
   ]
   const max = Math.max(stats.available || 0, stats.issued || 0, stats.damaged || 0, stats.lost || 0, 1)
+  const openAlertCount = alerts.overdue_books.length + alerts.low_deposits.length
 
   return (
     <div className="space-y-6 text-gray-900 dark:text-gray-100">
+      {/* Welcome / primary actions */}
       <div className="rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 dark:from-[#20234b] dark:via-[#1b1d3a] dark:to-[#162b42] p-6 text-white shadow-md">
-        <p className="text-blue-100 dark:text-blue-300 text-sm font-semibold uppercase tracking-wider">LIBRARY COMMAND CENTER</p>
+        <p className="text-blue-100 dark:text-blue-300 text-sm font-semibold uppercase tracking-wider">Library command center</p>
         <h2 className="mt-1 text-3xl font-bold">Good day, {user?.full_name || 'Administrator'}.</h2>
         <p className="mt-2 text-blue-50 dark:text-gray-300">Everything important, at a glance. Click any stat card below to go directly to its section.</p>
         <div className="mt-5 flex flex-wrap gap-3">
@@ -114,69 +124,58 @@ function Dashboard() {
             ['/library', 'Issue / return'],
             ['/reports', 'Open reports']
           ].map(([path, label]) => (
-            <Link key={path} to={path} className="rounded-lg bg-white/20 hover:bg-white/30 text-white px-4 py-2 text-sm font-medium transition-colors">
+            <Link key={path} to={path} className="rounded-lg bg-white/15 hover:bg-white/25 text-white px-4 py-2 text-sm font-medium transition-colors">
               {label}
             </Link>
           ))}
         </div>
       </div>
 
-      {error && <div className="rounded-lg bg-red-50 dark:bg-red-950/60 p-3 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">{error}</div>}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map(([label, value, icon, color, path]) => (
-          <Link
-            key={label}
-            to={path}
-            className="group rounded-xl bg-white dark:bg-[#1a1a2e] p-4 shadow-sm border border-gray-200 dark:border-[#2a2a4a] hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all block cursor-pointer"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 font-medium transition-colors">{label}</span>
-              <span className="text-xl group-hover:scale-110 transition-transform">{icon}</span>
-            </div>
-            <p className="mt-3 text-3xl font-bold text-gray-900 dark:text-white">{value || 0}</p>
-            <div className={`mt-3 h-1 rounded bg-${color}-500/60 group-hover:bg-blue-500 transition-colors`}></div>
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-5">
-        <section className="lg:col-span-3 rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold text-gray-900 dark:text-white">Book availability</h3>
-            <Link to="/books" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Manage inventory →</Link>
-          </div>
-          <div className="mt-6 space-y-4">
-            {[
-              ['Available', stats.available, 'bg-emerald-500'],
-              ['Issued', stats.issued, 'bg-cyan-500'],
-              ['Damaged', stats.damaged, 'bg-amber-500'],
-              ['Lost', stats.lost, 'bg-rose-500']
-            ].map(([label, value, color]) => (
-              <div key={label}>
-                <div className="mb-1 flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-300">{label}</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{value || 0}</span>
-                </div>
-                <div className="h-3 rounded-full bg-gray-100 dark:bg-[#10101d]">
-                  <div className={`h-3 rounded-full ${color}`} style={{ width: `${((value || 0) / max) * 100}%` }}></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-      </div>
-      <section className="rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">{memberLabel} warnings</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Overdue books and deposits below each {memberLabel.toLowerCase()}’s warning limit.</p>
-          </div>
-          <span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-3 py-1 text-sm font-medium text-amber-800 dark:text-amber-300">
-            {alerts.overdue_books.length + alerts.low_deposits.length} open
-          </span>
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 p-3 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-sm">{error}</p>
         </div>
+      )}
+
+      {/* Key metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {cards.map((card) => <StatCard key={card.label} {...card} />)}
+      </div>
+
+      {/* Learning / operational progress */}
+      <Card>
+        <CardHeader
+          title="Book availability"
+          action={<Link to="/books" className="text-xs font-medium text-primary-main dark:text-blue-400 hover:underline">Manage inventory →</Link>}
+        />
+        <div className="mt-6 space-y-4">
+          {[
+            ['Available', stats.available, 'bg-emerald-500'],
+            ['Issued', stats.issued, 'bg-cyan-500'],
+            ['Damaged', stats.damaged, 'bg-amber-500'],
+            ['Lost', stats.lost, 'bg-rose-500']
+          ].map(([label, value, color]) => (
+            <div key={label}>
+              <div className="mb-1 flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-300">{label}</span>
+                <span className="font-medium text-gray-900 dark:text-white tabular-nums">{value || 0}</span>
+              </div>
+              <div className="h-2.5 rounded-full bg-gray-100 dark:bg-[#10101d]">
+                <div className={`h-2.5 rounded-full ${color}`} style={{ width: `${((value || 0) / max) * 100}%` }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Recent activity / attention needed */}
+      <Card>
+        <CardHeader
+          title={`${memberLabel} warnings`}
+          description={`Overdue books and deposits below each ${memberLabel.toLowerCase()}'s warning limit.`}
+          action={<Badge tone={openAlertCount > 0 ? 'warning' : 'success'}>{openAlertCount} open</Badge>}
+        />
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-rose-200 dark:border-rose-900/60 overflow-hidden">
             <div className="bg-rose-50 dark:bg-rose-950/30 px-4 py-2 text-sm font-semibold text-rose-800 dark:text-rose-300">Overdue books ({alerts.overdue_books.length})</div>
@@ -197,31 +196,7 @@ function Dashboard() {
             )) : <p className="px-4 py-5 text-sm text-gray-500 dark:text-gray-400">All deposit balances are healthy.</p>}
           </div>
         </div>
-      </section>
-
-      
-        {/* {<section className="rounded-2xl bg-white dark:bg-[#1a1a2e] p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold text-gray-900 dark:text-white">Financial summary</h3>
-            <Link to="/deposits" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Deposits →</Link>
-          </div>
-          <div className="mt-5 space-y-4">
-            {[
-              ['Deposits', stats.total_deposits],
-              ['Fine collection', stats.total_fines],
-              ['Damage charges', stats.total_damages],
-              ['Current balance', stats.total_balance]
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-lg bg-gray-50 dark:bg-[#10101d] p-3 border border-gray-100 dark:border-[#2a2a4a]">
-                <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-                <p className="mt-1 text-lg font-bold text-gray-900 dark:text-white">₹{Number(value || 0).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-        </section>} */}
-      
-
-      
+      </Card>
     </div>
   )
 }

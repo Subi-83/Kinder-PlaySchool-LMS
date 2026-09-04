@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { FileSpreadsheet, Printer, Search, School, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { useAppSettings } from '../context/AppSettingsContext'
+import { PageHeader, Button, Card, LoadingState, EmptyState, Checkbox, useSortableData } from '../components/ui'
 
 const tabs = [
   { id: 'stock', label: 'Stock Summary', perm: 'report.stock' },
@@ -59,8 +61,9 @@ const download = (body, name, type) => {
 function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggleField }) {
   const [page, setPage] = useState(1)
   const perPage = 10
-  const totalPages = Math.max(1, Math.ceil(rows.length / perPage))
-  const visibleRows = rows.slice((page - 1) * perPage, page * perPage)
+  const { sortedItems: sortedRows, requestSort, directionFor } = useSortableData(rows)
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / perPage))
+  const visibleRows = sortedRows.slice((page - 1) * perPage, page * perPage)
   const tableFields = rows[0] ? Object.keys(rows[0]) : selectedFields
 
   useEffect(() => setPage(1), [rows, activeTab])
@@ -72,14 +75,28 @@ function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggle
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
-              <tr>{tableFields.map(head => (
-                <th className="px-5 py-3.5" key={head}>
-                  <label className="inline-flex items-center gap-2 cursor-pointer whitespace-nowrap">
-                    <input type="checkbox" checked={selectedFields.includes(head)} onChange={() => onToggleField(head)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
-                    {pretty(head)}
-                  </label>
-                </th>
-              ))}</tr>
+              <tr>{tableFields.map(head => {
+                const direction = directionFor(head)
+                const SortIcon = direction === 'asc' ? ChevronUp : direction === 'desc' ? ChevronDown : ChevronsUpDown
+                return (
+                  <th className="px-5 py-3.5" key={head}>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <Checkbox size="sm" checked={selectedFields.includes(head)} onChange={() => onToggleField(head)} />
+                        {pretty(head)}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => requestSort(head)}
+                        aria-label={`Sort by ${pretty(head)}`}
+                        className={`shrink-0 transition-colors ${direction ? 'text-primary-main dark:text-blue-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                      >
+                        <SortIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </th>
+                )
+              })}</tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
               {visibleRows.map((row, index) => (
@@ -501,42 +518,22 @@ function Reports() {
 
   return (
     <div className="space-y-6 text-gray-900 dark:text-gray-100">
-      {/* Header Banner */}
-      <div className="rounded-2xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 p-6 text-white shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 -mr-12 -mt-12 h-48 w-48 rounded-full bg-blue-500/10 blur-2xl pointer-events-none"></div>
-        <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 relative z-10">
-          <div>
-            <div className="flex items-center gap-2 text-blue-300 font-semibold text-xs tracking-wider uppercase">
-              <span>🏫 {schoolName}</span>
-            </div>
-            <h2 className="text-3xl font-extrabold tracking-tight mt-1 text-white">{tab?.label || 'Report Generation'}</h2>
-            <p className="text-sm text-blue-200/80 mt-1">Official calculated records, inventory metrics, JK member eligibility, and financial breakdowns.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => exportCurrent('excel')}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-emerald-500 transition-all hover:scale-105 active:scale-95"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Export Excel / CSV
-            </button>
-            <button
-              onClick={() => exportCurrent('pdf')}
-              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-rose-500 transition-all hover:scale-105 active:scale-95"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-              </svg>
-              Print / Save PDF
-            </button>
-          </div>
-        </div>
+      <PageHeader
+        title={tab?.label || 'Report Generation'}
+        description="Official calculated records, inventory metrics, JK member eligibility, and financial breakdowns."
+        actions={
+          <>
+            <Button variant="success" icon={FileSpreadsheet} onClick={() => exportCurrent('excel')}>Export Excel / CSV</Button>
+            <Button variant="danger" icon={Printer} onClick={() => exportCurrent('pdf')}>Print / Save PDF</Button>
+          </>
+        }
+      />
 
-        {/* Metadata Details Row */}
-        <div className="mt-6 pt-4 border-t border-white/10 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-blue-200">
-          <div>
+      {/* Metadata Details Row */}
+      <Card padding="p-4" className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 border-transparent text-blue-100">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div className="flex items-center gap-1.5">
+            <School className="h-3.5 w-3.5 opacity-70 shrink-0" aria-hidden="true" />
             <span className="opacity-70">School Name: </span>
             <strong className="text-white font-medium">{schoolName}</strong>
           </div>
@@ -549,7 +546,7 @@ function Reports() {
             <strong className="text-white font-medium">{user?.full_name || user?.username || 'Admin'}</strong>
           </div>
         </div>
-      </div>
+      </Card>
 
       {error && <div className="rounded-xl bg-red-50 dark:bg-red-950/60 p-4 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">{error}</div>}
 
@@ -581,7 +578,7 @@ function Reports() {
             </div>
             <div className="flex justify-between items-center">
               <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-2">
-                <span>🔍</span> Filter JK Members Report
+                <Search className="h-3.5 w-3.5" aria-hidden="true" /> Filter JK Members Report
               </h4>
               <button
                 onClick={resetFilters}
@@ -657,8 +654,8 @@ function Reports() {
                   className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a2e] px-2.5 py-1.5 text-gray-900 dark:text-white"
                 >
                   <option value="ALL">All Balances</option>
-                  <option value="HEALTHY">Healthy (✓)</option>
-                  <option value="LOW_BALANCE">Low Balance Warning (⚠️)</option>
+                  <option value="HEALTHY">Healthy</option>
+                  <option value="LOW_BALANCE">Low Balance Warning</option>
                 </select>
               </div>
 
@@ -702,7 +699,7 @@ function Reports() {
           <div className="p-5 bg-indigo-50/40 dark:bg-[#121222] border-b border-gray-200 dark:border-[#292944] space-y-4">
             <div className="flex justify-between items-center">
               <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-300 flex items-center gap-2">
-                <span>🔍</span> Filter Books Report
+                <Search className="h-3.5 w-3.5" aria-hidden="true" /> Filter Books Report
               </h4>
               <button
                 onClick={resetFilters}
@@ -814,16 +811,13 @@ function Reports() {
             <label className="min-w-72 flex-1 text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300">Search E-book Register
               <input value={ebookSearch} onChange={(event) => setEbookSearch(event.target.value)} placeholder="Title, author, ISBN, or publisher..." className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal normal-case text-gray-900 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-white" />
             </label>
-            <button type="button" onClick={() => setEbookSearch('')} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 dark:border-gray-700 dark:bg-[#1a1a2e] dark:text-gray-200">Clear</button>
+            <Button variant="outline" size="sm" icon={X} onClick={() => setEbookSearch('')}>Clear</Button>
             <p className="w-full text-xs text-gray-500 dark:text-gray-400">Information-only records. E-books are not included in physical stock, issue, return, available, lost, or damaged counts.</p>
           </div>
         )}
 
         {loading ? (
-          <div className="p-12 text-gray-500 dark:text-gray-400 text-center flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-            <span>Generating calculated report metrics…</span>
-          </div>
+          <LoadingState label="Generating calculated report metrics…" />
         ) : (
           <div className="p-6 space-y-8">
             {/* Metric KPI Cards */}
@@ -834,7 +828,7 @@ function Reports() {
                   {scalar.map(([key, value]) => (
                     <div key={key} className="rounded-xl bg-gray-50 dark:bg-[#22223a] border border-gray-200 dark:border-[#292944] p-4 transition-all hover:shadow-md">
                       <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold cursor-pointer">
-                        <input type="checkbox" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
+                        <Checkbox size="sm" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} />
                         {pretty(key)}
                       </label>
                       <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{formatVal(active, key, value)}</p>
@@ -864,7 +858,7 @@ function Reports() {
                         <tr key={key} className={idx % 2 === 0 ? 'bg-white dark:bg-[#10101d]' : 'bg-gray-50/50 dark:bg-[#141426]'}>
                           <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-gray-100">
                             <label className="inline-flex items-center gap-2 cursor-pointer">
-                              <input type="checkbox" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} className="rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
+                              <Checkbox size="sm" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} />
                               {pretty(key)}
                             </label>
                           </td>
@@ -892,7 +886,9 @@ function Reports() {
               />
             ))}
 
-            {!scalar.length && !lists.length && <p className="text-gray-500 dark:text-gray-400 text-center py-8">No report records available for this selection.</p>}
+            {!scalar.length && !lists.length && (
+              <EmptyState title="No report records available" description="Try adjusting the filters above or choose a different academic year." />
+            )}
           </div>
         )}
       </div>

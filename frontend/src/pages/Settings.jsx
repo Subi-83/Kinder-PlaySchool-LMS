@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
+import {
+  ChevronLeft, ChevronRight, Plus, PartyPopper, CalendarDays, Pencil, Trash2, X,
+  CheckCircle2, XCircle, RefreshCw, Lightbulb, Search, Save,
+} from 'lucide-react'
+import { Button, IconButton, Badge, EmptyState, LoadingState, PageHeader, Checkbox, SortableTh, useSortableData } from '../components/ui'
 
 // Category colors for badges
 const CATEGORY_COLORS = {
@@ -49,7 +54,7 @@ const SETTING_LABELS = {
 }
 
 // ============================================================
-// 📅 HOLIDAY CALENDAR COMPONENT
+// HOLIDAY CALENDAR COMPONENT
 // ============================================================
 
 export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
@@ -168,16 +173,16 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
           ...form,
           holiday_date: form.start_date
         })
-        setStatusMessage('✅ Holiday updated successfully')
+        setStatusMessage({ type: 'success', text: 'Holiday updated successfully' })
       } else {
         await api.post('/settings/holidays', form)
-        setStatusMessage('✅ Holiday added successfully')
+        setStatusMessage({ type: 'success', text: 'Holiday added successfully' })
       }
       setShowModal(false)
       onHolidayChange()
       setTimeout(() => setStatusMessage(''), 3000)
     } catch (err) {
-      setStatusMessage('❌ ' + (err.response?.data?.error || err.message || 'Error saving holiday'))
+      setStatusMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Error saving holiday' })
     } finally {
       setSaving(false)
     }
@@ -187,11 +192,11 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
     if (!window.confirm(`Delete holiday "${holiday.holiday_name}"?`)) return
     try {
       await api.delete(`/settings/holidays/${holiday.holiday_id}`)
-      setStatusMessage('✅ Holiday deleted')
+      setStatusMessage({ type: 'success', text: 'Holiday deleted' })
       onHolidayChange()
       setTimeout(() => setStatusMessage(''), 3000)
     } catch (err) {
-      setStatusMessage('❌ ' + (err.response?.data?.error || err.message || 'Error deleting holiday'))
+      setStatusMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Error deleting holiday' })
     }
   }
 
@@ -222,35 +227,26 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
   return (
     <div className="space-y-6">
       {statusMessage && (
-        <div className={`p-4 rounded-xl text-sm font-medium ${
-          statusMessage.includes('✅') 
-            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+        <div className={`p-4 rounded-xl text-sm font-medium flex items-center gap-2 ${
+          statusMessage.type === 'success'
+            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
             : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
         }`}>
-          {statusMessage}
+          {statusMessage.type === 'success'
+            ? <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            : <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />}
+          {statusMessage.text}
         </div>
       )}
 
       {/* Calendar Header Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-[#1a1a2e] p-5 rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
         <div className="flex items-center gap-3">
-          <button
-            onClick={prevMonth}
-            className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2a4a] dark:hover:bg-[#34345c] text-gray-700 dark:text-gray-200 transition-colors font-bold"
-            title="Previous Month"
-          >
-            ←
-          </button>
+          <IconButton icon={ChevronLeft} label="Previous month" variant="subtle" onClick={prevMonth} />
           <h3 className="text-xl font-bold text-gray-900 dark:text-white min-w-[200px] text-center">
             {monthNames[month]} {year}
           </h3>
-          <button
-            onClick={nextMonth}
-            className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-[#2a2a4a] dark:hover:bg-[#34345c] text-gray-700 dark:text-gray-200 transition-colors font-bold"
-            title="Next Month"
-          >
-            →
-          </button>
+          <IconButton icon={ChevronRight} label="Next month" variant="subtle" onClick={nextMonth} />
           <button
             onClick={gotoToday}
             className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 transition-colors border border-blue-200 dark:border-blue-800"
@@ -284,12 +280,9 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
           </div>
 
           {canEdit && (
-            <button
-              onClick={() => openAddModal()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm flex items-center gap-1.5"
-            >
-              <span>+</span> Add Holiday
-            </button>
+            <Button size="sm" icon={Plus} onClick={() => openAddModal()}>
+              Add Holiday
+            </Button>
           )}
         </div>
       </div>
@@ -347,7 +340,9 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
                       {cell.day}
                     </span>
                     {dayHolidays.length > 0 && (
-                      <span className="text-xs" title="School Holiday">🎉</span>
+                      <span title="School holiday">
+                        <PartyPopper className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                      </span>
                     )}
                   </div>
 
@@ -377,7 +372,8 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
           <div>
             <div className="flex items-center justify-between mb-4">
               <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <span>🗓️</span> {filterView === 'month' ? `${monthNames[month]} Holidays` : `All Holidays (${year})`}
+                <CalendarDays className="h-4 w-4 text-blue-500" aria-hidden="true" />
+                {filterView === 'month' ? `${monthNames[month]} Holidays` : `All Holidays (${year})`}
               </h4>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
                 {displayedHolidays.length} Days
@@ -385,18 +381,21 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
             </div>
 
             {displayedHolidays.length === 0 ? (
-              <div className="text-center py-12 px-4 border border-dashed border-gray-200 dark:border-[#2a2a4a] rounded-xl">
-                <p className="text-3xl mb-2">🏖️</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">No holidays for this period.</p>
-                {canEdit && (
-                  <button
+              <EmptyState
+                icon={CalendarDays}
+                title="No holidays for this period"
+                className="border border-dashed border-gray-200 dark:border-[#2a2a4a] rounded-xl py-10"
+                action={canEdit ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={Plus}
                     onClick={() => openAddModal(`${year}-${String(month + 1).padStart(2, '0')}-01`)}
-                    className="mt-3 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    + Add a holiday in {monthNames[month]}
-                  </button>
-                )}
-              </div>
+                    Add a holiday in {monthNames[month]}
+                  </Button>
+                ) : undefined}
+              />
             ) : (
               <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
                 {paginatedHolidays.map((h) => (
@@ -409,8 +408,8 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
                         <h5 className="font-semibold text-sm text-gray-900 dark:text-white">
                           {h.holiday_name}
                         </h5>
-                        <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mt-0.5">
-                          📅 {h.holiday_date}
+                        <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mt-0.5 flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" aria-hidden="true" /> {h.holiday_date}
                         </p>
                       </div>
                       {h.is_recurring && (
@@ -430,15 +429,15 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
                       <div className="flex items-center gap-3 mt-2.5 pt-2 border-t border-gray-200/60 dark:border-[#242442] text-xs">
                         <button
                           onClick={() => openEditModal(h)}
-                          className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                          className="inline-flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400 hover:underline"
                         >
-                          ✏️ Edit
+                          <Pencil className="h-3 w-3" aria-hidden="true" /> Edit
                         </button>
                         <button
                           onClick={() => handleDelete(h)}
-                          className="font-medium text-red-600 dark:text-red-400 hover:underline"
+                          className="inline-flex items-center gap-1 font-medium text-red-600 dark:text-red-400 hover:underline"
                         >
-                          🗑️ Delete
+                          <Trash2 className="h-3 w-3" aria-hidden="true" /> Delete
                         </button>
                       </div>
                     )}
@@ -451,8 +450,9 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
             </div>
           </div>
 
-          <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 text-xs text-blue-800 dark:text-blue-300">
-            💡 <strong>Library Due Date Rule:</strong> When a book return date lands on a configured holiday, the system automatically extends the due date to the next working day.
+          <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2">
+            <Lightbulb className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+            <span><strong>Library Due Date Rule:</strong> When a book return date lands on a configured holiday, the system automatically extends the due date to the next working day.</span>
           </div>
         </div>
       </div>
@@ -463,15 +463,10 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
           <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl max-w-md w-full p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-xl animate-scale-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <span>{editingHoliday ? '✏️' : '🎉'}</span>
+                {editingHoliday ? <Pencil className="h-4 w-4" aria-hidden="true" /> : <PartyPopper className="h-4 w-4" aria-hidden="true" />}
                 {editingHoliday ? 'Edit Holiday' : 'Add New Holiday'}
               </h3>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl font-bold"
-              >
-                ✕
-              </button>
+              <IconButton icon={X} label="Close" variant="ghost" onClick={() => setShowModal(false)} />
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
@@ -531,33 +526,20 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
               </div>
 
               <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-[#141424] border border-gray-200 dark:border-[#242442]">
-                <input
-                  type="checkbox"
-                  id="is_recurring"
+                <Checkbox
                   checked={form.is_recurring}
                   onChange={e => setForm({ ...form, is_recurring: e.target.checked })}
-                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+                  label={<span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Recurring Holiday (Occurs annually on this calendar date)</span>}
                 />
-                <label htmlFor="is_recurring" className="text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">
-                  🔁 Recurring Holiday (Occurs annually on this calendar date)
-                </label>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] text-gray-700 dark:text-gray-300 text-sm font-semibold hover:bg-gray-100 dark:hover:bg-[#2a2a4a] transition-colors"
-                >
+                <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 shadow-sm"
-                >
-                  {saving ? 'Saving...' : editingHoliday ? 'Update Holiday' : 'Save Holiday'}
-                </button>
+                </Button>
+                <Button type="submit" loading={saving}>
+                  {editingHoliday ? 'Update Holiday' : 'Save Holiday'}
+                </Button>
               </div>
             </form>
           </div>
@@ -568,7 +550,7 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
 }
 
 // ============================================================
-// ⚙️ SYSTEM SETTINGS TABLE COMPONENT
+// SYSTEM SETTINGS TABLE COMPONENT
 // ============================================================
 
 function SystemSettingsTable({ canEdit }) {
@@ -612,7 +594,7 @@ function SystemSettingsTable({ canEdit }) {
         setSettingsList(fallbackList)
         setEditedValues(basicData)
       } catch (fallbackErr) {
-        setStatusMessage('❌ Failed to load settings.')
+        setStatusMessage({ type: 'error', text: 'Failed to load settings.' })
       }
     } finally {
       setLoading(false)
@@ -640,11 +622,11 @@ function SystemSettingsTable({ canEdit }) {
     try {
       await api.put(`/settings/${key}`, { value })
       window.dispatchEvent(new Event('app-settings-updated'))
-      setStatusMessage(`✅ Saved "${SETTING_LABELS[key] || key}"`)
+      setStatusMessage({ type: 'success', text: `Saved "${SETTING_LABELS[key] || key}"` })
       loadSettings()
       setTimeout(() => setStatusMessage(''), 3000)
     } catch (err) {
-      setStatusMessage(`❌ Error saving ${key}: ${err.response?.data?.error || err.message}`)
+      setStatusMessage({ type: 'error', text: `Error saving ${key}: ${err.response?.data?.error || err.message}` })
     } finally {
       setSavingKey(null)
     }
@@ -656,11 +638,11 @@ function SystemSettingsTable({ canEdit }) {
     try {
       await api.post('/settings', editedValues)
       window.dispatchEvent(new Event('app-settings-updated'))
-      setStatusMessage('✅ All system settings updated successfully!')
+      setStatusMessage({ type: 'success', text: 'All system settings updated successfully!' })
       loadSettings()
       setTimeout(() => setStatusMessage(''), 3500)
     } catch (err) {
-      setStatusMessage('❌ ' + (err.response?.data?.error || 'Failed to update settings'))
+      setStatusMessage({ type: 'error', text: err.response?.data?.error || 'Failed to update settings' })
     } finally {
       setSaving(false)
     }
@@ -675,8 +657,12 @@ function SystemSettingsTable({ canEdit }) {
                           (s.description && s.description.toLowerCase().includes(searchQuery.toLowerCase()))
     return matchesCat && matchesSearch
   })
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const paginatedSettings = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const { sortedItems: sortedSettings, requestSort, directionFor } = useSortableData(filtered, null, (row, key) => {
+    if (key === 'name') return SETTING_LABELS[row.setting_key] || row.setting_key
+    return row[key]
+  })
+  const totalPages = Math.max(1, Math.ceil(sortedSettings.length / pageSize))
+  const paginatedSettings = sortedSettings.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -690,23 +676,21 @@ function SystemSettingsTable({ canEdit }) {
   const hasChanges = settingsList.some(s => String(s.setting_value) !== String(editedValues[s.setting_key]))
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="mt-4 text-sm font-medium text-gray-500 dark:text-gray-400">Loading System Configuration Table...</p>
-      </div>
-    )
+    return <LoadingState label="Loading system configuration table…" />
   }
 
   return (
     <div className="space-y-6">
       {statusMessage && (
-        <div className={`p-4 rounded-xl text-sm font-medium ${
-          statusMessage.includes('✅') 
-            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+        <div className={`p-4 rounded-xl text-sm font-medium flex items-center gap-2 ${
+          statusMessage.type === 'success'
+            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
             : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
         }`}>
-          {statusMessage}
+          {statusMessage.type === 'success'
+            ? <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            : <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />}
+          {statusMessage.text}
         </div>
       )}
 
@@ -737,17 +721,13 @@ function SystemSettingsTable({ canEdit }) {
               onChange={e => setSearchQuery(e.target.value)}
               className="w-64 pl-8 pr-3 py-1.5 text-xs rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
-            <span className="absolute left-2.5 top-2 text-gray-400 text-xs">🔍</span>
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
           </div>
 
           {canEdit && hasChanges && (
-            <button
-              onClick={saveAll}
-              disabled={saving}
-              className="px-4 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all shadow-sm flex items-center gap-1"
-            >
-              <span>💾</span> {saving ? 'Saving...' : 'Save All Changes'}
-            </button>
+            <Button size="sm" variant="success" icon={Save} loading={saving} onClick={saveAll}>
+              Save All Changes
+            </Button>
           )}
         </div>
       </div>
@@ -758,8 +738,8 @@ function SystemSettingsTable({ canEdit }) {
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 dark:bg-[#151525] border-b border-gray-200 dark:border-[#2a2a4a] text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               <tr>
-                <th className="px-5 py-3.5">Category</th>
-                <th className="px-5 py-3.5">Setting Name & Key</th>
+                <SortableTh sortKey="category" direction={directionFor('category')} onSort={requestSort} className="px-5 py-3.5">Category</SortableTh>
+                <SortableTh sortKey="name" direction={directionFor('name')} onSort={requestSort} className="px-5 py-3.5">Setting Name & Key</SortableTh>
                 <th className="px-5 py-3.5">Description</th>
                 {/* <th className="px-5 py-3.5">Data Type</th> */}
                 <th className="px-5 py-3.5 min-w-[220px]">Configured Value</th>
@@ -858,17 +838,15 @@ function SystemSettingsTable({ canEdit }) {
                     {canEdit && (
                       <td className="px-5 py-4 text-right whitespace-nowrap">
                         {setting.is_editable ? (
-                          <button
-                            onClick={() => saveSingle(setting)}
+                          <Button
+                            size="sm"
+                            variant={isModified ? 'primary' : 'secondary'}
                             disabled={savingKey === key || !isModified}
-                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                              isModified
-                                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
-                                : 'bg-gray-100 dark:bg-[#2a2a4a] text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                            }`}
+                            loading={savingKey === key}
+                            onClick={() => saveSingle(setting)}
                           >
-                            {savingKey === key ? 'Saving...' : 'Save'}
-                          </button>
+                            Save
+                          </Button>
                         ) : (
                           <span className="text-xs text-gray-400 dark:text-gray-500 italic">Read-only</span>
                         )}
@@ -889,7 +867,7 @@ function SystemSettingsTable({ canEdit }) {
 }
 
 // ============================================================
-// 🏛️ MAIN SETTINGS PAGE CONTAINER
+// MAIN SETTINGS PAGE CONTAINER
 // ============================================================
 
 function MemberGroupsSettings({ canEdit }) {
@@ -904,9 +882,9 @@ function MemberGroupsSettings({ canEdit }) {
   }
   const update = async (group, changes) => { await api.put(`/students/member-groups/${group.group_code}`, { ...group, ...changes }); await load() }
   return <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-[#292944] dark:bg-[#17172a]">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold text-gray-900 dark:text-white">Student / Member Groups</h3><p className="text-xs text-gray-500">Create separate record pages and choose whether each group uses library features.</p></div>{canEdit && <button onClick={() => setShowAdd(!showAdd)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">+ Add Group</button>}</div>
-    {showAdd && <form onSubmit={save} className="mt-4 grid gap-3 rounded-xl border bg-gray-50 p-4 dark:border-[#292944] dark:bg-[#10101d] md:grid-cols-3"><input required value={form.group_name} onChange={(e) => setForm({...form,group_name:e.target.value})} placeholder="Group name" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.singular_label} onChange={(e) => setForm({...form,singular_label:e.target.value})} placeholder="Singular label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.plural_label} onChange={(e) => setForm({...form,plural_label:e.target.value})} placeholder="Plural label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><label className="text-xs"><input type="checkbox" checked={form.library_enabled} onChange={(e) => setForm({...form,library_enabled:e.target.checked})}/> Library access</label><label className="text-xs"><input type="checkbox" checked={form.programmes_enabled} onChange={(e) => setForm({...form,programmes_enabled:e.target.checked})}/> Programmes</label><label className="text-xs"><input type="checkbox" checked={form.subscriptions_enabled} onChange={(e) => setForm({...form,subscriptions_enabled:e.target.checked})}/> Subscriptions</label><button className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white">Create Group</button></form>}
-    <div className="mt-4 grid gap-3 md:grid-cols-2">{groups.map((group) => <div key={group.group_code} className="rounded-xl border p-4 dark:border-[#292944]"><div className="flex items-start justify-between"><div><div className="font-bold">{group.group_name}</div><div className="text-xs text-gray-500">{group.member_count} records · {group.group_code}</div></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${group.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{group.is_active ? 'ACTIVE' : 'INACTIVE'}</span></div><div className="mt-3 flex flex-wrap gap-2 text-[11px]"><span>Library: {group.library_enabled ? 'Yes' : 'No'}</span><span>Programme: {group.programmes_enabled ? 'Yes' : 'No'}</span><span>Subscription: {group.subscriptions_enabled ? 'Yes' : 'No'}</span></div>{canEdit && group.group_code !== 'JK_MEMBERS' && <button onClick={() => update(group, { is_active: !group.is_active })} className="mt-3 text-xs font-bold text-blue-600">{group.is_active ? 'Deactivate' : 'Activate'}</button>}</div>)}</div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold text-gray-900 dark:text-white">Student / Member Groups</h3><p className="text-xs text-gray-500">Create separate record pages and choose whether each group uses library features.</p></div>{canEdit && <Button size="sm" icon={Plus} onClick={() => setShowAdd(!showAdd)}>Add Group</Button>}</div>
+    {showAdd && <form onSubmit={save} className="mt-4 grid gap-3 rounded-xl border bg-gray-50 p-4 dark:border-[#292944] dark:bg-[#10101d] md:grid-cols-3"><input required value={form.group_name} onChange={(e) => setForm({...form,group_name:e.target.value})} placeholder="Group name" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.singular_label} onChange={(e) => setForm({...form,singular_label:e.target.value})} placeholder="Singular label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.plural_label} onChange={(e) => setForm({...form,plural_label:e.target.value})} placeholder="Plural label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><Checkbox size="sm" checked={form.library_enabled} onChange={(e) => setForm({...form,library_enabled:e.target.checked})} label="Library access" className="text-xs" /><Checkbox size="sm" checked={form.programmes_enabled} onChange={(e) => setForm({...form,programmes_enabled:e.target.checked})} label="Programmes" className="text-xs" /><Checkbox size="sm" checked={form.subscriptions_enabled} onChange={(e) => setForm({...form,subscriptions_enabled:e.target.checked})} label="Subscriptions" className="text-xs" /><Button type="submit" size="sm" variant="success">Create Group</Button></form>}
+    <div className="mt-4 grid gap-3 md:grid-cols-2">{groups.map((group) => <div key={group.group_code} className="rounded-xl border p-4 dark:border-[#292944]"><div className="flex items-start justify-between"><div><div className="font-bold">{group.group_name}</div><div className="text-xs text-gray-500">{group.member_count} records · {group.group_code}</div></div><Badge tone={group.is_active ? 'success' : 'neutral'}>{group.is_active ? 'ACTIVE' : 'INACTIVE'}</Badge></div><div className="mt-3 flex flex-wrap gap-2 text-[11px]"><span>Library: {group.library_enabled ? 'Yes' : 'No'}</span><span>Programme: {group.programmes_enabled ? 'Yes' : 'No'}</span><span>Subscription: {group.subscriptions_enabled ? 'Yes' : 'No'}</span></div>{canEdit && group.group_code !== 'JK_MEMBERS' && <button onClick={() => update(group, { is_active: !group.is_active })} className="mt-3 text-xs font-bold text-blue-600">{group.is_active ? 'Deactivate' : 'Activate'}</button>}</div>)}</div>
   </div>
 }
 
@@ -916,18 +894,10 @@ function Settings() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-            <span>⚙️</span> System Settings
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Configure global library parameters, lending policies, charges, and system behaviour.
-          </p>
-        </div>
-
-      </div>
+      <PageHeader
+        title="System Settings"
+        description="Configure global library parameters, lending policies, charges, and system behaviour."
+      />
 
       <MemberGroupsSettings canEdit={canEdit} />
       <SystemSettingsTable canEdit={canEdit} />

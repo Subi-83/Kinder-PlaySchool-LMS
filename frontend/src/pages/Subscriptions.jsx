@@ -3,10 +3,36 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { useAppSettings } from '../context/AppSettingsContext'
+import { PageHeader, Button, IconButton, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import {
+  Plus, X, CheckCircle2, XCircle, Ticket, Settings, PlusCircle, ArrowUpCircle,
+  RotateCcw, Pencil, Trash2, ClipboardList, Info
+} from 'lucide-react'
+
+const SUBSCRIPTION_RECORD_COLUMNS = [
+  { key: 'member_id', label: 'Member ID' },
+  { key: 'member_name', label: 'Member Name', locked: true },
+  { key: 'plan', label: 'Plan' },
+  { key: 'start_date', label: 'Start Date' },
+  { key: 'end_date', label: 'End Date' },
+  { key: 'status', label: 'Status' },
+  { key: 'actions', label: 'Actions', locked: true },
+]
+
+const SUBSCRIPTION_PLAN_COLUMNS = [
+  { key: 'plan_name', label: 'Plan Name', locked: true },
+  { key: 'max_books', label: 'Max Books' },
+  { key: 'duration', label: 'Duration' },
+  { key: 'price', label: 'Price' },
+  { key: 'status', label: 'Status' },
+  { key: 'actions', label: 'Actions', locked: true },
+]
 
 function Subscriptions() {
   const { user, hasPermission } = useAuth()
   const { memberLabel, membersLabel } = useAppSettings()
+  const { isVisible: isSubVisible, toggle: toggleSubColumn, reset: resetSubColumns, hiddenCount: hiddenSubColumns } = useColumnVisibility('subscriptions-records', SUBSCRIPTION_RECORD_COLUMNS)
+  const { isVisible: isPlanVisible, toggle: togglePlanColumn, reset: resetPlanColumns, hiddenCount: hiddenPlanColumns } = useColumnVisibility('subscriptions-plans', SUBSCRIPTION_PLAN_COLUMNS)
   const [plans, setPlans] = useState([])
   const [eligibleStudents, setEligibleStudents] = useState([])
   const [activeSubscriptions, setActiveSubscriptions] = useState([])
@@ -27,7 +53,7 @@ function Subscriptions() {
     student_id: '',
     plan_id: ''
   })
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(null)
   const [formData, setFormData] = useState({
     plan_name: '',
     plan_code: '',
@@ -41,10 +67,29 @@ function Subscriptions() {
   const canEdit = hasPermission('subscription.edit') || user?.role === 'ADMIN'
   const canDelete = hasPermission('subscription.delete') || user?.role === 'ADMIN'
   const canAssign = hasPermission('subscription.create') || user?.role === 'ADMIN'
-  const subscriptionPages = Math.max(1, Math.ceil(activeSubscriptions.length / pageSize))
-  const planPages = Math.max(1, Math.ceil(plans.length / pageSize))
-  const paginatedSubscriptions = activeSubscriptions.slice((subscriptionsPage - 1) * pageSize, subscriptionsPage * pageSize)
-  const paginatedPlans = plans.slice((plansPage - 1) * pageSize, plansPage * pageSize)
+  const {
+    sortedItems: sortedSubscriptions,
+    requestSort: requestSubscriptionSort,
+    directionFor: subscriptionDirectionFor
+  } = useSortableData(activeSubscriptions, null, (row, key) => {
+    if (key === 'member_id') return row.student_uid
+    if (key === 'member_name') return row.student_name
+    if (key === 'plan') return row.plan?.plan_name
+    return row[key]
+  })
+  const {
+    sortedItems: sortedPlans,
+    requestSort: requestPlanSort,
+    directionFor: planDirectionFor
+  } = useSortableData(plans, null, (row, key) => {
+    if (key === 'duration') return row.duration_months
+    if (key === 'status') return row.is_active
+    return row[key]
+  })
+  const subscriptionPages = Math.max(1, Math.ceil(sortedSubscriptions.length / pageSize))
+  const planPages = Math.max(1, Math.ceil(sortedPlans.length / pageSize))
+  const paginatedSubscriptions = sortedSubscriptions.slice((subscriptionsPage - 1) * pageSize, subscriptionsPage * pageSize)
+  const paginatedPlans = sortedPlans.slice((plansPage - 1) * pageSize, plansPage * pageSize)
 
   useEffect(() => {
     if (subscriptionsPage > subscriptionPages) setSubscriptionsPage(subscriptionPages)
@@ -99,10 +144,10 @@ function Subscriptions() {
         description: ''
       })
       await loadData()
-      setMessage('✅ Plan saved successfully!')
-      setTimeout(() => setMessage(''), 3000)
+      setMessage({ type: 'success', text: 'Plan saved successfully!' })
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error saving plan'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error saving plan' })
     }
   }
 
@@ -111,27 +156,27 @@ function Subscriptions() {
     try {
       await api.delete(`/subscriptions/plans/${id}`)
       await loadData()
-      setMessage('✅ Plan deleted successfully!')
-      setTimeout(() => setMessage(''), 3000)
+      setMessage({ type: 'success', text: 'Plan deleted successfully!' })
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error deleting plan'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error deleting plan' })
     }
   }
 
   const handleAssign = async (e) => {
     e.preventDefault()
     if (!assignData.student_id || !assignData.plan_id) {
-      setMessage('Please select both student and plan.')
+      setMessage({ type: 'error', text: 'Please select both student and plan.' })
       return
     }
     try {
       await api.post('/subscriptions/assign', { ...assignData, academic_year_id: academicYearId })
-      setMessage('✅ Subscription assigned successfully!')
+      setMessage({ type: 'success', text: 'Subscription assigned successfully!' })
       setAssignData({ student_id: '', plan_id: '' })
       await loadData()
-      setTimeout(() => setMessage(''), 4000)
+      setTimeout(() => setMessage(null), 4000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error assigning subscription'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error assigning subscription' })
     }
   }
 
@@ -145,7 +190,7 @@ function Subscriptions() {
   const handleRenew = async (e) => {
     e.preventDefault()
     if (!renewingSubscription || !renewData.plan_id || !renewData.payment_method) {
-      setMessage('Please select a plan and payment method.')
+      setMessage({ type: 'error', text: 'Please select a plan and payment method.' })
       return
     }
     try {
@@ -154,17 +199,17 @@ function Subscriptions() {
       })
       setRenewingSubscription(null)
       setRenewData({ plan_id: '', amount: '', payment_method: '' })
-      setMessage('✅ Subscription renewed successfully!')
+      setMessage({ type: 'success', text: 'Subscription renewed successfully!' })
       await loadData()
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error renewing subscription'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error renewing subscription' })
     }
   }
 
   const handleUpgrade = async () => {
     if (!upgradingSubscription || !upgradePlanId) {
-      setMessage('Please choose the plan to upgrade to.')
+      setMessage({ type: 'error', text: 'Please choose the plan to upgrade to.' })
       return
     }
     const selectedPlan = plans.find((plan) => plan.subscription_plan_id === Number(upgradePlanId))
@@ -174,60 +219,62 @@ function Subscriptions() {
       await api.post(`/subscriptions/upgrade/${upgradingSubscription.subscription_id}`, { plan_id: Number(upgradePlanId) })
       setUpgradingSubscription(null)
       setUpgradePlanId('')
-      setMessage('✅ Subscription upgraded successfully!')
+      setMessage({ type: 'success', text: 'Subscription upgraded successfully!' })
       await loadData()
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.data?.error || err.response?.data?.error || err.message || 'Error upgrading subscription'))
+      setMessage({ type: 'error', text: err.data?.error || err.response?.data?.error || err.message || 'Error upgrading subscription' })
     }
   }
 
+  const subscriptionTabs = [
+    { key: 'assign', label: 'Assign Subscription', icon: PlusCircle },
+    { key: 'records', label: `${memberLabel} Subscriptions`, icon: Ticket },
+    { key: 'plans', label: 'Subscription Plans', icon: Settings },
+  ]
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading subscriptions...</p>
-        </div>
-      </div>
-    )
+    return <LoadingState label="Loading subscriptions…" />
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Library Subscriptions</h2>
-          <p className="text-gray-500 dark:text-gray-400">
-            Manage library subscription plans and assign active subscriptions to eligible {membersLabel}.
-          </p>
-        </div>
-        <label className="text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Academic Year
-          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} className="mt-1 block rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#17172a]">
-            {academicYears.map((year) => <option key={year.academic_year_id} value={year.academic_year_id}>{year.year_name || year.year_code}</option>)}
-          </select>
-        </label>
-        {canCreate && (
-          <button
-            onClick={() => { setSubscriptionTab('plans'); setShowForm(!showForm); setEditing(null); setFormData({ plan_name: '', plan_code: '', max_books: 1, duration_months: 3, price: '', description: '' }) }}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors font-semibold shadow-sm"
-          >
-            {showForm ? '✕ Cancel' : '+ Add Plan'}
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="Library Subscriptions"
+        description={`Manage library subscription plans and assign active subscriptions to eligible ${membersLabel}.`}
+        actions={
+          <>
+            <label className="text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Academic Year
+              <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} className="mt-1 block rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#17172a]">
+                {academicYears.map((year) => <option key={year.academic_year_id} value={year.academic_year_id}>{year.year_name || year.year_code}</option>)}
+              </select>
+            </label>
+            {canCreate && (
+              <Button
+                variant="primary"
+                icon={showForm ? X : Plus}
+                onClick={() => { setSubscriptionTab('plans'); setShowForm(!showForm); setEditing(null); setFormData({ plan_name: '', plan_code: '', max_books: 1, duration_months: 3, price: '', description: '' }) }}
+              >
+                {showForm ? 'Cancel' : 'Add Plan'}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {message && (
-        <div className={`p-4 rounded-xl font-semibold shadow-sm ${message.includes('✅') ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'}`}>
-          <p>{message}</p>
+        <div className={`flex items-center gap-2 p-4 rounded-xl font-semibold shadow-sm ${message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'}`}>
+          {message.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" /> : <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />}
+          <p>{message.text}</p>
         </div>
       )}
 
       <div className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-white p-1.5 dark:border-[#2a2a4a] dark:bg-[#1a1a2e]">
-        {[
-          ['assign', '➕ Assign Subscription'], ['records', `🎟️ ${memberLabel} Subscriptions`], ['plans', '⚙️ Subscription Plans']
-        ].map(([key, label]) => (
-          <button key={key} type="button" onClick={() => setSubscriptionTab(key)} className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-colors ${subscriptionTab === key ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#2a2a4a]'}`}>{label}</button>
+        {subscriptionTabs.map(({ key, label, icon: Icon }) => (
+          <button key={key} type="button" onClick={() => setSubscriptionTab(key)} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-colors ${subscriptionTab === key ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#2a2a4a]'}`}>
+            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+            {label}
+          </button>
         ))}
       </div>
 
@@ -305,16 +352,12 @@ function Subscriptions() {
               </div>
             </div>
             <div className="flex gap-3">
-              <button type="submit" className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold transition-colors">
+              <Button type="submit" variant="primary">
                 {editing ? 'Update Plan' : 'Create Plan'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowForm(false); setEditing(null) }}
-                className="px-4 py-2 bg-gray-200 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-200 rounded-xl transition-colors font-semibold"
-              >
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => { setShowForm(false); setEditing(null) }}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -322,7 +365,9 @@ function Subscriptions() {
 
       {subscriptionTab === 'records' && upgradingSubscription && (
         <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-blue-200 dark:border-blue-900/60 shadow-sm">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white">⬆️ Upgrade Subscription</h3>
+          <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
+            <ArrowUpCircle className="h-5 w-5 text-blue-500" aria-hidden="true" /> Upgrade Subscription
+          </h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Upgrade <span className="font-semibold text-gray-900 dark:text-white">{upgradingSubscription.student_name}</span> from <span className="font-semibold">{upgradingSubscription.plan?.plan_name}</span>. The selected plan starts today and uses its full duration and price.
           </p>
@@ -339,19 +384,15 @@ function Subscriptions() {
                 </option>
               ))}
             </select>
-            <button onClick={handleUpgrade} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors">
-              Confirm Upgrade
-            </button>
-            <button onClick={() => { setUpgradingSubscription(null); setUpgradePlanId('') }} className="px-4 py-2 bg-gray-200 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-200 rounded-xl font-semibold transition-colors">
-              Cancel
-            </button>
+            <Button variant="primary" onClick={handleUpgrade}>Confirm Upgrade</Button>
+            <Button variant="secondary" onClick={() => { setUpgradingSubscription(null); setUpgradePlanId('') }}>Cancel</Button>
           </div>
         </div>
       )}
 
       {subscriptionTab === 'records' && renewingSubscription && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
-          <form onSubmit={handleRenew} className="w-full max-w-lg space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#2a2a4a] dark:bg-[#17172a]">
+          <form onSubmit={handleRenew} className="w-full max-w-lg max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#2a2a4a] dark:bg-[#17172a]">
             <div>
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">Renew Subscription</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{renewingSubscription.student_name}</p>
@@ -380,8 +421,8 @@ function Subscriptions() {
               </select>
             </label>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => { setRenewingSubscription(null); setRenewData({ plan_id: '', amount: '', payment_method: '' }) }} className="rounded-xl bg-gray-200 px-4 py-2 font-semibold text-gray-700 dark:bg-[#292944] dark:text-gray-200">Cancel</button>
-              <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700">Confirm Renewal</button>
+              <Button type="button" variant="secondary" onClick={() => { setRenewingSubscription(null); setRenewData({ plan_id: '', amount: '', payment_method: '' }) }}>Cancel</Button>
+              <Button type="submit" variant="success">Confirm Renewal</Button>
             </div>
           </form>
         </div>
@@ -392,7 +433,7 @@ function Subscriptions() {
         <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <span>📋</span> Assign New Subscription
+              <ClipboardList className="h-5 w-5 text-blue-500" aria-hidden="true" /> Assign New Subscription
             </h3>
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
               Only displaying {membersLabel} with Library Access who have NO active subscription
@@ -437,18 +478,15 @@ function Subscriptions() {
               </select>
             </div>
             <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={eligibleStudents.length === 0}
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-all shadow-sm disabled:opacity-50"
-              >
+              <Button type="submit" variant="success" fullWidth disabled={eligibleStudents.length === 0}>
                 Assign Subscription
-              </button>
+              </Button>
             </div>
           </form>
           {eligibleStudents.length === 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-              ℹ️ No {membersLabel} are currently eligible for a new subscription. {membersLabel} with active subscriptions cannot be assigned duplicates until their active subscription expires.
+            <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 mt-2">
+              <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              No {membersLabel} are currently eligible for a new subscription. {membersLabel} with active subscriptions cannot be assigned duplicates until their active subscription expires.
             </p>
           )}
         </div>
@@ -457,80 +495,77 @@ function Subscriptions() {
       {/* Active & Past Subscriptions List */}
       {subscriptionTab === 'records' && <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 dark:border-[#2a2a4a] flex justify-between items-center">
-          <h4 className="font-bold text-gray-900 dark:text-white text-base">🎟️ {memberLabel} Subscriptions Status</h4>
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Total Records: {activeSubscriptions.length}</span>
+          <h4 className="flex items-center gap-2 font-bold text-gray-900 dark:text-white text-base">
+            <Ticket className="h-4 w-4 text-blue-500" aria-hidden="true" /> {memberLabel} Subscriptions Status
+          </h4>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Total Records: {activeSubscriptions.length}</span>
+            <ColumnVisibilityMenu columns={SUBSCRIPTION_RECORD_COLUMNS} isVisible={isSubVisible} onToggle={toggleSubColumn} onReset={resetSubColumns} hiddenCount={hiddenSubColumns} />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 dark:bg-[#0f0f1a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
               <tr>
-                <th className="px-4 py-3">{memberLabel} ID</th>
-                <th className="px-4 py-3">{memberLabel} Name</th>
-                <th className="px-4 py-3">Plan</th>
-                <th className="px-4 py-3">Start Date</th>
-                <th className="px-4 py-3">End Date</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <SortableTh sortKey="member_id" direction={subscriptionDirectionFor('member_id')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('member_id') ? '' : 'hidden'}`}>{memberLabel} ID</SortableTh>
+                <SortableTh sortKey="member_name" direction={subscriptionDirectionFor('member_name')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('member_name') ? '' : 'hidden'}`}>{memberLabel} Name</SortableTh>
+                <SortableTh sortKey="plan" direction={subscriptionDirectionFor('plan')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('plan') ? '' : 'hidden'}`}>Plan</SortableTh>
+                <SortableTh sortKey="start_date" direction={subscriptionDirectionFor('start_date')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('start_date') ? '' : 'hidden'}`}>Start Date</SortableTh>
+                <SortableTh sortKey="end_date" direction={subscriptionDirectionFor('end_date')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('end_date') ? '' : 'hidden'}`}>End Date</SortableTh>
+                <SortableTh sortKey="status" direction={subscriptionDirectionFor('status')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('status') ? '' : 'hidden'}`}>Status</SortableTh>
+                <th className={`px-4 py-3 text-right ${isSubVisible('actions') ? '' : 'hidden'}`}>Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
-              {paginatedSubscriptions.map((sub) => (
-                <tr key={sub.subscription_id} className="hover:bg-blue-50/20 dark:hover:bg-[#0f0f1a] transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs font-bold text-gray-700 dark:text-gray-300">
-                    {sub.student_uid}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">
-                    {sub.student_name}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                    {sub.plan?.plan_name || 'Standard Plan'}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
-                    {sub.start_date}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
-                    {sub.end_date}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    <span
-                      className={`px-2.5 py-1 rounded-full font-bold ${
-                        sub.status === 'ACTIVE'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                      }`}
-                    >
-                      {sub.status === 'ACTIVE' ? '✓ Active' : 'Expired'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {sub.status === 'ACTIVE' && canAssign && (
-                      <button
-                        onClick={() => { setUpgradingSubscription(sub); setUpgradePlanId('') }}
-                        className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg font-bold text-xs hover:bg-blue-100 transition-colors"
-                      >
-                        ⬆ Upgrade Plan
-                      </button>
-                    )}
-                    {sub.status === 'EXPIRED' && canAssign && (
-                      <button
-                        onClick={() => openRenew(sub)}
-                        className="px-3 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors"
-                      >
-                        ↻ Re-Subscribe / Renew
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {activeSubscriptions.length === 0 && (
-                <tr>
-                  <td colSpan="7" className="p-8 text-center text-gray-500 dark:text-gray-400">
-                    No active or past {memberLabel.toLowerCase()} subscriptions found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
+            {activeSubscriptions.length > 0 && (
+              <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
+                {paginatedSubscriptions.map((sub) => (
+                  <tr key={sub.subscription_id} className="hover:bg-blue-50/20 dark:hover:bg-[#0f0f1a] transition-colors">
+                    <td className={`px-4 py-3 font-mono text-xs font-bold text-gray-700 dark:text-gray-300 ${isSubVisible('member_id') ? '' : 'hidden'}`}>
+                      {sub.student_uid}
+                    </td>
+                    <td className={`px-4 py-3 font-bold text-gray-900 dark:text-white ${isSubVisible('member_name') ? '' : 'hidden'}`}>
+                      {sub.student_name}
+                    </td>
+                    <td className={`px-4 py-3 font-medium text-gray-800 dark:text-gray-200 ${isSubVisible('plan') ? '' : 'hidden'}`}>
+                      {sub.plan?.plan_name || 'Standard Plan'}
+                    </td>
+                    <td className={`px-4 py-3 text-xs text-gray-600 dark:text-gray-400 ${isSubVisible('start_date') ? '' : 'hidden'}`}>
+                      {sub.start_date}
+                    </td>
+                    <td className={`px-4 py-3 text-xs text-gray-600 dark:text-gray-400 ${isSubVisible('end_date') ? '' : 'hidden'}`}>
+                      {sub.end_date}
+                    </td>
+                    <td className={`px-4 py-3 text-xs ${isSubVisible('status') ? '' : 'hidden'}`}>
+                      <Badge tone={sub.status === 'ACTIVE' ? 'success' : 'danger'} icon={sub.status === 'ACTIVE' ? CheckCircle2 : XCircle}>
+                        {sub.status === 'ACTIVE' ? 'Active' : 'Expired'}
+                      </Badge>
+                    </td>
+                    <td className={`px-4 py-3 text-right ${isSubVisible('actions') ? '' : 'hidden'}`}>
+                      {sub.status === 'ACTIVE' && canAssign && (
+                        <button
+                          onClick={() => { setUpgradingSubscription(sub); setUpgradePlanId('') }}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg font-bold text-xs hover:bg-blue-100 transition-colors"
+                        >
+                          <ArrowUpCircle className="h-3.5 w-3.5" aria-hidden="true" /> Upgrade Plan
+                        </button>
+                      )}
+                      {sub.status === 'EXPIRED' && canAssign && (
+                        <button
+                          onClick={() => openRenew(sub)}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg font-bold text-xs hover:bg-emerald-100 transition-colors"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Re-Subscribe / Renew
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
+          {activeSubscriptions.length === 0 && (
+            <EmptyState icon={Ticket} title="No subscriptions found" description={`No active or past ${memberLabel.toLowerCase()} subscriptions found.`} />
+          )}
         </div>
         <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
           <Pagination currentPage={subscriptionsPage} totalPages={subscriptionPages} totalItems={activeSubscriptions.length} perPage={pageSize} onPageChange={setSubscriptionsPage} itemLabel="subscriptions" />
@@ -539,75 +574,77 @@ function Subscriptions() {
 
       {/* Plans List */}
       {subscriptionTab === 'plans' && <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-200 dark:border-[#2a2a4a]">
-          <h4 className="font-bold text-gray-900 dark:text-white text-base">⚙️ Available Subscription Plans</h4>
+        <div className="px-5 py-4 border-b border-gray-200 dark:border-[#2a2a4a] flex justify-between items-center">
+          <h4 className="flex items-center gap-2 font-bold text-gray-900 dark:text-white text-base">
+            <Settings className="h-4 w-4 text-blue-500" aria-hidden="true" /> Available Subscription Plans
+          </h4>
+          <ColumnVisibilityMenu columns={SUBSCRIPTION_PLAN_COLUMNS} isVisible={isPlanVisible} onToggle={togglePlanColumn} onReset={resetPlanColumns} hiddenCount={hiddenPlanColumns} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 dark:bg-[#0f0f1a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
               <tr>
-                <th className="px-4 py-3">Plan Name</th>
-                <th className="px-4 py-3">Max Books</th>
-                <th className="px-4 py-3">Duration</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <SortableTh sortKey="plan_name" direction={planDirectionFor('plan_name')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('plan_name') ? '' : 'hidden'}`}>Plan Name</SortableTh>
+                <SortableTh sortKey="max_books" direction={planDirectionFor('max_books')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('max_books') ? '' : 'hidden'}`}>Max Books</SortableTh>
+                <SortableTh sortKey="duration" direction={planDirectionFor('duration')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('duration') ? '' : 'hidden'}`}>Duration</SortableTh>
+                <SortableTh sortKey="price" direction={planDirectionFor('price')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('price') ? '' : 'hidden'}`}>Price</SortableTh>
+                <SortableTh sortKey="status" direction={planDirectionFor('status')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('status') ? '' : 'hidden'}`}>Status</SortableTh>
+                <th className={`px-4 py-3 text-right ${isPlanVisible('actions') ? '' : 'hidden'}`}>Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
-              {paginatedPlans.map(p => (
-                <tr key={p.subscription_plan_id} className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a]">
-                  <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">{p.plan_name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{p.max_books} books</td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{p.duration_months} months</td>
-                  <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">₹{p.price}</td>
-                  <td className="px-4 py-3 text-xs">
-                    <span className={`px-2 py-1 rounded-full font-bold ${p.is_active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'}`}>
-                      {p.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      {canEdit && (
-                        <button
-                          onClick={() => {
-                            setEditing(p.subscription_plan_id)
-                            setFormData({
-                              plan_name: p.plan_name || '',
-                              plan_code: p.plan_code || '',
-                              max_books: p.max_books || 1,
-                              duration_months: p.duration_months || 3,
-                              price: p.price || '',
-                              description: p.description || ''
-                            })
-                            setShowForm(true)
-                          }}
-                          className="px-3 py-1 text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors"
-                        >
-                          Edit
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => handleDelete(p.subscription_plan_id)}
-                          className="px-3 py-1 text-xs font-semibold bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-200 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {plans.length === 0 && (
-                <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    No subscription plans found
-                  </td>
-                </tr>
-              )}
-            </tbody>
+            {plans.length > 0 && (
+              <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
+                {paginatedPlans.map(p => (
+                  <tr key={p.subscription_plan_id} className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a]">
+                    <td className={`px-4 py-3 font-bold text-gray-900 dark:text-white ${isPlanVisible('plan_name') ? '' : 'hidden'}`}>{p.plan_name}</td>
+                    <td className={`px-4 py-3 text-sm text-gray-600 dark:text-gray-400 ${isPlanVisible('max_books') ? '' : 'hidden'}`}>{p.max_books} books</td>
+                    <td className={`px-4 py-3 text-sm text-gray-600 dark:text-gray-400 ${isPlanVisible('duration') ? '' : 'hidden'}`}>{p.duration_months} months</td>
+                    <td className={`px-4 py-3 font-bold text-gray-900 dark:text-white ${isPlanVisible('price') ? '' : 'hidden'}`}>₹{p.price}</td>
+                    <td className={`px-4 py-3 text-xs ${isPlanVisible('status') ? '' : 'hidden'}`}>
+                      <Badge tone={p.is_active ? 'success' : 'neutral'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
+                    </td>
+                    <td className={`px-4 py-3 text-right ${isPlanVisible('actions') ? '' : 'hidden'}`}>
+                      <div className="flex justify-end gap-1">
+                        {canEdit && (
+                          <IconButton
+                            icon={Pencil}
+                            label="Edit plan"
+                            variant="subtle"
+                            size="sm"
+                            onClick={() => {
+                              setEditing(p.subscription_plan_id)
+                              setFormData({
+                                plan_name: p.plan_name || '',
+                                plan_code: p.plan_code || '',
+                                max_books: p.max_books || 1,
+                                duration_months: p.duration_months || 3,
+                                price: p.price || '',
+                                description: p.description || ''
+                              })
+                              setShowForm(true)
+                            }}
+                          />
+                        )}
+                        {canDelete && (
+                          <IconButton
+                            icon={Trash2}
+                            label="Delete plan"
+                            variant="subtle"
+                            size="sm"
+                            className="text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/30"
+                            onClick={() => handleDelete(p.subscription_plan_id)}
+                          />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
+          {plans.length === 0 && (
+            <EmptyState icon={Settings} title="No subscription plans found" />
+          )}
         </div>
         <div className="px-5 py-4 border-t border-gray-200 dark:border-[#2a2a4a]">
           <Pagination currentPage={plansPage} totalPages={planPages} totalItems={plans.length} perPage={pageSize} onPageChange={setPlansPage} itemLabel="plans" />

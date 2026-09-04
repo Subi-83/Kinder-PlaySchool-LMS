@@ -1,10 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react'
+import {
+  Plus, X, Search, RotateCcw, Camera, Pencil, Trash2, PackagePlus,
+  ChevronUp, ChevronDown, Package, BookOpen, CheckCircle2, Info, AlertTriangle
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
+import { PageHeader, Button, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+
+const BOOKS_COLUMNS = [
+  { key: 'book_id', label: 'Book ID', locked: true },
+  { key: 'title_author', label: 'Book Title / Author', locked: true },
+  { key: 'level_category', label: 'Level / Category' },
+  { key: 'mrp', label: 'MRP' },
+  { key: 'years', label: 'Publish / Purchase Year' },
+  { key: 'inventory', label: 'Inventory Count' },
+  { key: 'status', label: 'Status' },
+  { key: 'actions', label: 'Actions', locked: true },
+]
 
 function Books() {
   const { user, hasPermission } = useAuth()
+  const { isVisible, toggle, reset: resetColumns, hiddenCount } = useColumnVisibility('books-titles', BOOKS_COLUMNS)
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -12,6 +29,7 @@ function Books() {
   const [isbnLookup, setIsbnLookup] = useState('')
   const [isbnLoading, setIsbnLoading] = useState(false)
   const [lookupNotice, setLookupNotice] = useState('')
+  const [lookupNoticeTone, setLookupNoticeTone] = useState('info')
   const scannerInputRef = useRef(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -101,14 +119,18 @@ function Books() {
       }))
 
       if (data.source === 'database') {
-        setLookupNotice('✅ Found in local library database!')
+        setLookupNoticeTone('success')
+        setLookupNotice('Found in local library database!')
       } else if (data.source === 'catalog' || data.source === 'google_books' || data.source === 'open_library') {
-        setLookupNotice(`✅ Found online (${data.source.replace('_', ' ')})! Details populated.`)
+        setLookupNoticeTone('success')
+        setLookupNotice(`Found online (${data.source.replace('_', ' ')})! Details populated.`)
       } else {
-        setLookupNotice('ℹ️ ISBN recognized. Please fill in title and author details.')
+        setLookupNoticeTone('info')
+        setLookupNotice('ISBN recognized. Please fill in title and author details.')
       }
     } catch (err) {
-      setLookupNotice('⚠️ Lookup issue: ' + (err.response?.data?.error || err.message))
+      setLookupNoticeTone('warning')
+      setLookupNotice('Lookup issue: ' + (err.response?.data?.error || err.message))
     } finally {
       setIsbnLoading(false)
     }
@@ -293,94 +315,104 @@ function Books() {
     books.length
   ])
 
+  const { sortedItems: sortedBooks, requestSort, directionFor } = useSortableData(filteredBooks, null, (row, key) => {
+    if (key === 'book_id') {
+      return [...(row.copies || [])]
+        .sort((left, right) => String(left.barcode || '').localeCompare(String(right.barcode || ''), undefined, { numeric: true }))[0]?.barcode || row.book_title_id
+    }
+    if (key === 'title_author') return row.title
+    if (key === 'level_category') return row.level?.level_code || row.level?.level_name || ''
+    if (key === 'mrp') return Number(row.mrp || 0)
+    if (key === 'years') return Number(row.publication_year || 0)
+    if (key === 'inventory') return Number(row.inventory?.total_copies ?? row.copies?.length ?? 0)
+    if (key === 'status') return Number(row.inventory?.available ?? row.copies?.length ?? 0)
+    return row[key]
+  })
+
   const totalItems = filteredBooks.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-  const paginatedBooks = filteredBooks.slice(
+  const paginatedBooks = sortedBooks.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   )
 
-  const getStatusBadge = (status) => {
-    const colors = {
-      'AVAILABLE': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
-      'ISSUED': 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-      'DAMAGED': 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
-      'LOST': 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
-      'RESERVED': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+  const getStatusTone = (status) => {
+    const tones = {
+      'AVAILABLE': 'success',
+      'ISSUED': 'warning',
+      'DAMAGED': 'danger',
+      'LOST': 'danger',
+      'RESERVED': 'info'
     }
-    return colors[status] || 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+    return tones[status] || 'neutral'
+  }
+
+  const resetFormAndOpen = () => {
+    setShowForm(!showForm)
+    setEditing(null)
+    setFormData({
+      title: '',
+      author: '',
+      isbn: '',
+      level_id: '',
+      mrp: '',
+      create_physical_copy: true,
+      category_id: '',
+      publication_year: '',
+      publisher: '',
+      description: '',
+      purchase_year: '',
+      purchase_price: '',
+      location: 'Main Shelf'
+    })
+    setIsbnLookup('')
+    setTimeout(() => scannerInputRef.current?.focus(), 0)
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading book catalog...</p>
-        </div>
-      </div>
-    )
+    return <LoadingState label="Loading book catalog..." />
   }
 
   return (
     <div className="space-y-5">
-      {/* Header Section */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Books Category & Inventory</h2>
-          <p className="text-gray-500 dark:text-gray-400">
-            Manage physical book titles, copies, availability, and shelf locations.
-          </p>
-        </div>
-        {canCreate && (
-          <button
-            onClick={() => {
-              setShowForm(!showForm)
-              setEditing(null)
-              setFormData({
-                title: '',
-                author: '',
-                isbn: '',
-                level_id: '',
-                mrp: '',
-                create_physical_copy: true,
-                category_id: '',
-                publication_year: '',
-                publisher: '',
-                description: '',
-                purchase_year: '',
-                purchase_price: '',
-                location: 'Main Shelf'
-              })
-              setIsbnLookup('')
-              setTimeout(() => scannerInputRef.current?.focus(), 0)
-            }}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors whitespace-nowrap text-sm shadow-sm"
-          >
-            {showForm ? '✕ Cancel' : '+ Add Book'}
-          </button>
+      <PageHeader
+        title="Books Category & Inventory"
+        description="Manage physical book titles, copies, availability, and shelf locations."
+        actions={canCreate && (
+          <Button icon={showForm ? X : Plus} onClick={resetFormAndOpen}>
+            {showForm ? 'Cancel' : 'Add Book'}
+          </Button>
         )}
-      </div>
+      />
 
       {/* Advanced Filter Controls */}
       <div className="bg-white dark:bg-[#1a1a2e] rounded-xl p-5 border border-gray-200 dark:border-[#2a2a4a] shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-gray-100 dark:border-[#2a2a4a] pb-3">
           <div className="flex items-center gap-2">
-            <span className="text-lg">🔍</span>
+            <Search className="h-4 w-4 text-gray-500 dark:text-gray-400" aria-hidden="true" />
             <h3 className="font-semibold text-gray-900 dark:text-white text-base">Filter Book Catalog</h3>
             <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
               Showing {filteredBooks.length} of {books.length} books
             </span>
           </div>
 
-          {hasActiveFilters && (
-            <button
-              onClick={resetFilters}
-              className="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
-            >
-              <span>↺</span> Reset all filters
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {hasActiveFilters && (
+              <button
+                onClick={resetFilters}
+                className="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
+              >
+                <RotateCcw className="h-3 w-3" aria-hidden="true" /> Reset all filters
+              </button>
+            )}
+            <ColumnVisibilityMenu
+              columns={BOOKS_COLUMNS}
+              isVisible={isVisible}
+              onToggle={toggle}
+              onReset={resetColumns}
+              hiddenCount={hiddenCount}
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -397,13 +429,15 @@ function Books() {
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                 className="w-full pl-8 pr-8 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
-              <span className="absolute left-2.5 top-2 text-xs text-gray-400">🔍</span>
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
               {filters.search && (
                 <button
                   onClick={() => setFilters({ ...filters, search: '' })}
-                  className="absolute right-2.5 top-2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  aria-label="Clear search"
+                  title="Clear search"
                 >
-                  ✕
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -524,20 +558,19 @@ function Books() {
                   inputMode="numeric"
                   className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
-                <button
-                  onClick={handleIsbnLookup}
-                  disabled={isbnLoading || !isbnLookup}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
-                >
+                <Button onClick={handleIsbnLookup} disabled={isbnLoading || !isbnLookup} loading={isbnLoading} size="md">
                   {isbnLoading ? 'Searching...' : 'Lookup'}
-                </button>
+                </Button>
               </div>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                📷 Enter or Scan ISBN to auto-fill book details.
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-2 flex items-center gap-1.5">
+                <Camera className="h-3.5 w-3.5" aria-hidden="true" /> Enter or Scan ISBN to auto-fill book details.
               </p>
               {lookupNotice && (
-                <div className="mt-2 text-sm font-medium text-blue-800 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 p-2 rounded-md">
-                  {lookupNotice}
+                <div className="mt-2 text-sm font-medium text-blue-800 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 p-2 rounded-md flex items-center gap-2">
+                  {lookupNoticeTone === 'success' && <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                  {lookupNoticeTone === 'info' && <Info className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                  {lookupNoticeTone === 'warning' && <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                  <span>{lookupNotice}</span>
                 </div>
               )}
             </div>
@@ -684,16 +717,16 @@ function Books() {
             </div>
 
             <div className="flex gap-3 pt-2">
-              <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
+              <Button type="submit">
                 {editing ? 'Update Book' : 'Create Book'}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => { setShowForm(false); setEditing(null) }}
-                className="px-4 py-2 bg-gray-200 dark:bg-[#2a2a4a] hover:bg-gray-300 dark:hover:bg-[#3a3a5a] text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -702,10 +735,12 @@ function Books() {
       {/* Modal for adding a copy to an existing title */}
       {addCopyBook && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <form onSubmit={handleAddCopySubmit} className="w-full max-w-md bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-xl space-y-4">
+          <form onSubmit={handleAddCopySubmit} className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-xl space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-gray-900 dark:text-white text-lg">Add Physical Copy</h3>
-              <button type="button" onClick={() => setAddCopyBook(null)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-lg">✕</button>
+              <button type="button" onClick={() => setAddCopyBook(null)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" aria-label="Close" title="Close">
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
             </div>
 
             <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -758,19 +793,12 @@ function Books() {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setAddCopyBook(null)}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#2a2a4a] text-sm font-medium"
-              >
+              <Button type="button" variant="secondary" onClick={() => setAddCopyBook(null)}>
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
-              >
+              </Button>
+              <Button type="submit" variant="success">
                 Save Copy
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -782,14 +810,14 @@ function Books() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-[#0f0f1a] text-left text-gray-500 dark:text-gray-400 font-medium">
               <tr>
-                <th className="p-3 w-16 text-center">Book ID</th>
-                <th className="p-3">Book Title / Author</th>
-                <th className="p-3">Level / Category</th>
-                <th className="p-3">MRP</th>
-                <th className="p-3">Publish / Purchase Year</th>
-                <th className="p-3">Inventory Count</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Actions</th>
+                <SortableTh sortKey="book_id" direction={directionFor('book_id')} onSort={requestSort} align="center" className={`p-3 w-16 text-center ${isVisible('book_id') ? '' : 'hidden'}`}>Book ID</SortableTh>
+                <SortableTh sortKey="title_author" direction={directionFor('title_author')} onSort={requestSort} className={`p-3 ${isVisible('title_author') ? '' : 'hidden'}`}>Book Title / Author</SortableTh>
+                <SortableTh sortKey="level_category" direction={directionFor('level_category')} onSort={requestSort} className={`p-3 ${isVisible('level_category') ? '' : 'hidden'}`}>Level / Category</SortableTh>
+                <SortableTh sortKey="mrp" direction={directionFor('mrp')} onSort={requestSort} className={`p-3 ${isVisible('mrp') ? '' : 'hidden'}`}>MRP</SortableTh>
+                <SortableTh sortKey="years" direction={directionFor('years')} onSort={requestSort} className={`p-3 ${isVisible('years') ? '' : 'hidden'}`}>Publish / Purchase Year</SortableTh>
+                <SortableTh sortKey="inventory" direction={directionFor('inventory')} onSort={requestSort} className={`p-3 ${isVisible('inventory') ? '' : 'hidden'}`}>Inventory Count</SortableTh>
+                <SortableTh sortKey="status" direction={directionFor('status')} onSort={requestSort} className={`p-3 ${isVisible('status') ? '' : 'hidden'}`}>Status</SortableTh>
+                <th className={`p-3 ${isVisible('actions') ? '' : 'hidden'}`}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-[#2a2a4a]">
@@ -804,14 +832,14 @@ function Books() {
                 return (
                   <React.Fragment key={b.book_title_id}>
                     <tr className="hover:bg-gray-50 dark:hover:bg-[#0f0f1a] transition-colors text-gray-900 dark:text-white">
-                      <td className="p-3 text-center">
+                      <td className={`p-3 text-center ${isVisible('book_id') ? '' : 'hidden'}`}>
                         <span className="font-mono font-bold text-xs px-2 py-1 bg-gray-100 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-300 rounded">
                           {[...(b.copies || [])]
                             .sort((left, right) => String(left.barcode || '').localeCompare(String(right.barcode || ''), undefined, { numeric: true }))[0]?.barcode || b.book_title_id}
                         </span>
                       </td>
 
-                      <td className="p-3">
+                      <td className={`p-3 ${isVisible('title_author') ? '' : 'hidden'}`}>
                         <div className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           <span>{b.title}</span>
                           {b.isbn && <span className="text-xs font-normal text-gray-500 dark:text-gray-400">({b.isbn})</span>}
@@ -819,7 +847,7 @@ function Books() {
                         <div className="text-xs text-gray-500 dark:text-gray-400">By {b.author}</div>
                       </td>
 
-                      <td className="p-3">
+                      <td className={`p-3 ${isVisible('level_category') ? '' : 'hidden'}`}>
                         {b.level ? (
                           <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                             {b.level.level_code || b.level.level_name}
@@ -832,13 +860,13 @@ function Books() {
                         )}
                       </td>
 
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white">
+                      <td className={`px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white ${isVisible('mrp') ? '' : 'hidden'}`}>
                         {b.mrp != null
                           ? `₹${Number(b.mrp).toFixed(2)}`
                           : '—'}
                       </td>
 
-                      <td className="p-3 text-xs">
+                      <td className={`p-3 text-xs ${isVisible('years') ? '' : 'hidden'}`}>
                         <div>
                           <span className="font-medium text-gray-700 dark:text-gray-300">Publish:</span> {b.publication_year || '—'}
                         </div>
@@ -847,16 +875,17 @@ function Books() {
                         </div>
                       </td>
 
-                      <td className="p-3">
+                      <td className={`p-3 ${isVisible('inventory') ? '' : 'hidden'}`}>
                         <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                            📦 {totalCopies === 1 ? '1 Physical' : `${totalCopies} Physical`}
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            <Package className="h-3 w-3" aria-hidden="true" /> {totalCopies === 1 ? '1 Physical' : `${totalCopies} Physical`}
                           </span>
                           <button
                             onClick={() => setExpandedBookId(isExpanded ? null : b.book_title_id)}
-                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium inline-flex items-center gap-1"
                           >
-                            {isExpanded ? '▲ Hide copies' : '▼ View copies'}
+                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
+                            {isExpanded ? 'Hide copies' : 'View copies'}
                           </button>
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -864,13 +893,13 @@ function Books() {
                         </div>
                       </td>
 
-                      <td className="p-3 text-xs">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusBadge(availableCopies > 0 ? 'AVAILABLE' : 'ISSUED')}`}>
+                      <td className={`p-3 text-xs ${isVisible('status') ? '' : 'hidden'}`}>
+                        <Badge tone={availableCopies > 0 ? 'success' : 'warning'}>
                           {availableCopies > 0 ? 'Available' : 'All Issued'}
-                        </span>
+                        </Badge>
                       </td>
 
-                      <td className="p-3">
+                      <td className={`p-3 ${isVisible('actions') ? '' : 'hidden'}`}>
                         <div className="flex items-center gap-2">
                           {canCreate && (
                             <button
@@ -883,10 +912,10 @@ function Books() {
                                   condition: 'NEW'
                                 })
                               }}
-                              className="px-2.5 py-1 text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/80 rounded-md font-semibold transition-colors border border-emerald-300 dark:border-emerald-800"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/80 rounded-md font-semibold transition-colors border border-emerald-300 dark:border-emerald-800"
                               title="Add another copy with a different purchase/publication year to this title"
                             >
-                              + Add Copy
+                              <PackagePlus className="h-3.5 w-3.5" aria-hidden="true" /> Add Copy
                             </button>
                           )}
                           {canEdit && (
@@ -910,17 +939,17 @@ function Books() {
                                 })
                                 setShowForm(true)
                               }}
-                              className="px-2.5 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-200 dark:hover:bg-blue-900/50 font-medium transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-200 dark:hover:bg-blue-900/50 font-medium transition-colors"
                             >
-                              Edit
+                              <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Edit
                             </button>
                           )}
                           {canDelete && (
                             <button
                               onClick={() => handleDelete(b.book_title_id)}
-                              className="px-2.5 py-1 text-xs bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-md hover:bg-rose-200 dark:hover:bg-rose-900/50 font-medium transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-md hover:bg-rose-200 dark:hover:bg-rose-900/50 font-medium transition-colors"
                             >
-                              Delete
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Delete
                             </button>
                           )}
                         </div>
@@ -947,9 +976,9 @@ function Books() {
                                       condition: 'NEW'
                                     })
                                   }}
-                                  className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline"
+                                  className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline inline-flex items-center gap-1"
                                 >
-                                  + Add Copy
+                                  <PackagePlus className="h-3.5 w-3.5" aria-hidden="true" /> Add Copy
                                 </button>
                               )}
                             </div>
@@ -959,9 +988,9 @@ function Books() {
                                 <div key={c.book_copy_id} className="p-2.5 rounded-lg border border-gray-200 dark:border-[#2a2a4a] bg-gray-50 dark:bg-[#10101d] text-xs space-y-1">
                                   <div className="flex justify-between items-center font-mono font-bold text-gray-900 dark:text-white">
                                     <span>Barcode: {c.barcode || '—'}</span>
-                                    <span className={`px-2 py-0.5 text-[10px] rounded-full ${getStatusBadge(c.status)}`}>
+                                    <Badge tone={getStatusTone(c.status)} className="text-[10px]">
                                       {c.status}
-                                    </span>
+                                    </Badge>
                                   </div>
                                   <div className="text-gray-600 dark:text-gray-400 flex justify-between">
                                     <span>Purchased: {c.purchase_year || 'N/A'}</span>
@@ -975,9 +1004,9 @@ function Books() {
                                     <div className="text-right pt-1">
                                       <button
                                         onClick={() => handleDeleteCopy(c.book_copy_id)}
-                                        className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline"
+                                        className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center gap-1"
                                       >
-                                        Delete copy
+                                        <Trash2 className="h-3 w-3" aria-hidden="true" /> Delete copy
                                       </button>
                                     </div>
                                   )}
@@ -994,8 +1023,12 @@ function Books() {
 
               {filteredBooks.length === 0 && (
                 <tr>
-                  <td colSpan="7" className="p-8 text-center text-gray-500 dark:text-gray-400">
-                    No books found matching your search and filter criteria.
+                  <td colSpan="8" className="p-0">
+                    <EmptyState
+                      icon={BookOpen}
+                      title="No books found"
+                      description="No books found matching your search and filter criteria."
+                    />
                   </td>
                 </tr>
               )}

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { CheckCircle2, XCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 
@@ -6,24 +7,24 @@ function Profile() {
   const { user, refreshUser } = useAuth()
   const [profile, setProfile] = useState({ full_name: user?.full_name || '', email: user?.email || '' })
   const [password, setPassword] = useState({ old_password: '', new_password: '', confirm: '' })
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(null)
 
   const saveProfile = async (e) => {
     e.preventDefault()
     try {
       await api.put('/auth/profile', profile)
       await refreshUser()
-      setMessage('✅ Profile updated successfully.')
-      setTimeout(() => setMessage(''), 3000)
+      setMessage({ type: 'success', text: 'Profile updated successfully.' })
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.response?.data?.error || err.message || 'Could not update profile.'))
+      setMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Could not update profile.' })
     }
   }
 
   const savePassword = async (e) => {
     e.preventDefault()
     if (password.new_password !== password.confirm) {
-      setMessage('❌ New password and confirmation do not match.')
+      setMessage({ type: 'error', text: 'New password and confirmation do not match.' })
       return
     }
     try {
@@ -32,10 +33,10 @@ function Profile() {
         new_password: password.new_password
       })
       setPassword({ old_password: '', new_password: '', confirm: '' })
-      setMessage('✅ Password changed successfully.')
-      setTimeout(() => setMessage(''), 3000)
+      setMessage({ type: 'success', text: 'Password changed successfully.' })
+      setTimeout(() => setMessage(null), 3000)
     } catch (err) {
-      setMessage('❌ ' + (err.response?.data?.error || err.message || 'Could not change password.'))
+      setMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Could not change password.' })
     }
   }
 
@@ -47,12 +48,13 @@ function Profile() {
       </div>
 
       {message && (
-        <div className={`p-4 rounded-xl text-sm font-medium ${
-          message.includes('✅')
+        <div className={`flex items-start gap-2 p-4 rounded-xl text-sm font-medium ${
+          message.type === 'success'
             ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
             : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
         }`}>
-          {message}
+          {message.type === 'success' ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />}
+          <span>{message.text}</span>
         </div>
       )}
 

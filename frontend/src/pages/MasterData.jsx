@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api, { booksAPI, studentsAPI } from '../services/api'
 import Pagination from '../components/common/Pagination'
+import {
+  Plus, Pencil, Trash2, CheckCircle2, XCircle, Download, Upload,
+  TreePalm, DatabaseBackup,
+} from 'lucide-react'
+import { Button, Badge, EmptyState, LoadingState, PageHeader, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
 
 const TABS = {
   levels: {
@@ -120,7 +125,7 @@ function SystemSettingsPanel({ canEdit }) {
       setSettings(sRes.data || {})
       setHolidays(hRes.data || [])
     } catch (err) {
-      setMsg('❌ Error loading system settings.')
+      setMsg('Error loading system settings.')
     } finally {
       setLoading(false)
     }
@@ -133,11 +138,11 @@ function SystemSettingsPanel({ canEdit }) {
   const handleUpdateSetting = async (key, value) => {
     try {
       await api.put(`/settings/${key}`, { setting_value: value })
-      setMsg(`✅ Setting "${key}" updated to ${value}`)
+      setMsg(`Setting "${key}" updated to ${value}`)
       loadSettings()
       setTimeout(() => setMsg(''), 3000)
     } catch (err) {
-      setMsg('❌ Failed to update setting.')
+      setMsg('Failed to update setting.')
     }
   }
 
@@ -165,27 +170,27 @@ function SystemSettingsPanel({ canEdit }) {
           description: holidayForm.description
         })
       }
-      setMsg('✅ Holiday(s) created successfully!')
+      setMsg('Holiday(s) created successfully!')
       setHolidayForm({ holiday_name: '', from_date: '', to_date: '', description: '' })
       loadSettings()
       setTimeout(() => setMsg(''), 3000)
     } catch (err) {
-      setMsg('❌ Failed to create holiday.')
+      setMsg('Failed to create holiday.')
     }
   }
 
   const handleDeleteHoliday = async (id) => {
     try {
       await api.delete(`/settings/holidays/${id}`)
-      setMsg('✅ Holiday deleted.')
+      setMsg('Holiday deleted.')
       loadSettings()
       setTimeout(() => setMsg(''), 3000)
     } catch (err) {
-      setMsg('❌ Failed to delete holiday.')
+      setMsg('Failed to delete holiday.')
     }
   }
 
-  if (loading) return <p className="text-gray-400 p-6">Loading system settings...</p>
+  if (loading) return <LoadingState label="Loading system settings…" />
 
   return (
     <div className="space-y-6">
@@ -262,7 +267,9 @@ function SystemSettingsPanel({ canEdit }) {
 
       {/* Holiday Management */}
       <div className="p-6 rounded-2xl bg-white dark:bg-[#17172a] border border-gray-200 dark:border-[#292944] shadow-sm space-y-4">
-        <h4 className="font-bold text-gray-900 dark:text-white text-base">🌴 Non-chargeable Official Holidays</h4>
+        <h4 className="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
+          <TreePalm className="h-4 w-4 text-emerald-500" aria-hidden="true" /> Non-chargeable Official Holidays
+        </h4>
 
         {canEdit && (
           <form onSubmit={handleAddHoliday} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -288,9 +295,7 @@ function SystemSettingsPanel({ canEdit }) {
               onChange={(e) => setHolidayForm({ ...holidayForm, to_date: e.target.value })}
               className="px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-xs text-gray-900 dark:text-white"
             />
-            <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-all">
-              + Add Holiday
-            </button>
+            <Button type="submit" size="sm" icon={Plus}>Add Holiday</Button>
           </form>
         )}
 
@@ -310,8 +315,8 @@ function SystemSettingsPanel({ canEdit }) {
                   <td className="p-3 font-mono">{h.holiday_date}</td>
                   <td className="p-3">
                     {canEdit && (
-                      <button onClick={() => handleDeleteHoliday(h.holiday_id)} className="text-rose-500 hover:underline font-bold">
-                        Delete
+                      <button onClick={() => handleDeleteHoliday(h.holiday_id)} className="inline-flex items-center gap-1 text-rose-500 hover:underline font-bold">
+                        <Trash2 className="h-3 w-3" aria-hidden="true" /> Delete
                       </button>
                     )}
                   </td>
@@ -319,7 +324,9 @@ function SystemSettingsPanel({ canEdit }) {
               ))}
               {holidays.length === 0 && (
                 <tr>
-                  <td colSpan="3" className="p-4 text-center text-gray-500">No holidays registered.</td>
+                  <td colSpan="3" className="p-0">
+                    <EmptyState title="No holidays registered" />
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -343,7 +350,7 @@ function DataBackupPanel() {
   const handleExportBackup = async () => {
     try {
       setDownloading(true)
-      setMsg('')
+      setMsg(null)
       const res = await api.get('/settings/export-backup')
       const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
@@ -352,28 +359,28 @@ function DataBackupPanel() {
       a.download = `library_management_full_backup_${new Date().toISOString().split('T')[0]}.json`
       a.click()
       URL.revokeObjectURL(url)
-      setMsg('✅ Full database backup exported and downloaded successfully!')
+      setMsg({ type: 'success', text: 'Full database backup exported and downloaded successfully!' })
     } catch (err) {
-      setMsg('❌ Failed to export database backup.')
+      setMsg({ type: 'error', text: 'Failed to export database backup.' })
     } finally {
       setDownloading(false)
     }
   }
 
   const handleImportBackup = async () => {
-    if (!backupFile) return setMsg('Select a JSON backup file first.')
+    if (!backupFile) return setMsg({ type: 'error', text: 'Select a JSON backup file first.' })
     if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
     const body = new FormData()
     body.append('file', backupFile)
     try {
       setImporting(true)
-      setMsg('')
+      setMsg(null)
       const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setMsg(response.data?.message || 'Backup restored successfully.')
+      setMsg({ type: 'success', text: response.data?.message || 'Backup restored successfully.' })
       setBackupFile(null)
       window.dispatchEvent(new Event('app-settings-updated'))
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Failed to restore backup.')
+      setMsg({ type: 'error', text: err.response?.data?.error || 'Failed to restore backup.' })
     } finally {
       setImporting(false)
     }
@@ -384,11 +391,11 @@ function DataBackupPanel() {
     if (confirmation !== 'RESET ALL DATA') return
     try {
       setResetting(true)
-      setMsg('')
+      setMsg(null)
       const response = await api.post('/settings/complete-reset', { confirmation })
-      setMsg(response.data?.message || 'Complete reset finished.')
+      setMsg({ type: 'success', text: response.data?.message || 'Complete reset finished.' })
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Complete reset failed.')
+      setMsg({ type: 'error', text: err.response?.data?.error || 'Complete reset failed.' })
     } finally {
       setResetting(false)
     }
@@ -397,25 +404,45 @@ function DataBackupPanel() {
   return (
     <div className="p-8 rounded-2xl bg-white dark:bg-[#17172a] border border-gray-200 dark:border-[#292944] shadow-sm space-y-6 max-w-2xl">
       <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-        <span>💾 Data Backup & System Migration</span>
+        <DatabaseBackup className="h-5 w-5" aria-hidden="true" /> Data Backup & System Migration
       </h3>
       <p className="text-sm text-gray-500 dark:text-gray-400">
         Export all system data including students, books, subscription plans, issue records, deposit transactions, and settings into a standardized JSON file. This backup can be migrated to another software or restored at any time.
       </p>
 
-      {msg && <div className={`p-3.5 rounded-xl font-bold text-xs ${msg.startsWith('❌') ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'}`}>{msg}</div>}
+      {msg && (
+        <div className={`p-3.5 rounded-xl font-bold text-xs flex items-center gap-2 ${
+          msg.type === 'error'
+            ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
+        }`}>
+          {msg.type === 'error'
+            ? <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            : <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
+          {msg.text}
+        </div>
+      )}
 
       <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
         <h4 className="font-bold">1. Export Backup</h4><p className="mb-3 text-xs text-gray-500">Download a complete raw-v2 JSON backup before resetting or moving data.</p>
-        <button onClick={handleExportBackup} disabled={downloading} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-md disabled:opacity-50">{downloading ? 'Generating JSON Export...' : '📥 Download Full Database Backup (JSON)'}</button>
+        <Button variant="success" icon={Download} loading={downloading} onClick={handleExportBackup}>
+          {downloading ? 'Generating JSON Export...' : 'Download Full Database Backup (JSON)'}
+        </Button>
       </section>
       <section className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
         <h4 className="font-bold">2. Import / Restore Backup</h4><p className="mb-3 text-xs text-gray-500">Select a raw-v2 JSON backup. Existing application data will be replaced after confirmation.</p>
-        <div className="flex flex-col gap-3 sm:flex-row"><input type="file" accept=".json,application/json" onChange={(e) => setBackupFile(e.target.files?.[0] || null)} className="min-w-0 flex-1 rounded-xl border bg-white p-2 text-xs dark:border-gray-700 dark:bg-[#10101d]"/><button onClick={handleImportBackup} disabled={importing || !backupFile} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{importing ? 'Restoring...' : '📤 Import Backup'}</button></div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input type="file" accept=".json,application/json" onChange={(e) => setBackupFile(e.target.files?.[0] || null)} className="min-w-0 flex-1 rounded-xl border bg-white p-2 text-xs dark:border-gray-700 dark:bg-[#10101d]"/>
+          <Button icon={Upload} loading={importing} disabled={!backupFile} onClick={handleImportBackup}>
+            {importing ? 'Restoring...' : 'Import Backup'}
+          </Button>
+        </div>
       </section>
       <section className="rounded-xl border border-rose-300 bg-rose-50 p-4 dark:border-rose-900 dark:bg-rose-950/20">
         <h4 className="font-bold text-rose-700 dark:text-rose-300">3. Complete Reset</h4><p className="mb-3 text-xs text-rose-600 dark:text-rose-400">Permanently clears all library data and master records. Administrators, permissions, and system settings are preserved.</p>
-        <button onClick={handleCompleteReset} disabled={resetting} className="rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{resetting ? 'Resetting...' : '🗑 Complete Reset'}</button>
+        <Button variant="danger" icon={Trash2} loading={resetting} onClick={handleCompleteReset}>
+          {resetting ? 'Resetting...' : 'Complete Reset'}
+        </Button>
       </section>
     </div>
   )
@@ -441,8 +468,15 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
     if (!query) return true
     return config.columns.some((column) => String(row[column.key] ?? '').toLowerCase().includes(query))
   })
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
-  const paginatedRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const { sortedItems: sortedRows, requestSort, directionFor } = useSortableData(filteredRows)
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize))
+  const paginatedRows = sortedRows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  const menuColumns = canEdit
+    ? [...config.columns.map((c) => ({ key: c.key, label: c.label })), { key: 'actions', label: 'Actions', locked: true }]
+    : config.columns.map((c) => ({ key: c.key, label: c.label }))
+  const showColumnsMenu = config.columns.length >= 5
+  const { isVisible, toggle, reset, hiddenCount } = useColumnVisibility(`master-data-${tabKey}`, menuColumns)
 
   const load = async () => {
     try {
@@ -477,7 +511,7 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
   }
 
   // const handleImportBackup = async () => {
-  //   if (!backupFile) return setMsg('❌ Select a JSON backup file first.')
+  //   if (!backupFile) return setMsg('Select a JSON backup file first.')
   //   if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
   //   const body = new FormData()
   //   body.append('file', backupFile)
@@ -485,11 +519,11 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
   //     setImporting(true)
   //     setMsg('')
   //     const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
-  //     setMsg(`✅ ${response.data?.message || 'Backup restored successfully.'}`)
+  //     setMsg(`${response.data?.message || 'Backup restored successfully.'}`)
   //     setBackupFile(null)
   //     window.dispatchEvent(new Event('app-settings-updated'))
   //   } catch (err) {
-  //     setMsg('❌ ' + (err.response?.data?.error || 'Failed to restore backup.'))
+  //     setMsg(err.response?.data?.error || 'Failed to restore backup.')
   //   } finally {
   //     setImporting(false)
   //   }
@@ -498,49 +532,49 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
   // const handleCompleteReset = async () => {
   //   const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
   //   if (confirmation !== 'RESET ALL DATA') {
-  //     if (confirmation !== null) setMsg('❌ Reset cancelled: confirmation text did not match.')
+  //     if (confirmation !== null) setMsg('Reset cancelled: confirmation text did not match.')
   //     return
   //   }
   //   try {
   //     setResetting(true)
   //     setMsg('')
   //     const response = await api.post('/settings/complete-reset', { confirmation })
-  //     setMsg(`✅ ${response.data?.message || 'Complete reset finished.'}`)
+  //     setMsg(`${response.data?.message || 'Complete reset finished.'}`)
   //   } catch (err) {
-  //     setMsg('❌ ' + (err.response?.data?.error || 'Complete reset failed.'))
+  //     setMsg(err.response?.data?.error || 'Complete reset failed.')
   //   } finally {
   //     setResetting(false)
   //   }
   // }
 
   const handleImportBackup = async () => {
-    if (!backupFile) return setMsg('❌ Select a JSON backup file first.')
+    if (!backupFile) return setMsg('Select a JSON backup file first.')
     if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
     const body = new FormData()
     body.append('file', backupFile)
     try {
       setImporting(true); setMsg('')
       const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setMsg(`✅ ${response.data?.message || 'Backup restored successfully.'}`)
+      setMsg(`${response.data?.message || 'Backup restored successfully.'}`)
       setBackupFile(null)
       window.dispatchEvent(new Event('app-settings-updated'))
     } catch (err) {
-      setMsg('❌ ' + (err.response?.data?.error || 'Failed to restore backup.'))
+      setMsg(err.response?.data?.error || 'Failed to restore backup.')
     } finally { setImporting(false) }
   }
 
   const handleCompleteReset = async () => {
     const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
     if (confirmation !== 'RESET ALL DATA') {
-      if (confirmation !== null) setMsg('❌ Reset cancelled: confirmation text did not match.')
+      if (confirmation !== null) setMsg('Reset cancelled: confirmation text did not match.')
       return
     }
     try {
       setResetting(true); setMsg('')
       const response = await api.post('/settings/complete-reset', { confirmation })
-      setMsg(`✅ ${response.data?.message || 'Complete reset finished.'}`)
+      setMsg(`${response.data?.message || 'Complete reset finished.'}`)
     } catch (err) {
-      setMsg('❌ ' + (err.response?.data?.error || 'Complete reset failed.'))
+      setMsg(err.response?.data?.error || 'Complete reset failed.')
     } finally { setResetting(false) }
   }
 
@@ -609,8 +643,8 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="p-3 rounded-lg text-sm bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400">
-          ❌ {error}
+        <div className="p-3 rounded-lg text-sm bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 flex items-center gap-2">
+          <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" /> {error}
         </div>
       )}
 
@@ -623,7 +657,14 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
             <option value="ALL">All statuses</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
           </select>
         </label>
-        {canEdit && <button onClick={() => { resetForm(); setShowModal(true) }} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700">+ Add {itemName}</button>}
+        {showColumnsMenu && (
+          <ColumnVisibilityMenu columns={menuColumns} isVisible={isVisible} onToggle={toggle} onReset={reset} hiddenCount={hiddenCount} />
+        )}
+        {canEdit && (
+          <Button icon={Plus} onClick={() => { resetForm(); setShowModal(true) }}>
+            Add {itemName}
+          </Button>
+        )}
       </div>
 
       {showModal && canEdit && (
@@ -636,15 +677,12 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
             {config.fields.map((f) => (
               <div key={f.key} className={f.type === 'bool' ? 'flex items-end' : ''}>
                 {f.type === 'bool' ? (
-                  <label className="flex items-center gap-2 text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
-                    <input
-                      type="checkbox"
-                      checked={!!form[f.key]}
-                      onChange={(e) => setForm({ ...form, [f.key]: e.target.checked })}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    {f.label}
-                  </label>
+                  <Checkbox
+                    checked={!!form[f.key]}
+                    onChange={(e) => setForm({ ...form, [f.key]: e.target.checked })}
+                    label={f.label}
+                    className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300"
+                  />
                 ) : (
                   <>
                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
@@ -668,48 +706,68 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
             ))}
           </div>
           <div className="flex gap-2 mt-4">
-            <button disabled={saving} type="submit" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-60">
-              {saving ? 'Saving...' : editingId ? 'Update' : 'Add'}
-            </button>
-            <button type="button" onClick={resetForm} className="px-5 py-2.5 bg-gray-200 dark:bg-[#2a2a4a] text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl transition-all">Cancel</button>
+            <Button loading={saving} type="submit">
+              {editingId ? 'Update' : 'Add'}
+            </Button>
+            <Button type="button" variant="secondary" onClick={resetForm}>Cancel</Button>
           </div>
         </form>
         </div>
       )}
 
       <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-x-auto">
-        {loading ? <div className="flex items-center justify-center gap-3 py-16 text-gray-500"><span className="h-7 w-7 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />Loading {config.label}...</div> : <>
+        {loading ? <LoadingState label={`Loading ${config.label}…`} /> : <>
         <table className="w-full text-sm">
           <thead className="bg-gray-100 dark:bg-[#22223a] text-left text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
             <tr>
               {config.columns.map((c) => (
-                <th key={c.key} className="px-4 py-3 whitespace-nowrap">{c.label}</th>
+                <SortableTh
+                  key={c.key}
+                  sortKey={c.key}
+                  direction={directionFor(c.key)}
+                  onSort={requestSort}
+                  className={`px-4 py-3 whitespace-nowrap ${isVisible(c.key) ? '' : 'hidden'}`}
+                >
+                  {c.label}
+                </SortableTh>
               ))}
-              {canEdit && <th className="px-4 py-3 text-right">Actions</th>}
+              {canEdit && <th className={`px-4 py-3 text-right ${isVisible('actions') ? '' : 'hidden'}`}>Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
             {filteredRows.length === 0 && (
               <tr>
-                <td colSpan={config.columns.length + 1} className="px-4 py-6 text-center text-gray-400">
-                  No {config.label.toLowerCase()} match your search and filter.
+                <td colSpan={config.columns.length + 1} className="p-0">
+                  <EmptyState title={`No ${config.label.toLowerCase()} found`} description="No records match your search and filter." />
                 </td>
               </tr>
             )}
             {paginatedRows.map((row) => (
               <tr key={row[config.idKey]} className="text-gray-900 dark:text-white hover:bg-blue-50/20 dark:hover:bg-[#19192e] transition-colors">
                 {config.columns.map((c) => (
-                  <td key={c.key} className="px-4 py-3 whitespace-nowrap text-xs font-semibold">
-                    {c.type === 'bool' ? (row[c.key] ? 'Yes' : 'No') : (row[c.key] ?? '—')}
+                  <td key={c.key} className={`px-4 py-3 whitespace-nowrap text-xs font-semibold ${isVisible(c.key) ? '' : 'hidden'}`}>
+                    {c.type === 'bool' ? (
+                      <Badge tone={row[c.key] ? 'success' : 'neutral'}>{row[c.key] ? 'Yes' : 'No'}</Badge>
+                    ) : (row[c.key] ?? '—')}
                   </td>
                 ))}
                 {canEdit && (
-                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap text-xs font-semibold">
-                    <button onClick={() => handleEdit(row)} className="text-blue-600 dark:text-blue-400 hover:underline">Edit</button>
+                  <td className={`px-4 py-3 text-right space-x-3 whitespace-nowrap text-xs font-semibold ${isVisible('actions') ? '' : 'hidden'}`}>
+                    <button onClick={() => handleEdit(row)} className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline">
+                      <Pencil className="h-3 w-3" aria-hidden="true" /> Edit
+                    </button>
                     {row.is_active
-                      ? <button onClick={() => handleDelete(row)} className="text-rose-600 dark:text-rose-400 hover:underline">Deactivate</button>
-                      : <button onClick={() => handleActivate(row)} className="text-emerald-600 dark:text-emerald-400 hover:underline">Activate</button>}
-                    {config.destroy && <button onClick={() => handlePermanentDelete(row)} className="text-rose-700 dark:text-rose-300 hover:underline">Delete</button>}
+                      ? <button onClick={() => handleDelete(row)} className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:underline">
+                          <XCircle className="h-3 w-3" aria-hidden="true" /> Deactivate
+                        </button>
+                      : <button onClick={() => handleActivate(row)} className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline">
+                          <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> Activate
+                        </button>}
+                    {config.destroy && (
+                      <button onClick={() => handlePermanentDelete(row)} className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300 hover:underline">
+                        <Trash2 className="h-3 w-3" aria-hidden="true" /> Delete
+                      </button>
+                    )}
                   </td>
                 )}
               </tr>
@@ -733,12 +791,10 @@ function MasterData() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Master Data</h2>
-        <p className="text-gray-500 dark:text-gray-400">
-          Configure book levels, categories, academic programmes, and database JSON backup export.
-        </p>
-      </div>
+      <PageHeader
+        title="Master Data"
+        description="Configure book levels, categories, academic programmes, and database JSON backup export."
+      />
 
       <div className="flex gap-2 border-b border-gray-200 dark:border-[#292944] overflow-x-auto">
         {Object.entries(TABS).map(([key, cfg]) => (
@@ -762,14 +818,16 @@ function MasterData() {
               : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
           }`}
         >
-          💾 Data Backup & Export
+          <span className="inline-flex items-center gap-1.5">
+            <DatabaseBackup className="h-3.5 w-3.5" aria-hidden="true" /> Data Backup & Export
+          </span>
         </button>
       </div>
 
       {activeTab === 'backup' ? (
         <DataBackupPanel />
       ) : (
-        <MasterDataPanel tabKey={activeTab} config={TABS[activeTab]} canEdit={canEdit} />
+        <MasterDataPanel key={activeTab} tabKey={activeTab} config={TABS[activeTab]} canEdit={canEdit} />
       )}
     </div>
   )
