@@ -64,6 +64,17 @@ def create_app(config_class=None):
     def expired_token_response(callback):
         return jsonify({'error': 'Token expired', 'message': 'The provided token has expired. Please login again.'}), 401
     
+    # Root and health check
+    @app.route('/')
+    @app.route('/api/health')
+    def health_check():
+        return jsonify({
+            'status': 'ok',
+            'app': 'Kinder Park LMS API',
+            'version': '1.0.0',
+            'frontend_url': 'http://localhost:5173'
+        }), 200
+
     # Register blueprints
     from app.routes import register_blueprints
     register_blueprints(app)

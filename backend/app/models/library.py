@@ -14,6 +14,7 @@ class BookIssue(db.Model):
     due_date = db.Column(db.Date, nullable=False)
     expected_return_date = db.Column(db.Date, nullable=True)
     issued_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    issue_condition = db.Column(db.String(20), default='Good', nullable=False)
     status = db.Column(db.Enum('ACTIVE', 'RETURNED', 'OVERDUE', 'LOST'), default='ACTIVE')
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -35,6 +36,7 @@ class BookIssue(db.Model):
             'book_isbn': self.copy_ref.title_ref.isbn if self.copy_ref and self.copy_ref.title_ref else None,
             'book_title': self.copy_ref.title_ref.title if self.copy_ref and self.copy_ref.title_ref else None,
             'book_author': self.copy_ref.title_ref.author if self.copy_ref and self.copy_ref.title_ref else None,
+            'mrp': float(self.copy_ref.title_ref.mrp) if self.copy_ref and self.copy_ref.title_ref and self.copy_ref.title_ref.mrp is not None else None,
             'student_id': self.student_id,
             'student_uid': self.student_ref.student_uid if self.student_ref else None,
             'student_name': self.student_ref.student_name if self.student_ref else None,
@@ -45,6 +47,7 @@ class BookIssue(db.Model):
             'expected_return_date': self.expected_return_date.strftime('%Y-%m-%d') if self.expected_return_date else None,
             'issued_by': self.issued_by,
             'issued_by_name': self.issuer.username if self.issuer else None,
+            'issue_condition': self.issue_condition or 'Good',
             'status': self.status,
             'return_details': self.returns.to_dict() if self.returns else None,
             'is_overdue': self.is_overdue(),
@@ -91,6 +94,8 @@ class BookReturn(db.Model):
     return_time = db.Column(db.Time, nullable=False)
     received_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
     condition_returned = db.Column(db.Enum('NEW', 'GOOD', 'FAIR', 'POOR', 'DAMAGED'), default='GOOD')
+    return_condition = db.Column(db.String(20), nullable=True)
+    condition_remarks = db.Column(db.Text, nullable=True)
     is_damaged = db.Column(db.Boolean, default=False)
     is_lost = db.Column(db.Boolean, default=False)
     fine_amount = db.Column(db.DECIMAL(10, 2), default=0.00)
@@ -113,6 +118,8 @@ class BookReturn(db.Model):
             'received_by': self.received_by,
             'received_by_name': self.receiver.username if self.receiver else None,
             'condition_returned': self.condition_returned,
+            'return_condition': self.return_condition or (self.condition_returned.capitalize() if self.condition_returned else 'Good'),
+            'condition_remarks': self.condition_remarks,
             'is_damaged': self.is_damaged,
             'is_lost': self.is_lost,
             'fine_amount': float(self.fine_amount),

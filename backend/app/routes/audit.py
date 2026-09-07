@@ -23,13 +23,7 @@ audit_bp = Blueprint('audit', __name__, url_prefix='/api/audit')
 @jwt_required()
 @admin_required
 def get_admin_notifications():
-    actions = ['DEPOSIT_TOPUP', 'DEPOSIT_ADJUSTMENT', 'UPDATE_BOOK', 'UPDATE_BOOK_COPY',
-               'UPDATE_STUDENT', 'DELETE_STUDENT', 'RETURN_BOOK', 'RECORD_DAMAGE_LOSS',
-               'CREATE_HOLIDAY', 'UPDATE_HOLIDAY', 'DELETE_HOLIDAY', 'UPDATE_SETTINGS', 'UPDATE_SETTING',
-               'DELETE_BOOK_REQUEST', 'DELETE_COPY_REQUEST', 'DELETE_STUDENT_REQUEST', 'DELETE_BOOK_APPROVED', 'DELETE_COPY_APPROVED', 'DELETE_STUDENT_APPROVED',
-               'DELETE_BOOK_REJECTED', 'DELETE_COPY_REJECTED', 'BOOK_CONDITION_REVIEW_COMPLETED',
-               'DEPOSIT_CORRECTION_REQUEST', 'DEPOSIT_CORRECTION_APPROVED', 'DEPOSIT_CORRECTION_REJECTED', 'DEPOSIT_REFUND']
-    logs = AuditLog.query.filter(AuditLog.action.in_(actions)).order_by(AuditLog.created_at.desc()).limit(50).all()
+    logs = AuditLog.query.order_by(AuditLog.created_at.desc(), AuditLog.audit_id.desc()).limit(200).all()
     pending = {'DELETE_BOOK_REQUEST', 'DELETE_COPY_REQUEST', 'DELETE_STUDENT_REQUEST', 'DEPOSIT_CORRECTION_REQUEST'}
     review_cutoff = datetime.utcnow() - timedelta(days=365)
     condition_reviews = BookCopy.query.filter(
@@ -43,6 +37,7 @@ def get_admin_notifications():
         'module': 'BookCopy',
         'username': 'System',
         'created_at': copy.updated_at.strftime('%Y-%m-%d') if copy.updated_at else None,
+        'created_at_iso': copy.updated_at.strftime('%Y-%m-%dT00:00:00Z') if copy.updated_at else None,
         'details': f'Annual condition check due for {copy.title_ref.title if copy.title_ref else "book"}, Book ID {copy.barcode or copy.book_copy_id}. Current condition: {copy.condition}; status: {copy.status}.',
         'book_title': copy.title_ref.title if copy.title_ref else 'Book',
         'barcode': copy.barcode,
@@ -65,6 +60,7 @@ def get_admin_notifications():
         'module': 'Deposit',
         'username': 'System',
         'created_at': account.updated_at.strftime('%Y-%m-%d %H:%M:%S') if account.updated_at else None,
+        'created_at_iso': account.updated_at.strftime('%Y-%m-%dT%H:%M:%SZ') if account.updated_at else None,
         'details': (
             f'{account.student.student_name if account.student else "Student"} '
             f'({account.student.student_uid if account.student else account.student_id}) has a deposit balance of '
@@ -93,6 +89,7 @@ def get_admin_notifications():
         'module': 'Deposit',
         'username': 'System',
         'created_at': current_year.start_date.strftime('%Y-%m-%d'),
+        'created_at_iso': current_year.start_date.strftime('%Y-%m-%dT00:00:00Z'),
         'details': (
             f'{account.student.student_name if account.student else "JK Member"} '
             f'({account.student.student_uid if account.student else account.student_id}) has not been re-enrolled for '
@@ -101,24 +98,6 @@ def get_admin_notifications():
         ),
         'requires_approval': False,
     } for account in refund_accounts]
-    today = datetime.now().date()
-    today_key = today.strftime('%Y-%m-%d')
-    daily_answer = AuditLog.query.filter(
-        AuditLog.action.in_(['TODAY_HOLIDAY_CONFIRMED', 'TODAY_NOT_HOLIDAY']),
-        AuditLog.record_id == today_key
-    ).first()
-    daily_holiday_notification = [] if daily_answer else [{
-        'audit_id': f'holiday-check-{today_key}',
-        'record_id': today_key,
-        'action': 'TODAY_HOLIDAY_CHECK',
-        'module': 'Holiday',
-        'username': 'System',
-        'created_at': today_key,
-        'details': f'Please confirm whether today ({today.strftime("%d %b %Y")}) is an official holiday.',
-        'requires_approval': False,
-        'requires_holiday_confirmation': True,
-        'configured_holiday': Holiday.is_holiday(today),
-    }]
     log_notifications = []
     for log in logs:
         item = {**log.to_dict(), 'requires_approval': log.action in pending}
@@ -132,8 +111,18 @@ def get_admin_notifications():
             except (ValueError, TypeError):
                 pass
         log_notifications.append(item)
+
+    all_notifications = deposit_refund_notifications + low_deposit_notifications + review_notifications + log_notifications
+    all_notifications.sort(
+        key=lambda x: (
+            x.get('created_at_iso') or (x.get('created_at', '').replace(' ', 'T') + 'Z' if x.get('created_at') else ''),
+            int(x['audit_id']) if isinstance(x.get('audit_id'), int) else 0
+        ),
+        reverse=True
+    )
+
     return jsonify({
-        'notifications': daily_holiday_notification + deposit_refund_notifications + low_deposit_notifications + review_notifications + log_notifications,
+        'notifications': all_notifications,
         'pending_count': len(deposit_refund_notifications) + len(low_deposit_notifications) + sum(1 for log in logs if log.action in pending)
     }), 200
 

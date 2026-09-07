@@ -469,6 +469,55 @@ export const booksAPI = {
   deleteCategory: (id) => {
     console.log('[API] 🗑️ Deleting book category:', id)
     return api.delete(`/books/categories/${id}`)
+  },
+
+  addCopy: (bookId, copyData) => {
+    console.log('[API] ➕ Adding book copy to book:', bookId)
+    return api.post(`/books/${bookId}/copies`, copyData)
+  },
+
+  getLocationHierarchy: (params) => {
+    return api.get('/books/locations/hierarchy', { params })
+  },
+
+  getCupboards: (params) => {
+    return api.get('/books/locations/cupboards', { params })
+  },
+
+  createCupboard: (data) => {
+    return api.post('/books/locations/cupboards', data)
+  },
+
+  updateCupboard: (id, data) => {
+    return api.put(`/books/locations/cupboards/${id}`, data)
+  },
+
+  deleteCupboard: (id) => {
+    return api.delete(`/books/locations/cupboards/${id}`)
+  },
+
+  activateCupboard: (id) => {
+    return api.post(`/books/locations/cupboards/${id}/activate`)
+  },
+
+  getShelves: (params) => {
+    return api.get('/books/locations/shelves', { params })
+  },
+
+  createShelf: (data) => {
+    return api.post('/books/locations/shelves', data)
+  },
+
+  updateShelf: (id, data) => {
+    return api.put(`/books/locations/shelves/${id}`, data)
+  },
+
+  deleteShelf: (id) => {
+    return api.delete(`/books/locations/shelves/${id}`)
+  },
+
+  activateShelf: (id) => {
+    return api.post(`/books/locations/shelves/${id}/activate`)
   }
 }
 
@@ -523,9 +572,9 @@ export const libraryAPI = {
 // ============================================================
 
 export const depositsAPI = {
-  getAll: () => {
+  getAll: (params) => {
     console.log('[API] 💰 Getting all deposits')
-    return api.get('/deposits')
+    return api.get('/deposits', { params })
   },
   
   getByStudent: (studentId) => {
@@ -533,9 +582,14 @@ export const depositsAPI = {
     return api.get(`/deposits/student/${studentId}`)
   },
   
-  topUp: (studentId, amount, description) => {
+  topUp: (studentId, amount, description, academicYearId) => {
     console.log('[API] 💰 Top-up deposit for student:', studentId, 'Amount:', amount)
-    return api.post('/deposits/topup', { student_id: studentId, amount, description })
+    return api.post('/deposits/topup', { student_id: studentId, amount, description, academic_year_id: academicYearId })
+  },
+
+  refund: (studentId, data) => {
+    console.log('[API] 💰 Refunding deposit for student:', studentId)
+    return api.post(`/deposits/refund/${studentId}`, data || {})
   },
   
   adjust: (studentId, amount, description) => {
@@ -546,6 +600,11 @@ export const depositsAPI = {
   getTransactions: (studentId) => {
     console.log('[API] 💰 Getting transactions for student:', studentId)
     return api.get(`/deposits/transactions/${studentId}`)
+  },
+
+  getLedger: (params) => {
+    console.log('[API] 💰 Getting deposit ledger')
+    return api.get('/deposits/ledger', { params })
   },
   
   getLowBalance: (threshold) => {
@@ -559,9 +618,9 @@ export const depositsAPI = {
 // ============================================================
 
 export const subscriptionsAPI = {
-  getPlans: () => {
+  getPlans: (params) => {
     console.log('[API] 📋 Getting subscription plans')
-    return api.get('/subscriptions/plans')
+    return api.get('/subscriptions/plans', { params })
   },
   
   createPlan: (planData) => {
@@ -578,25 +637,30 @@ export const subscriptionsAPI = {
     console.log('[API] 🗑️ Deleting subscription plan:', planId)
     return api.delete(`/subscriptions/plans/${planId}`)
   },
+
+  calculateBreakdown: (studentId, planId) => {
+    console.log('[API] 🧮 Calculating subscription breakdown:', studentId, planId)
+    return api.get('/subscriptions/calculate-breakdown', { params: { student_id: studentId, plan_id: planId } })
+  },
   
   getStudentSubscriptions: (studentId) => {
     console.log('[API] 📋 Getting student subscriptions:', studentId)
     return api.get(`/subscriptions/student/${studentId}`)
   },
   
-  assign: (studentId, planId) => {
-    console.log('[API] 📋 Assigning subscription to student:', studentId)
-    return api.post('/subscriptions/assign', { student_id: studentId, plan_id: planId })
+  assign: (data) => {
+    console.log('[API] 📋 Assigning subscription to student:', data?.student_id)
+    return api.post('/subscriptions/assign', data)
   },
   
-  renew: (subscriptionId, planId, amount, paymentMethod) => {
+  renew: (subscriptionId, data) => {
     console.log('[API] 📋 Renewing subscription:', subscriptionId)
-    return api.post(`/subscriptions/renew/${subscriptionId}`, { plan_id: planId, amount, payment_method: paymentMethod })
+    return api.post(`/subscriptions/renew/${subscriptionId}`, data)
   },
 
-  upgrade: (subscriptionId, planId) => {
+  upgrade: (subscriptionId, data) => {
     console.log('[API] ⬆️ Upgrading subscription:', subscriptionId)
-    return api.post(`/subscriptions/upgrade/${subscriptionId}`, { plan_id: planId })
+    return api.post(`/subscriptions/upgrade/${subscriptionId}`, data)
   }
 }
 

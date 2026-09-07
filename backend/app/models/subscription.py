@@ -11,6 +11,9 @@ class SubscriptionPlan(db.Model):
     max_books = db.Column(db.Integer, default=1, nullable=False)
     duration_months = db.Column(db.Integer, nullable=False)
     price = db.Column(db.DECIMAL(10, 2), nullable=False)
+    subscription_fee = db.Column(db.DECIMAL(10, 2), default=0.00, nullable=False)
+    fixed_deposit = db.Column(db.DECIMAL(10, 2), default=0.00, nullable=False)
+    total_amount = db.Column(db.DECIMAL(10, 2), default=0.00, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     description = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -30,6 +33,10 @@ class SubscriptionPlan(db.Model):
             'max_books': self.max_books,
             'duration_months': self.duration_months,
             'price': float(self.price),
+            'price': float(self.price or self.total_amount or 0),
+            'subscription_fee': float(self.subscription_fee or 0),
+            'fixed_deposit': float(self.fixed_deposit or 0),
+            'total_amount': float(self.total_amount or self.price or 0),
             'is_active': self.is_active,
             'description': self.description,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
@@ -54,6 +61,9 @@ class StudentSubscription(db.Model):
     end_date = db.Column(db.Date, nullable=False)
     status = db.Column(db.Enum('ACTIVE', 'EXPIRED', 'CANCELLED', 'PENDING'), default='PENDING')
     amount_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
+    subscription_fee_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
+    deposit_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
+    total_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
     payment_date = db.Column(db.Date, nullable=True)
     payment_method = db.Column(db.String(50), nullable=True)
     notes = db.Column(db.Text, nullable=True)
@@ -81,6 +91,10 @@ class StudentSubscription(db.Model):
             'is_expired': self.is_expired(),
             'days_remaining': self.get_days_remaining(),
             'amount_paid': float(self.amount_paid) if self.amount_paid else None,
+            'amount_paid': float(self.amount_paid) if self.amount_paid is not None else None,
+            'subscription_fee_paid': float(self.subscription_fee_paid) if self.subscription_fee_paid is not None else (float(self.amount_paid) if self.amount_paid is not None else None),
+            'deposit_paid': float(self.deposit_paid) if self.deposit_paid is not None else 0.0,
+            'total_paid': float(self.total_paid) if self.total_paid is not None else (float(self.amount_paid) if self.amount_paid is not None else None),
             'payment_date': self.payment_date.strftime('%Y-%m-%d') if self.payment_date else None,
             'payment_method': self.payment_method,
             'notes': self.notes,

@@ -7,8 +7,21 @@ import { useAppSettings } from '../context/AppSettingsContext'
 import { PageHeader, Button, Badge, StatCard, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
 import {
   CheckCircle2, XCircle, AlertTriangle, ChevronDown, Users, PiggyBank, ReceiptText,
-  ShieldAlert, Undo2, Wallet, ClipboardList, BadgeIndianRupee, Pencil, Lock
+  ShieldAlert, Undo2, Wallet, ClipboardList, BadgeIndianRupee, Pencil, Lock, Eye, Search
 } from 'lucide-react'
+
+const TRANSACTION_TYPE_BADGES = {
+  INITIAL_DEPOSIT: { tone: 'success', label: 'Initial Deposit' },
+  TOP_UP: { tone: 'success', label: 'Top Up' },
+  CARRY_FORWARD: { tone: 'primary', label: 'Carry Forward' },
+  DEPOSIT_DEDUCTION: { tone: 'danger', label: 'Deduction' },
+  FINE: { tone: 'danger', label: 'Fine' },
+  DAMAGE_CHARGE: { tone: 'danger', label: 'Damage Charge' },
+  LOST_BOOK: { tone: 'danger', label: 'Lost Book' },
+  REFUND: { tone: 'warning', label: 'Refund' },
+  ADJUSTMENT: { tone: 'neutral', label: 'Adjustment' },
+  CORRECTION: { tone: 'neutral', label: 'Correction' }
+}
 
 const DEPOSIT_ACCOUNT_COLUMNS = [
   { key: 'member_id', label: 'Member ID' },
@@ -44,6 +57,18 @@ function Deposits() {
     amount: '',
     description: 'Deposit payment'
   })
+
+  // Deposit Ledger & Student History States
+  const [ledgerTransactions, setLedgerTransactions] = useState([])
+  const [ledgerTotal, setLedgerTotal] = useState(0)
+  const [ledgerPages, setLedgerPages] = useState(1)
+  const [ledgerPage, setLedgerPage] = useState(1)
+  const [ledgerLoading, setLedgerLoading] = useState(false)
+  const [ledgerFilterType, setLedgerFilterType] = useState('')
+  const [ledgerSearch, setLedgerSearch] = useState('')
+  const [studentLedgerModal, setStudentLedgerModal] = useState(null)
+  const [studentTransactions, setStudentTransactions] = useState([])
+  const [loadingStudentTransactions, setLoadingStudentTransactions] = useState(false)
 
   const canTopUp = hasPermission('deposit.topup') || user?.role === 'ADMIN'
   const canRefund = hasPermission('deposit.refund') || user?.role === 'ADMIN'
@@ -138,10 +163,53 @@ function Deposits() {
   const refundDeposit = async (account) => {
     if (!window.confirm(`Return the complete deposit of ₹${Number(account.current_balance || 0).toFixed(2)} to ${account.student_name}?`)) return
     try {
-      await api.post(`/deposits/refund/${account.student_id}`, { academic_year_id: academicYearId })
+      const res = await api.post(`/deposits/refund/${account.student_id}`, { academic_year_id: academicYearId })
+      setMessage({ type: 'success', text: res.data?.message || `Deposit of ₹${Number(account.current_balance || 0).toFixed(2)} refunded successfully to ${account.student_name}.` })
       await loadData()
-    } catch (_) {
-      // The common Alert.jsx displays the API error.
+      if (depositTab === 'ledger') loadLedger()
+      setTimeout(() => setMessage(null), 4000)
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Error processing refund' })
+      setTimeout(() => setMessage(null), 5000)
+    }
+  }
+
+  const loadLedger = async () => {
+    try {
+      setLedgerLoading(true)
+      const params = {
+        page: ledgerPage,
+        per_page: pageSize
+      }
+      if (ledgerFilterType) params.transaction_type = ledgerFilterType
+      if (ledgerSearch.trim()) params.search = ledgerSearch.trim()
+      const res = await api.get('/deposits/ledger', { params })
+      setLedgerTransactions(res.data.transactions || [])
+      setLedgerTotal(res.data.total || 0)
+      setLedgerPages(res.data.pages || 1)
+    } catch (err) {
+      console.error('Error loading ledger:', err)
+    } finally {
+      setLedgerLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (depositTab === 'ledger') {
+      loadLedger()
+    }
+  }, [depositTab, ledgerPage, ledgerFilterType, ledgerSearch])
+
+  const viewStudentLedger = async (account) => {
+    setStudentLedgerModal(account)
+    setLoadingStudentTransactions(true)
+    try {
+      const res = await api.get(`/deposits/transactions/${account.student_id}`)
+      setStudentTransactions(res.data || [])
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to load student transaction history.' })
+    } finally {
+      setLoadingStudentTransactions(false)
     }
   }
 
@@ -166,6 +234,7 @@ function Deposits() {
   const depositTabs = [
     { key: 'payment', label: 'Payment & Overview', icon: Wallet },
     { key: 'accounts', label: `${memberLabel} Deposit Accounts`, icon: ClipboardList },
+    { key: 'ledger', label: 'Deposit Ledger', icon: ReceiptText },
   ]
 
   const subscriptionStatusTone = { ACTIVE: 'primary', PENDING: 'warning', EXPIRED: 'danger' }
@@ -436,8 +505,15 @@ function Deposits() {
                       </Badge>
                     </td>
                     <td className={`px-4 py-3 text-right ${isVisible('actions') ? '' : 'hidden'}`}>
-                      {canTopUp && (
-                        <div className="flex justify-end gap-2">
+                      <div className="flex justify-end items-center gap-1.5 flex-wrap">
+                        <button
+                          onClick={() => viewStudentLedger(d)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg font-semibold hover:bg-gray-200 text-xs transition-colors"
+                          title="View Transaction History"
+                        >
+                          <Eye className="h-3.5 w-3.5" aria-hidden="true" /> Ledger
+                        </button>
+                        {canTopUp && (
                           <button
                             onClick={() => {
                               setSelectedStudent({
@@ -450,15 +526,26 @@ function Deposits() {
                               setDepositTab('payment')
                               window.scrollTo({ top: 0, behavior: 'smooth' })
                             }}
-                            className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-lg font-semibold hover:bg-blue-100 text-xs transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-lg font-semibold hover:bg-blue-100 text-xs transition-colors"
                           >
-                            <BadgeIndianRupee className="h-3.5 w-3.5" aria-hidden="true" /> Record Payment
+                            <BadgeIndianRupee className="h-3.5 w-3.5" aria-hidden="true" /> Top-Up
                           </button>
-                          <button onClick={() => openCorrection(d)} className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold text-xs">
-                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Correct Mistake
+                        )}
+                        {canRefund && Number(d.current_balance) > 0 && (
+                          <button
+                            onClick={() => refundDeposit(d)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-300 rounded-lg font-semibold hover:bg-rose-100 text-xs transition-colors"
+                            title="Refund Deposit"
+                          >
+                            <Undo2 className="h-3.5 w-3.5" aria-hidden="true" /> Refund
                           </button>
-                        </div>
-                      )}
+                        )}
+                        {canTopUp && (
+                          <button onClick={() => openCorrection(d)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold text-xs">
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Correct
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -473,6 +560,193 @@ function Deposits() {
           <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={deposits.length} perPage={pageSize} onPageChange={setCurrentPage} itemLabel="accounts" />
         </div>
       </div>}
+
+      {/* Deposit Ledger Tab */}
+      {depositTab === 'ledger' && (
+        <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-200 dark:border-[#292944] flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+            <h4 className="flex items-center gap-2 font-bold text-gray-900 dark:text-white text-base">
+              <ReceiptText className="h-4 w-4 text-blue-500" aria-hidden="true" /> Deposit Transaction Ledger
+            </h4>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search student or UID..."
+                  value={ledgerSearch}
+                  onChange={(e) => {
+                    setLedgerSearch(e.target.value)
+                    setLedgerPage(1)
+                  }}
+                  className="pl-9 pr-3 py-1.5 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <select
+                value={ledgerFilterType}
+                onChange={(e) => {
+                  setLedgerFilterType(e.target.value)
+                  setLedgerPage(1)
+                }}
+                className="px-3 py-1.5 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All Transaction Types</option>
+                <option value="INITIAL_DEPOSIT">Initial Deposit</option>
+                <option value="TOP_UP">Top Up</option>
+                <option value="CARRY_FORWARD">Carry Forward</option>
+                <option value="DEPOSIT_DEDUCTION">Deposit Deduction</option>
+                <option value="FINE">Fine</option>
+                <option value="DAMAGE_CHARGE">Damage Charge</option>
+                <option value="LOST_BOOK">Lost Book</option>
+                <option value="REFUND">Refund</option>
+                <option value="ADJUSTMENT">Adjustment</option>
+                <option value="CORRECTION">Correction</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
+                <tr>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Student</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Amount</th>
+                  <th className="px-4 py-3">Balance After</th>
+                  <th className="px-4 py-3">Reference / Notes</th>
+                  <th className="px-4 py-3">Created By</th>
+                </tr>
+              </thead>
+              {ledgerLoading ? (
+                <tbody>
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      Loading ledger transactions...
+                    </td>
+                  </tr>
+                </tbody>
+              ) : ledgerTransactions.length > 0 ? (
+                <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
+                  {ledgerTransactions.map((tx) => {
+                    const badgeInfo = TRANSACTION_TYPE_BADGES[tx.transaction_type] || { tone: 'neutral', label: tx.transaction_type }
+                    const isCredit = ['INITIAL_DEPOSIT', 'TOP_UP', 'CARRY_FORWARD'].includes(tx.transaction_type)
+                    return (
+                      <tr key={tx.transaction_id} className="hover:bg-blue-50/20 dark:hover:bg-[#19192e] transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                          {tx.created_at ? new Date(tx.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-gray-900 dark:text-white">{tx.student_name || '—'}</div>
+                          <div className="font-mono text-xs text-gray-500">{tx.student_uid}</div>
+                        </td>
+                        <td className="px-4 py-3 text-xs whitespace-nowrap">
+                          <Badge tone={badgeInfo.tone}>{badgeInfo.label}</Badge>
+                        </td>
+                        <td className={`px-4 py-3 font-bold font-mono text-sm whitespace-nowrap ${isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {isCredit ? `+₹${Number(tx.amount || 0).toFixed(2)}` : `-₹${Number(tx.amount || 0).toFixed(2)}`}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                          ₹{Number(tx.balance_after != null ? tx.balance_after : 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 max-w-xs truncate">
+                          {tx.notes || tx.payment_method || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                          {tx.creator_name || 'System'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              ) : (
+                <tbody>
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      No ledger transactions found matching filters.
+                    </td>
+                  </tr>
+                </tbody>
+              )}
+            </table>
+          </div>
+
+          <div className="px-5 py-4 border-t border-gray-200 dark:border-[#292944]">
+            <Pagination currentPage={ledgerPage} totalPages={ledgerPages} totalItems={ledgerTotal} perPage={pageSize} onPageChange={setLedgerPage} itemLabel="transactions" />
+          </div>
+        </div>
+      )}
+
+      {/* Student Specific Ledger Modal */}
+      {studentLedgerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-xl dark:bg-[#17172a] overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#121222]">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <ReceiptText className="h-5 w-5 text-blue-500" />
+                  Deposit Ledger: {studentLedgerModal.student_name}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+                  UID: {studentLedgerModal.student_uid} · Current Deposit Balance: <span className="font-bold text-emerald-600 dark:text-emerald-400">₹{Number(studentLedgerModal.current_balance || 0).toFixed(2)}</span>
+                </p>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => setStudentLedgerModal(null)}>Close</Button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {loadingStudentTransactions ? (
+                <div className="py-8 text-center text-sm text-gray-500">Loading student transactions...</div>
+              ) : studentTransactions.length > 0 ? (
+                <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
+                      <tr>
+                        <th className="px-3 py-2.5">Date</th>
+                        <th className="px-3 py-2.5">Type</th>
+                        <th className="px-3 py-2.5">Amount</th>
+                        <th className="px-3 py-2.5">Balance After</th>
+                        <th className="px-3 py-2.5">Reference / Notes</th>
+                        <th className="px-3 py-2.5">By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                      {studentTransactions.map((tx) => {
+                        const badgeInfo = TRANSACTION_TYPE_BADGES[tx.transaction_type] || { tone: 'neutral', label: tx.transaction_type }
+                        const isCredit = ['INITIAL_DEPOSIT', 'TOP_UP', 'CARRY_FORWARD'].includes(tx.transaction_type)
+                        return (
+                          <tr key={tx.transaction_id} className="hover:bg-gray-50 dark:hover:bg-[#121222]">
+                            <td className="px-3 py-2 text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                              {tx.created_at ? new Date(tx.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-xs whitespace-nowrap">
+                              <Badge tone={badgeInfo.tone}>{badgeInfo.label}</Badge>
+                            </td>
+                            <td className={`px-3 py-2 font-bold font-mono text-xs whitespace-nowrap ${isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {isCredit ? `+₹${Number(tx.amount || 0).toFixed(2)}` : `-₹${Number(tx.amount || 0).toFixed(2)}`}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                              ₹{Number(tx.balance_after != null ? tx.balance_after : 0).toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                              {tx.notes || tx.payment_method || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                              {tx.creator_name || 'System'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState icon={ReceiptText} title="No transactions yet" description="No deposit activity recorded for this student." />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

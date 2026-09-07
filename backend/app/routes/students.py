@@ -9,7 +9,7 @@ from app.models.library import BookIssue
 from app.models.subscription import StudentSubscription
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from io import BytesIO, StringIO
 from zipfile import ZipFile, BadZipFile
 from xml.etree import ElementTree as ET
@@ -67,6 +67,20 @@ def _index_to_col_letter(n):
         string = chr(65 + remainder) + string
     return string
 
+def _clean_phone(value):
+    val_str = str(value or '').strip()
+    if not val_str or val_str.lower() in {'none', 'null', 'nan', '-'}:
+        return None
+    if val_str.endswith('.0'):
+        val_str = val_str[:-2]
+    try:
+        if 'e+' in val_str.lower():
+            val_str = str(int(float(val_str)))
+    except (ValueError, OverflowError):
+        pass
+    cleaned = re.sub(r'[^\d+]', '', val_str)
+    return cleaned[:20] if cleaned else val_str[:20]
+
 def _xlsx_date(value):
     val_str = str(value or '').strip()
     if not val_str:
@@ -83,7 +97,7 @@ def _xlsx_date(value):
     clean_str = re.sub(r'\s+00:00:00.*$', '', val_str)
     clean_str = re.sub(r'T00:00:00.*$', '', clean_str)
 
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%d/%m/%y', '%d-%m-%y', '%Y/%m/%d', '%d-%b-%Y', '%d %b %Y'):
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%d/%m/%y', '%d-%m-%y', '%Y/%m/%d', '%d.%m.%Y', '%d.%m.%y', '%Y.%m.%d', '%d-%b-%Y', '%d %b %Y', '%b %d, %Y', '%B %d, %Y', '%d %B %Y'):
         try:
             return datetime.strptime(clean_str, fmt).date()
         except ValueError:
@@ -97,6 +111,68 @@ def _xlsx_date(value):
         pass
 
     return None
+
+def _parse_flexible_date(dob_val, age_val=None):
+    """Parse date from cell value, falling back to age estimation or safe default.
+
+    Returns: (date_obj, is_estimated, note)
+    """
+    val_str = str(dob_val or '').strip()
+
+    # 1. Try standard date parsing if dob_val provided
+    if val_str and val_str.lower() not in {'none', 'null', 'nan', '-'}:
+        # Excel numeric serial
+        try:
+            num = float(val_str)
+            if 10000 <= num <= 80000:
+                parsed = (datetime(1899, 12, 30) + timedelta(days=num)).date()
+                return parsed, False, ""
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+        clean_str = re.sub(r'\s+00:00:00.*$', '', val_str)
+        clean_str = re.sub(r'T00:00:00.*$', '', clean_str)
+
+        date_formats = (
+            '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%d/%m/%y', '%d-%m-%y',
+            '%Y/%m/%d', '%d.%m.%Y', '%d.%m.%y', '%Y.%m.%d', '%d-%b-%Y', '%d %b %Y',
+            '%b %d, %Y', '%B %d, %Y', '%d %B %Y'
+        )
+        for fmt in date_formats:
+            try:
+                dt = datetime.strptime(clean_str, fmt)
+                if 1950 <= dt.year <= datetime.now().year + 1:
+                    return dt.date(), False, ""
+            except ValueError:
+                pass
+
+        try:
+            from dateutil import parser as date_parser  # type: ignore
+            dt = date_parser.parse(clean_str, dayfirst=True)
+            if 1950 <= dt.year <= datetime.now().year + 1:
+                return dt.date(), False, ""
+        except Exception:
+            pass
+
+    # 2. Fallback to Age column if available
+    if age_val:
+        age_str = str(age_val).strip()
+        match = re.search(r'(\d+(?:\.\d+)?)', age_str)
+        if match:
+            try:
+                age_num = float(match.group(1))
+                if 1 <= age_num <= 30:
+                    birth_year = max(1950, datetime.now().year - int(round(age_num)))
+                    est_date = date(birth_year, 1, 1)
+                    return est_date, True, f"Estimated from age '{age_str}'"
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Fallback to default preschool student age (4 years old)
+    default_year = max(1950, datetime.now().year - 4)
+    default_date = date(default_year, 1, 1)
+    orig = val_str or str(age_val or 'blank')
+    return default_date, True, f"Assigned default birthdate (original: '{orig}')"
 
 def _parse_student_file(file_bytes, filename="file.xlsx"):
     """Parse .xlsx Excel spreadsheets or .csv files into a list of row dictionaries."""
@@ -113,7 +189,14 @@ def _parse_student_file(file_bytes, filename="file.xlsx"):
                 continue
         if text is None:
             raise ValueError('Unable to read CSV file encoding.')
-        reader = csv.reader(StringIO(text))
+        
+        sample_lines = '\n'.join([line for line in text.splitlines() if line.strip()][:5])
+        try:
+            dialect = csv.Sniffer().sniff(sample_lines, delimiters=',;\t|')
+            delimiter = dialect.delimiter
+        except Exception:
+            delimiter = ','
+        reader = csv.reader(StringIO(text), delimiter=delimiter)
         all_rows = [row for row in reader if any(cell.strip() for cell in row)]
         if len(all_rows) < 2:
             return []
@@ -151,8 +234,19 @@ def _parse_student_file(file_bytes, filename="file.xlsx"):
             if not sheet_paths:
                 raise ValueError('No worksheet found in the Excel archive.')
             
-            sheet_paths.sort()
-            sheet = ET.fromstring(archive.read(sheet_paths[0]))
+            sheet_paths.sort(key=lambda s: int(re.search(r'\d+', s).group(0)) if re.search(r'\d+', s) else 0)
+            sheet = None
+            for s_path in sheet_paths:
+                try:
+                    candidate = ET.fromstring(archive.read(s_path))
+                    candidate_rows = candidate.findall('.//x:sheetData/x:row', XLSX_NS)
+                    if len(candidate_rows) >= 2:
+                        sheet = candidate
+                        break
+                except Exception:
+                    continue
+            if sheet is None:
+                sheet = ET.fromstring(archive.read(sheet_paths[0]))
     except (BadZipFile, KeyError, ET.ParseError) as exc:
         raise ValueError('Please upload a valid .xlsx spreadsheet or .csv file.') from exc
 
@@ -242,10 +336,26 @@ def _normalise_programme_fields(name, grade_level=None):
 def _match_programme(value, default_programme=None, auto_create=True):
     val_str = str(value or '').strip()
     if not val_str:
-        return default_programme
+        if default_programme:
+            return default_programme
+        active_prog = Programme.query.filter_by(is_active=True).order_by(Programme.sort_order, Programme.programme_id).first()
+        if active_prog:
+            return active_prog
+        if auto_create:
+            new_prog = Programme(
+                programme_name="General",
+                programme_code="GEN",
+                description="Default programme auto-created from import",
+                is_active=True
+            )
+            db.session.add(new_prog)
+            db.session.flush()
+            return new_prog
+        return None
 
     programme_name, grade_level = _split_programme_value(val_str)
     needle = _clean_header(programme_name)
+    needle_alt = _clean_header(f"Grade {programme_name}") if programme_name.isdigit() else needle
 
     # Match the clean programme name separately from its grade suffix. Include
     # inactive rows so an import never creates another copy of the same master.
@@ -255,15 +365,27 @@ def _match_programme(value, default_programme=None, auto_create=True):
         p_name = _clean_header(stored_name)
         p_code = _clean_header(p.programme_code or '')
         grade_matches = not grade_level or not (p.grade_level or stored_grade) or _clean_header(grade_level) == _clean_header(p.grade_level or stored_grade)
-        if (needle == p_name and grade_matches) or needle == p_code:
+        name_matches = (needle == p_name) or (needle_alt == p_name) or (needle == p_code) or (needle_alt == p_code)
+        if name_matches and grade_matches:
             return p
 
     # Auto-create only the clean name; grade level is stored in its own field.
     if auto_create:
         clean_title = programme_name[:100]
-        words = [w for w in clean_title.upper().split() if w.isalnum()]
-        code = ''.join(w[0] for w in words[:4]) if words else clean_title[:4].upper()
+        if clean_title.isdigit():
+            clean_title = f"Grade {clean_title}"
+            code = f"GR{clean_title.split()[-1]}"
+        else:
+            words = [w for w in clean_title.upper().split() if w.isalnum()]
+            code = ''.join(w[0] for w in words[:4]) if words else clean_title[:4].upper()
         
+        # Extra safety check: return existing if clean_title already matches a programme
+        existing_prog = Programme.query.filter(
+            db.func.lower(db.func.trim(Programme.programme_name)) == clean_title.lower()
+        ).first()
+        if existing_prog:
+            return existing_prog
+
         base_code = code[:25]
         counter = 1
         while Programme.query.filter_by(programme_code=code).first():
@@ -281,7 +403,9 @@ def _match_programme(value, default_programme=None, auto_create=True):
         db.session.flush()
         return new_prog
 
-    return default_programme
+    if default_programme:
+        return default_programme
+    return Programme.query.filter_by(is_active=True).order_by(Programme.sort_order, Programme.programme_id).first()
 
 def _match_subscription_plan(value):
     from app.models.subscription import SubscriptionPlan
@@ -690,32 +814,62 @@ def import_membership_spreadsheet():
     result = {
         'rows_read': len(rows), 'new_students': 0, 'existing_students': 0,
         'enrollments_created': 0, 'subscriptions_created': 0,
-        'existing_details': [], 'skipped': []
+        'existing_details': [], 'skipped': [], 'warnings': []
     }
     created_during_import = set()
     
     try:
         for row_number, row in enumerate(rows, start=2):
-            name = _sheet_value(row, "CHILD'S NAME", "Child's Name", "Child Name", "Childs Name", "Student Name", "Student", "Name", "Full Name", "Student Full Name", "First Name")
+            name = _sheet_value(
+                row,
+                "CHILD'S NAME", "Child's Name", "Child Name", "Childs Name",
+                "Student Name", "Student", "Name", "Full Name", "Student Full Name",
+                "Candidate Name", "Kid Name"
+            )
+            if not name:
+                first_name = _sheet_value(row, "First Name", "FirstName", "Child First Name")
+                last_name = _sheet_value(row, "Last Name", "LastName", "Child Last Name", "Surname")
+                if first_name or last_name:
+                    name = f"{first_name} {last_name}".strip()
+
+            if not name:
+                result['skipped'].append({'row': row_number, 'reason': "Missing Student Name"})
+                continue
+
             dob_val = _sheet_value(row, "DOB - DOB", "BIRTHDATE", "Birthdate", "Birth Date", "Date of Birth", "DOB", "Bday", "Birthday")
-            dob = _xlsx_date(dob_val)
-            programme_value = _sheet_value(row, "WHICH PROGRAMME ARE YOU SIGNING UP FOR", "WHICH PROGRAM ARE YOU SIGING UP FOR ?", "which program are you signing up for", "Programme", "Program", "Course", "Stream")
+            age_val = _sheet_value(row, "AGE", "Age", "Child Age", "Age (Years)", "Age in years", "Student Age")
+            dob, is_estimated_dob, dob_note = _parse_flexible_date(dob_val, age_val)
+            if is_estimated_dob:
+                result['warnings'].append({'row': row_number, 'student': name, 'message': dob_note})
+
+            programme_value = _sheet_value(
+                row,
+                "WHICH PROGRAMME ARE YOU SIGNING UP FOR",
+                "WHICH PROGRAM ARE YOU SIGING UP FOR ?",
+                "WHICH PROGRAM ARE YOU SIGNING UP FOR ?",
+                "which program are you signing up for",
+                "which program are you siging up for",
+                "Programme", "Program", "Course", "Stream", "Admission For"
+            )
+            if not programme_value:
+                programme_value = _sheet_value(row, "GRADE", "Grade", "Class", "Standard", "Section", "Class/Grade", "Grade/Class")
+
             programme = _match_programme(programme_value, default_programme=default_programme, auto_create=True)
 
-            if not name or not dob or not programme:
-                missing = []
-                if not name: missing.append("Student Name")
-                if not dob: missing.append("valid Birthdate")
-                if not programme: missing.append(f"Programme (Excel value: '{programme_value or 'blank'}')")
-                result['skipped'].append({'row': row_number, 'reason': f"Missing or unmapped {', '.join(missing)}. Select a Default Programme above if not present in Excel."})
+            if not programme:
+                result['skipped'].append({'row': row_number, 'reason': f"Could not determine Programme for student '{name}'"})
                 continue
 
             # Google Forms' generic "Email address" is the response/contact
             # email, not necessarily the child's or either specific parent.
-            registration_email = _sheet_value(row, "Email address", "Email Address", "Parent Email", "Contact Email", "Email")
+            registration_email = _sheet_value(row, "Email address", "Email Address", "Parent Email", "Contact Email", "Email", "E-mail")
             student_email = _sheet_value(row, "Student Email", "Child Email", "Child's Email") or registration_email
-            mother_phone = _sheet_value(row, "MOTHER'S MOBILE NUMBER", "Mother's Mobile Number", "Mother Phone", "Mother Mobile", "Mother Contact", "Mother Phone Number", "Mother Mobile Number")
-            father_phone = _sheet_value(row, "FATHER'S MOBILE NUMBER", "Father's Mobile Number", "Father Phone", "Father Mobile", "Father Contact", "Father Phone Number", "Father Mobile Number")
+            mother_phone = _clean_phone(_sheet_value(row, "MOTHER'S MOBILE NUMBER", "Mother's Mobile Number", "Mother Phone", "Mother Mobile", "Mother Contact", "Mother Phone Number", "Mother Mobile Number"))
+            father_phone = _clean_phone(_sheet_value(row, "FATHER'S MOBILE NUMBER", "Father's Mobile Number", "Father Phone", "Father Mobile", "Father Contact", "Father Phone Number", "Father Mobile Number"))
+            general_phone = _clean_phone(_sheet_value(row, "Phone", "Phone Number", "Mobile", "Mobile Number", "Contact Number", "Contact", "Parent Phone", "Parent Mobile"))
+            if not mother_phone and not father_phone and general_phone:
+                mother_phone = general_phone
+
             mother_email = _sheet_value(row, "Mother Email", "Mother's Email")
             father_email = _sheet_value(row, "Father Email", "Father's Email")
             raw_payment = _sheet_value(row, "MODE OF PAYMENT", "WHICH MODE OF PAYMENT DO YOU PREFER ?", "Payment Method", "Payment Mode")
@@ -738,10 +892,16 @@ def import_membership_spreadsheet():
             if len(matches) > 1:
                 result['skipped'].append({'row': row_number, 'reason': f"Multiple existing student records matched '{name}'; re-enroll manually."})
                 continue
-                
+
+            notes_prefix = f"[{dob_note}] " if is_estimated_dob else ""
+            raw_notes = _sheet_value(row, "Medical Notes", "Medical Condition", "Allergies", "Remarks", "Notes") or ""
+            combined_notes = f"{notes_prefix}{raw_notes}".strip() or None
+
             if matches:
                 student = matches[0]
                 student.library_access = wants_subscription
+                if combined_notes and not student.medical_notes:
+                    student.medical_notes = combined_notes
                 result['existing_students'] += 1
                 result['existing_details'].append({
                     'row': row_number,
@@ -776,8 +936,8 @@ def import_membership_spreadsheet():
                     father_email=father_email or None,
                     address=_sheet_value(row, "Address", "Residential Address", "Home Address") or None,
                     emergency_contact_name=_sheet_value(row, "Emergency Contact Name", "Emergency Contact", "Emergency Name") or None,
-                    emergency_contact_phone=_sheet_value(row, "Emergency Contact Phone", "Emergency Phone", "Emergency Mobile") or None,
-                    medical_notes=_sheet_value(row, "Medical Notes", "Medical Condition", "Allergies", "Remarks") or None,
+                    emergency_contact_phone=_clean_phone(_sheet_value(row, "Emergency Contact Phone", "Emergency Phone", "Emergency Mobile")),
+                    medical_notes=combined_notes,
                     library_access=wants_subscription
                 )
                 db.session.add(student)
@@ -833,7 +993,7 @@ def import_membership_spreadsheet():
                 ))
                 result['subscriptions_created'] += 1
             elif wants_subscription and not plan:
-                result['skipped'].append({'row': row_number, 'reason': f"Student '{name}' imported, but selected library package was not found in Subscription Plans."})
+                result['warnings'].append({'row': row_number, 'student': name, 'message': "Selected library package was not found in Subscription Plans; library access enabled with deposit account."})
                 
         db.session.commit()
     except Exception as exc:

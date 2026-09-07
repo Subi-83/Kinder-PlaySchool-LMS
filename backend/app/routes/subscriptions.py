@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from app import db
 from app.models.subscription import SubscriptionPlan, StudentSubscription
+from app.models.deposit import DepositAccount, DepositTransaction
 from app.models.student import Student
 from app.models.academic import AcademicYear, StudentEnrollment
 from app.models.audit import AuditLog
@@ -25,6 +26,12 @@ def _academic_year_from_request(data=None):
 def get_plans():
     """Get all subscription plans"""
     plans = SubscriptionPlan.get_active_plans()
+    """Get subscription plans. Optional include_inactive=true query param."""
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+    if include_inactive:
+        plans = SubscriptionPlan.query.order_by(SubscriptionPlan.subscription_plan_id).all()
+    else:
+        plans = SubscriptionPlan.get_active_plans()
     return jsonify([p.to_dict() for p in plans]), 200
 
 @subscriptions_bp.route('/plans', methods=['POST'])
@@ -32,22 +39,47 @@ def get_plans():
 @permission_required('subscription.create')
 def create_plan():
     """Create a new subscription plan"""
+    """Create a new subscription plan with separate subscription_fee, fixed_deposit, and total_amount."""
     data = request.get_json() or {}
     
+    plan_name = (data.get('plan_name') or '').strip()
+    if not plan_name:
+        return jsonify({'error': 'Plan Name is required'}), 400
+
     def _to_i(val, default=1):
         try: return int(val)
         except (ValueError, TypeError): return default
 
     def _to_f(val, default=0.0):
-        try: return float(val)
+        try: return round(float(val), 2)
         except (ValueError, TypeError): return default
 
+    sub_fee = _to_f(data.get('subscription_fee'), 0.0)
+    fixed_dep = _to_f(data.get('fixed_deposit'), 0.0)
+    total_amt = _to_f(data.get('total_amount'), round(sub_fee + fixed_dep, 2))
+
+    if sub_fee < 0 or fixed_dep < 0:
+        return jsonify({'error': 'Subscription Fee and Fixed Deposit cannot be negative'}), 400
+
+    if total_amt <= 0:
+        total_amt = round(sub_fee + fixed_dep, 2)
+
+    # Validation: total_amount must equal subscription_fee + fixed_deposit
+    if round(total_amt, 2) != round(sub_fee + fixed_dep, 2):
+        return jsonify({
+            'error': f'Total Amount (₹{total_amt:.2f}) must equal Subscription Fee (₹{sub_fee:.2f}) + Fixed Deposit (₹{fixed_dep:.2f}) = ₹{(sub_fee + fixed_dep):.2f}'
+        }), 400
+
     plan = SubscriptionPlan(
-        plan_name=data.get('plan_name'),
-        plan_code=data.get('plan_code'),
+        plan_name=plan_name,
+        plan_code=(data.get('plan_code') or '').strip() or None,
         max_books=_to_i(data.get('max_books'), 1),
-        duration_months=_to_i(data.get('duration_months'), 12),
-        price=_to_f(data.get('price'), 0.0),
+        duration_months=_to_i(data.get('duration_months'), 3),
+        subscription_fee=sub_fee,
+        fixed_deposit=fixed_dep,
+        total_amount=total_amt,
+        price=total_amt,
+        is_active=bool(data.get('is_active', True)),
         description=data.get('description')
     )
     
@@ -62,8 +94,8 @@ def create_plan():
         username=username,
         action='CREATE_SUBSCRIPTION_PLAN',
         module='Subscription',
-        record_id=data.get('plan_code'),
-        details=f'Created plan: {data.get("plan_name")}'
+        record_id=data.get('plan_code') or str(plan.subscription_plan_id),
+        details=f'Created plan {plan.plan_name}: Fee ₹{sub_fee:.2f}, Deposit ₹{fixed_dep:.2f}, Total ₹{total_amt:.2f}'
     )
     
     return jsonify(plan.to_dict()), 201
@@ -84,25 +116,58 @@ def update_plan(plan_id):
         except (ValueError, TypeError): return default
 
     def _to_f(val, default=0.0):
-        try: return float(val)
+        try: return round(float(val), 2)
         except (ValueError, TypeError): return default
 
     if 'plan_name' in data:
         plan.plan_name = data['plan_name']
+    sub_fee = _to_f(data.get('subscription_fee'), float(plan.subscription_fee or 0))
+    fixed_dep = _to_f(data.get('fixed_deposit'), float(plan.fixed_deposit or 0))
+    total_amt = _to_f(data.get('total_amount'), round(sub_fee + fixed_dep, 2))
+
+    if sub_fee < 0 or fixed_dep < 0:
+        return jsonify({'error': 'Subscription Fee and Fixed Deposit cannot be negative'}), 400
+
+    # Validation: total_amount must equal subscription_fee + fixed_deposit
+    if round(total_amt, 2) != round(sub_fee + fixed_dep, 2):
+        return jsonify({
+            'error': f'Total Amount (₹{total_amt:.2f}) must equal Subscription Fee (₹{sub_fee:.2f}) + Fixed Deposit (₹{fixed_dep:.2f}) = ₹{(sub_fee + fixed_dep):.2f}'
+        }), 400
+
+    if 'plan_name' in data and data['plan_name']:
+        plan.plan_name = data['plan_name'].strip()
     if 'plan_code' in data:
         plan.plan_code = data['plan_code']
+        plan.plan_code = (data['plan_code'] or '').strip() or None
     if 'max_books' in data:
         plan.max_books = _to_i(data['max_books'], 1)
     if 'duration_months' in data:
         plan.duration_months = _to_i(data['duration_months'], 12)
     if 'price' in data:
         plan.price = _to_f(data['price'], 0.0)
+        plan.duration_months = _to_i(data['duration_months'], 3)
+    
+    plan.subscription_fee = sub_fee
+    plan.fixed_deposit = fixed_dep
+    plan.total_amount = total_amt
+    plan.price = total_amt
+
     if 'is_active' in data:
-        plan.is_active = data['is_active']
+        plan.is_active = bool(data['is_active'])
     if 'description' in data:
         plan.description = data['description']
     
     db.session.commit()
+    
+    current_user = get_current_user()
+    AuditLog.log_action(
+        user_id=current_user.user_id if current_user else None,
+        username=current_user.username if current_user else 'system',
+        action='UPDATE_SUBSCRIPTION_PLAN',
+        module='Subscription',
+        record_id=str(plan.subscription_plan_id),
+        details=f'Updated plan {plan.plan_name}: Fee ₹{sub_fee:.2f}, Deposit ₹{fixed_dep:.2f}, Total ₹{total_amt:.2f}'
+    )
     
     return jsonify(plan.to_dict()), 200
 
@@ -227,16 +292,71 @@ def update_subscription_payment(subscription_id):
     )
     return jsonify(subscription.to_dict()), 200
 
+@subscriptions_bp.route('/calculate-breakdown', methods=['GET'])
+@jwt_required()
+@permission_required('subscription.view')
+def calculate_breakdown():
+    """Calculate subscription breakdown and deposit carry-forward for a student and plan."""
+    student_id = request.args.get('student_id', type=int)
+    plan_id = request.args.get('plan_id', type=int)
+
+    if not student_id or not plan_id:
+        return jsonify({'error': 'student_id and plan_id are required'}), 400
+
+    student = Student.query.get(student_id)
+    if not student:
+        return jsonify({'error': 'Student not found'}), 404
+
+    plan = SubscriptionPlan.query.get(plan_id)
+    if not plan:
+        return jsonify({'error': 'Subscription plan not found'}), 404
+
+    deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
+    cur_bal = round(float(deposit_account.current_balance or 0.0), 2) if deposit_account else 0.0
+    outstanding = round(float(deposit_account.outstanding_balance or 0.0), 2) if deposit_account else 0.0
+
+    sub_fee = round(float(plan.subscription_fee or 0.0), 2)
+    req_dep = round(float(plan.fixed_deposit or 0.0), 2)
+
+    # Core carry-forward formula:
+    # Additional Deposit Required = max(New Plan Fixed Deposit - Current Deposit Balance, 0)
+    add_dep = round(max(req_dep - cur_bal, 0.0), 2)
+    carried_forward = round(min(cur_bal, req_dep), 2)
+    excess_dep = round(max(cur_bal - req_dep, 0.0), 2)
+    total_payable = round(sub_fee + add_dep, 2)
+    deposit_balance_after = round(cur_bal + add_dep, 2)
+
+    return jsonify({
+        'student_id': student.student_id,
+        'student_name': student.student_name,
+        'student_uid': student.student_uid,
+        'plan_id': plan.subscription_plan_id,
+        'plan_name': plan.plan_name,
+        'duration_months': plan.duration_months,
+        'subscription_fee': sub_fee,
+        'fixed_deposit': req_dep,
+        'total_plan_amount': round(sub_fee + req_dep, 2),
+        'current_deposit_balance': cur_bal,
+        'outstanding_balance': outstanding,
+        'carried_forward_deposit': carried_forward,
+        'additional_deposit_required': add_dep,
+        'excess_deposit': excess_dep,
+        'total_payable': total_payable,
+        'deposit_balance_after': deposit_balance_after
+    }), 200
+
 @subscriptions_bp.route('/assign', methods=['POST'])
 @jwt_required()
 @permission_required('subscription.create')
 def assign_subscription():
     """Assign a subscription plan to a student"""
+    """Assign a subscription plan to a student with deposit carry-forward tracking."""
     data = request.get_json() or {}
     
     student_id = data.get('student_id')
     plan_id = data.get('plan_id')
     academic_year = _academic_year_from_request(data)
+    payment_method = (data.get('payment_method') or 'CASH').strip().upper()
     
     if not student_id or not plan_id or not academic_year:
         return jsonify({'error': 'Student, plan, and academic year are required'}), 400
@@ -247,12 +367,19 @@ def assign_subscription():
 
     # Validation 1: Student MUST have Library Access
     enrollment = StudentEnrollment.query.filter_by(student_id=student.student_id, academic_year_id=academic_year.academic_year_id, library_access=True).first()
+    enrollment = StudentEnrollment.query.filter_by(
+        student_id=student.student_id,
+        academic_year_id=academic_year.academic_year_id,
+        library_access=True
+    ).first()
     if not enrollment:
         return jsonify({'error': 'Student does not have Library Access enabled. Subscriptions are not allowed.'}), 400
     
     plan = SubscriptionPlan.query.get(plan_id)
     if not plan:
         return jsonify({'error': 'Subscription plan not found'}), 404
+    if not plan or not plan.is_active:
+        return jsonify({'error': 'Valid active subscription plan not found'}), 404
     
     today = datetime.now().date()
     
@@ -273,6 +400,49 @@ def assign_subscription():
     if existing_active and existing_active.end_date >= today:
         return jsonify({'error': f'Student {student.student_name} already has an active subscription ending on {existing_active.end_date.strftime("%Y-%m-%d")}. Duplicate active subscriptions are not allowed.'}), 400
     
+    # Deposit Account & Carry Forward Calculations
+    deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
+    if not deposit_account:
+        deposit_account = DepositAccount(student_id=student_id)
+        db.session.add(deposit_account)
+        db.session.flush()
+
+    cur_bal = round(float(deposit_account.current_balance or 0.0), 2)
+    sub_fee = round(float(plan.subscription_fee or 0.0), 2)
+    req_dep = round(float(plan.fixed_deposit or 0.0), 2)
+    add_dep = round(max(req_dep - cur_bal, 0.0), 2)
+    total_payable = round(sub_fee + add_dep, 2)
+
+    current_user = get_current_user()
+    user_id = current_user.user_id if current_user else None
+    username = current_user.username if current_user else 'system'
+
+    # Record carry forward in ledger if existing deposit exists
+    if cur_bal > 0:
+        cf_tx = DepositTransaction(
+            deposit_account_id=deposit_account.deposit_account_id,
+            transaction_type='CARRY_FORWARD',
+            amount=0.00,
+            balance_after=deposit_account.current_balance,
+            description=f'Existing deposit of ₹{cur_bal:.2f} carried forward to {plan.plan_name} subscription',
+            created_by=user_id
+        )
+        db.session.add(cf_tx)
+
+    # If additional deposit is required, add to balance and record transaction
+    if add_dep > 0:
+        deposit_account.current_balance = round(cur_bal + add_dep, 2)
+        deposit_account.last_transaction_date = datetime.utcnow()
+        init_tx = DepositTransaction(
+            deposit_account_id=deposit_account.deposit_account_id,
+            transaction_type='INITIAL_DEPOSIT' if cur_bal == 0 else 'TOP_UP',
+            amount=add_dep,
+            balance_after=deposit_account.current_balance,
+            description=f'Deposit payment for {plan.plan_name} subscription (Required deposit: ₹{req_dep:.2f})',
+            created_by=user_id
+        )
+        db.session.add(init_tx)
+
     # Calculate start and end date
     start_date = max(today, academic_year.start_date)
     end_date = min(academic_year.end_date, start_date + timedelta(days=plan.duration_months * 30))
@@ -284,21 +454,28 @@ def assign_subscription():
         start_date=start_date,
         end_date=end_date,
         status='ACTIVE',
-        amount_paid=plan.price,
-        payment_date=today
+        amount_paid=sub_fee,
+        subscription_fee_paid=sub_fee,
+        deposit_paid=add_dep,
+        total_paid=total_payable,
+        payment_date=today,
+        payment_method=payment_method,
+        notes=data.get('notes')
     )
     
     db.session.add(subscription)
     db.session.commit()
     
     current_user = get_current_user()
+    user_id = current_user.user_id if current_user else None
+    username = current_user.username if current_user else 'system'
     AuditLog.log_action(
-        user_id=current_user.user_id if current_user else None,
-        username=current_user.username if current_user else 'system',
+        user_id=user_id,
+        username=username,
         action='ASSIGN_SUBSCRIPTION',
         module='Subscription',
         record_id=str(student_id),
-        details=f'Assigned plan {plan.plan_name} to student {student.student_name} ({student.student_uid})'
+        details=f'Assigned plan {plan.plan_name} to student {student.student_name} ({student.student_uid}). Fee: ₹{sub_fee:.2f}, Add Deposit: ₹{add_dep:.2f}, Total Paid: ₹{total_payable:.2f}'
     )
     
     return jsonify(subscription.to_dict()), 201
@@ -307,43 +484,86 @@ def assign_subscription():
 @jwt_required()
 @permission_required('subscription.create')
 def renew_subscription(subscription_id):
-    """Renew a subscription"""
+    """Renew a subscription with deposit carry forward and backend financial verification."""
     subscription = StudentSubscription.query.get(subscription_id)
     if not subscription:
         return jsonify({'error': 'Subscription not found'}), 404
     
     data = request.get_json() or {}
-    plan_id = data.get('plan_id')
+    plan_id = data.get('plan_id') or subscription.subscription_plan_id
     payment_method = (data.get('payment_method') or '').strip().upper()
     allowed_payment_methods = {'UPI', 'BANK_TRANSFER', 'CASH', 'CARD', 'CHEQUE', 'OTHER'}
     if payment_method not in allowed_payment_methods:
         return jsonify({'error': 'Please select a valid payment method'}), 400
     
-    if plan_id:
-        plan = SubscriptionPlan.query.get(plan_id)
-        if not plan:
-            return jsonify({'error': 'Plan not found'}), 404
-        subscription.subscription_plan_id = plan_id
-        duration_months = plan.duration_months
-    else:
-        duration_months = subscription.plan_ref.duration_months if subscription.plan_ref else 6
-    
-    subscription.start_date = datetime.now().date()
-    subscription.end_date = datetime.now().date() + timedelta(days=duration_months * 30)
+    plan = SubscriptionPlan.query.get(plan_id)
+    if not plan or not plan.is_active:
+        return jsonify({'error': 'Valid active plan not found'}), 404
+
+    deposit_account = DepositAccount.query.filter_by(student_id=subscription.student_id).first()
+    if not deposit_account:
+        deposit_account = DepositAccount(student_id=subscription.student_id)
+        db.session.add(deposit_account)
+        db.session.flush()
+
+    cur_bal = round(float(deposit_account.current_balance or 0.0), 2)
+    sub_fee = round(float(plan.subscription_fee or 0.0), 2)
+    req_dep = round(float(plan.fixed_deposit or 0.0), 2)
+    add_dep = round(max(req_dep - cur_bal, 0.0), 2)
+    total_payable = round(sub_fee + add_dep, 2)
+
+    current_user = get_current_user()
+    user_id = current_user.user_id if current_user else None
+    username = current_user.username if current_user else 'system'
+
+    # Always record carry forward transaction in ledger
+    cf_tx = DepositTransaction(
+        deposit_account_id=deposit_account.deposit_account_id,
+        transaction_type='CARRY_FORWARD',
+        amount=0.00,
+        balance_after=deposit_account.current_balance,
+        reference_id=str(subscription.subscription_id),
+        description=f'Deposit of ₹{cur_bal:.2f} carried forward for renewal to {plan.plan_name}',
+        created_by=user_id
+    )
+    db.session.add(cf_tx)
+
+    # If deposit was depleted below required plan deposit, replenish it
+    if add_dep > 0:
+        deposit_account.current_balance = round(cur_bal + add_dep, 2)
+        deposit_account.last_transaction_date = datetime.utcnow()
+        topup_tx = DepositTransaction(
+            deposit_account_id=deposit_account.deposit_account_id,
+            transaction_type='TOP_UP',
+            amount=add_dep,
+            balance_after=deposit_account.current_balance,
+            reference_id=str(subscription.subscription_id),
+            description=f'Deposit replenishment for renewal to {plan.plan_name} (Carried forward ₹{cur_bal:.2f}, added ₹{add_dep:.2f} to meet ₹{req_dep:.2f})',
+            created_by=user_id
+        )
+        db.session.add(topup_tx)
+
+    today = datetime.now().date()
+    subscription.subscription_plan_id = plan.subscription_plan_id
+    subscription.start_date = today
+    subscription.end_date = today + timedelta(days=plan.duration_months * 30)
     subscription.status = 'ACTIVE'
-    subscription.amount_paid = data.get('amount', subscription.plan_ref.price if subscription.plan_ref else 0)
-    subscription.payment_date = datetime.now().date()
+    subscription.amount_paid = sub_fee
+    subscription.subscription_fee_paid = sub_fee
+    subscription.deposit_paid = add_dep
+    subscription.total_paid = total_payable
+    subscription.payment_date = today
     subscription.payment_method = payment_method
     
     db.session.commit()
 
-    current_user = get_current_user()
     AuditLog.log_action(
-        user_id=current_user.user_id if current_user else None,
-        username=current_user.username if current_user else 'system',
-        action='RENEW_SUBSCRIPTION', module='Subscription',
+        user_id=user_id,
+        username=username,
+        action='RENEW_SUBSCRIPTION',
+        module='Subscription',
         record_id=str(subscription.student_id),
-        details=f'Renewed subscription for {subscription.student_ref.student_name}; payment method: {payment_method}'
+        details=f'Renewed subscription for {subscription.student_ref.student_name if subscription.student_ref else subscription.student_id} to {plan.plan_name}. Fee: ₹{sub_fee:.2f}, Add Deposit: ₹{add_dep:.2f}, Total Paid: ₹{total_payable:.2f}; method: {payment_method}'
     )
     
     return jsonify(subscription.to_dict()), 200
@@ -353,7 +573,7 @@ def renew_subscription(subscription_id):
 @jwt_required()
 @permission_required('subscription.create')
 def upgrade_subscription(subscription_id):
-    """Move an active subscription to another active plan, starting the new plan today."""
+    """Move an active subscription to another active plan, carrying forward deposit and replenishing if needed."""
     subscription = StudentSubscription.query.get(subscription_id)
     if not subscription:
         return jsonify({'error': 'Subscription not found'}), 404
@@ -363,6 +583,7 @@ def upgrade_subscription(subscription_id):
 
     data = request.get_json() or {}
     plan_id = data.get('plan_id')
+    payment_method = (data.get('payment_method') or 'CASH').strip().upper()
     if not plan_id:
         return jsonify({'error': 'New subscription plan ID is required'}), 400
 
@@ -372,24 +593,69 @@ def upgrade_subscription(subscription_id):
     if subscription.subscription_plan_id == plan.subscription_plan_id:
         return jsonify({'error': 'Select a different plan to upgrade'}), 400
 
+    deposit_account = DepositAccount.query.filter_by(student_id=subscription.student_id).first()
+    if not deposit_account:
+        deposit_account = DepositAccount(student_id=subscription.student_id)
+        db.session.add(deposit_account)
+        db.session.flush()
+
+    cur_bal = round(float(deposit_account.current_balance or 0.0), 2)
+    sub_fee = round(float(plan.subscription_fee or 0.0), 2)
+    req_dep = round(float(plan.fixed_deposit or 0.0), 2)
+    add_dep = round(max(req_dep - cur_bal, 0.0), 2)
+    total_payable = round(sub_fee + add_dep, 2)
+
+    current_user = get_current_user()
+    user_id = current_user.user_id if current_user else None
+    username = current_user.username if current_user else 'system'
+
+    # Record carry forward in ledger
+    cf_tx = DepositTransaction(
+        deposit_account_id=deposit_account.deposit_account_id,
+        transaction_type='CARRY_FORWARD',
+        amount=0.00,
+        balance_after=deposit_account.current_balance,
+        reference_id=str(subscription.subscription_id),
+        description=f'Deposit of ₹{cur_bal:.2f} carried forward to upgrade ({plan.plan_name})',
+        created_by=user_id
+    )
+    db.session.add(cf_tx)
+
+    if add_dep > 0:
+        deposit_account.current_balance = round(cur_bal + add_dep, 2)
+        deposit_account.last_transaction_date = datetime.utcnow()
+        topup_tx = DepositTransaction(
+            deposit_account_id=deposit_account.deposit_account_id,
+            transaction_type='TOP_UP',
+            amount=add_dep,
+            balance_after=deposit_account.current_balance,
+            reference_id=str(subscription.subscription_id),
+            description=f'Deposit replenishment for upgrade to {plan.plan_name} (Carried forward ₹{cur_bal:.2f}, added ₹{add_dep:.2f} to meet ₹{req_dep:.2f})',
+            created_by=user_id
+        )
+        db.session.add(topup_tx)
+
     today = datetime.now().date()
     previous_plan = subscription.plan_ref.plan_name if subscription.plan_ref else 'previous plan'
     subscription.subscription_plan_id = plan.subscription_plan_id
     subscription.start_date = today
     subscription.end_date = today + timedelta(days=plan.duration_months * 30)
-    subscription.amount_paid = plan.price
+    subscription.amount_paid = sub_fee
+    subscription.subscription_fee_paid = sub_fee
+    subscription.deposit_paid = add_dep
+    subscription.total_paid = total_payable
     subscription.payment_date = today
+    subscription.payment_method = payment_method
     subscription.notes = f'Upgraded from {previous_plan} to {plan.plan_name}'
     db.session.commit()
 
-    current_user = get_current_user()
     AuditLog.log_action(
-        user_id=current_user.user_id if current_user else None,
-        username=current_user.username if current_user else 'system',
+        user_id=user_id,
+        username=username,
         action='UPGRADE_SUBSCRIPTION',
         module='Subscription',
         record_id=str(subscription.student_id),
-        details=f'Upgraded {subscription.student_ref.student_name} from {previous_plan} to {plan.plan_name}'
+        details=f'Upgraded {subscription.student_ref.student_name if subscription.student_ref else subscription.student_id} from {previous_plan} to {plan.plan_name}. Fee: ₹{sub_fee:.2f}, Add Deposit: ₹{add_dep:.2f}, Total Paid: ₹{total_payable:.2f}'
     )
 
     return jsonify(subscription.to_dict()), 200

@@ -39,7 +39,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, notificationC
 
   useEffect(() => {
     if (!hasPermission('student.view') && user?.role !== 'ADMIN') return
-    api.get('/students/member-groups').then((response) => setMemberGroups((response.data || []).filter((group) => group.is_active && group.group_code !== 'JK_MEMBERS'))).catch(() => {})
+    api.get('/students/member-groups').then((response) => setMemberGroups((response.data || []).filter((group) => group.is_active && group.group_code !== 'JK_MEMBERS' && group.group_code !== 'KINDER_PARK' && !group.group_name?.toLowerCase().includes('kinder')))).catch(() => {})
   }, [user?.role, hasPermission])
 
   const allNavItems = navItems.flatMap((item) => item.path === '/students'

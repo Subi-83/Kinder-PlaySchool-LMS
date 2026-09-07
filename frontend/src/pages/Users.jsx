@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import {
   Plus, X, Pencil, Trash2, CheckCircle2, XCircle, ShieldCheck, ShieldAlert, Lock,
   Search, GraduationCap, BookOpen, ClipboardList, Library, Wallet, BarChart3,
-  Users as UsersIcon, Settings, FolderKanban, ScrollText, User as UserIcon
+  Users as UsersIcon, Settings, FolderKanban, ScrollText, User as UserIcon,
+  CalendarDays, Database
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
@@ -130,8 +131,29 @@ function Users() {
     }))
   }
 
+  const normalizeModuleName = (rawModule) => {
+    const m = (rawModule || '').trim().toLowerCase()
+    if (m === 'holiday' || m === 'holidays') return 'Holiday'
+    if (m === 'user' || m === 'users') return 'User'
+    if (m === 'deposit' || m === 'deposits') return 'Deposit'
+    if (m === 'student' || m === 'students') return 'Student'
+    if (m === 'programme' || m === 'programmes') return 'Programme'
+    if (m === 'book' || m === 'books') return 'Book'
+    if (m === 'report' || m === 'reports') return 'Report'
+    if (m === 'subscription' || m === 'subscriptions') return 'Subscription'
+    if (m === 'e-books' || m === 'ebooks' || m === 'ebook') return 'E-Books'
+    if (m === 'subscription payments' || m === 'subscription payment') return 'Subscription Payments'
+    if (m === 'damage') return 'Damage'
+    if (m === 'library') return 'Library'
+    if (m === 'settings') return 'Settings'
+    if (m === 'audit') return 'Audit'
+    if (m === 'backup') return 'Backup'
+    if (m === 'export') return 'Export'
+    return (rawModule || 'Other').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
   const permissionsByModule = permissions.reduce((groups, permission) => {
-    const module = permission.module || 'Other'
+    const module = normalizeModuleName(permission.module)
     groups[module] = [...(groups[module] || []), permission]
     return groups
   }, {})
@@ -159,6 +181,8 @@ function Users() {
     if (name.includes('set')) return Settings
     if (name.includes('master') || name.includes('prog')) return FolderKanban
     if (name.includes('audit')) return ScrollText
+    if (name.includes('holiday')) return CalendarDays
+    if (name.includes('backup') || name.includes('export')) return Database
     return ShieldAlert
   }
 

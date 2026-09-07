@@ -4,7 +4,7 @@ import {
   ChevronUp, ChevronDown, Package, BookOpen, CheckCircle2, Info, AlertTriangle
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import api from '../services/api'
+import api, { booksAPI } from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { PageHeader, Button, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
 
@@ -13,6 +13,7 @@ const BOOKS_COLUMNS = [
   { key: 'title_author', label: 'Book Title / Author', locked: true },
   { key: 'level_category', label: 'Level / Category' },
   { key: 'mrp', label: 'MRP' },
+  { key: 'condition', label: 'Condition' },
   { key: 'years', label: 'Publish / Purchase Year' },
   { key: 'inventory', label: 'Inventory Count' },
   { key: 'status', label: 'Status' },
@@ -57,10 +58,14 @@ function Books() {
     description: '',
     purchase_year: '',
     purchase_price: '',
-    location: 'Main Shelf'
+    cupboard_id: '',
+    shelf_id: '',
+    location: 'Main Shelf',
+    condition: 'Good'
   })
   const [levels, setLevels] = useState([])
   const [categories, setCategories] = useState([])
+  const [locationHierarchy, setLocationHierarchy] = useState([])
 
   // State for expanded book copies view & adding copies
   const [expandedBookId, setExpandedBookId] = useState(null)
@@ -68,8 +73,10 @@ function Books() {
   const [copyFormData, setCopyFormData] = useState({
     purchase_year: '',
     purchase_price: '',
+    cupboard_id: '',
+    shelf_id: '',
     location: 'Main Shelf',
-    condition: 'NEW'
+    condition: 'Good'
   })
 
   const canCreate = hasPermission('book.create') || user?.role === 'ADMIN'
@@ -79,14 +86,16 @@ function Books() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [booksRes, levelsRes, categoriesRes] = await Promise.all([
+      const [booksRes, levelsRes, categoriesRes, locHierarchyRes] = await Promise.all([
         api.get('/books/'),
         api.get('/books/levels'),
-        api.get('/books/categories')
+        api.get('/books/categories'),
+        booksAPI.getLocationHierarchy().catch(() => ({ data: [] }))
       ])
       setBooks(booksRes.data || [])
       setLevels(levelsRes.data || [])
       setCategories(categoriesRes.data || [])
+      setLocationHierarchy(locHierarchyRes.data || [])
     } catch (err) {
       console.error('Error loading book catalog:', err)
     } finally {
@@ -166,7 +175,10 @@ function Books() {
         description: '',
         purchase_year: '',
         purchase_price: '',
-        location: 'Main Shelf'
+        cupboard_id: '',
+        shelf_id: '',
+        location: 'Main Shelf',
+        condition: 'Good'
       })
       setIsbnLookup('')
       await loadData()
@@ -184,8 +196,10 @@ function Books() {
       setCopyFormData({
         purchase_year: '',
         purchase_price: '',
+        cupboard_id: '',
+        shelf_id: '',
         location: 'Main Shelf',
-        condition: 'NEW'
+        condition: 'Good'
       })
       await loadData()
     } catch (err) {
@@ -363,7 +377,10 @@ function Books() {
       description: '',
       purchase_year: '',
       purchase_price: '',
-      location: 'Main Shelf'
+      cupboard_id: '',
+      shelf_id: '',
+      location: 'Main Shelf',
+      condition: 'Good'
     })
     setIsbnLookup('')
     setTimeout(() => scannerInputRef.current?.focus(), 0)
@@ -704,21 +721,65 @@ function Books() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Location / Shelf
+                  Library Cupboard
                 </label>
-                <input
-                  type="text"
-                  placeholder="Main Shelf"
-                  value={formData.location}
-                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                <select
+                  value={formData.cupboard_id || ''}
+                  onChange={(e) => {
+                    const cid = e.target.value
+                    setFormData({ ...formData, cupboard_id: cid, shelf_id: '' })
+                  }}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
+                >
+                  <option value="">-- Select Cupboard --</option>
+                  {locationHierarchy.map((c) => (
+                    <option key={c.cupboard_id} value={c.cupboard_id}>
+                      {c.cupboard_name} ({c.cupboard_code})
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Shelf
+                </label>
+                <select
+                  value={formData.shelf_id || ''}
+                  onChange={(e) => setFormData({ ...formData, shelf_id: e.target.value })}
+                  disabled={!formData.cupboard_id}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
+                >
+                  <option value="">{formData.cupboard_id ? '-- Select Shelf --' : 'Select cupboard first'}</option>
+                  {(locationHierarchy.find((c) => String(c.cupboard_id) === String(formData.cupboard_id))?.shelves || []).map((s) => (
+                    <option key={s.shelf_id} value={s.shelf_id}>
+                      {s.shelf_name} ({s.shelf_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {!editing && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Initial Book Condition
+                  </label>
+                  <select
+                    value={formData.condition || 'Good'}
+                    onChange={(e) => setFormData({ ...formData, condition: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option value="Good">Good</option>
+                    <option value="Small Damage">Small Damage</option>
+                    <option value="Large Damage">Large Damage</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 pt-2">
               <Button type="submit">
-                {editing ? 'Update Book' : 'Create Book'}
+                {editing ? 'Update Book' : 'Save Book'}
               </Button>
               <Button
                 type="button"
@@ -763,31 +824,56 @@ function Books() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Location / Shelf
+                  Library Cupboard
                 </label>
-                <input
-                  type="text"
-                  placeholder="Main Shelf"
-                  value={copyFormData.location}
-                  onChange={(e) => setCopyFormData({ ...copyFormData, location: e.target.value })}
+                <select
+                  value={copyFormData.cupboard_id || ''}
+                  onChange={(e) => {
+                    const cid = e.target.value
+                    setCopyFormData({ ...copyFormData, cupboard_id: cid, shelf_id: '' })
+                  }}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
+                >
+                  <option value="">-- Select Cupboard --</option>
+                  {locationHierarchy.map((c) => (
+                    <option key={c.cupboard_id} value={c.cupboard_id}>
+                      {c.cupboard_name} ({c.cupboard_code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Condition
+                  Shelf
                 </label>
                 <select
-                  value={copyFormData.condition}
+                  value={copyFormData.shelf_id || ''}
+                  onChange={(e) => setCopyFormData({ ...copyFormData, shelf_id: e.target.value })}
+                  disabled={!copyFormData.cupboard_id}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
+                >
+                  <option value="">{copyFormData.cupboard_id ? '-- Select Shelf --' : 'Select cupboard first'}</option>
+                  {(locationHierarchy.find((c) => String(c.cupboard_id) === String(copyFormData.cupboard_id))?.shelves || []).map((s) => (
+                    <option key={s.shelf_id} value={s.shelf_id}>
+                      {s.shelf_name} ({s.shelf_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Initial Book Condition
+                </label>
+                <select
+                  value={copyFormData.condition || 'Good'}
                   onChange={(e) => setCopyFormData({ ...copyFormData, condition: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
-                  <option value="NEW">New</option>
-                  <option value="GOOD">Good</option>
-                  <option value="FAIR">Fair</option>
-                  <option value="POOR">Poor</option>
-                  <option value="DAMAGED">Damaged</option>
+                  <option value="Good">Good</option>
+                  <option value="Small Damage">Small Damage</option>
+                  <option value="Large Damage">Large Damage</option>
                 </select>
               </div>
             </div>
@@ -814,6 +900,7 @@ function Books() {
                 <SortableTh sortKey="title_author" direction={directionFor('title_author')} onSort={requestSort} className={`p-3 ${isVisible('title_author') ? '' : 'hidden'}`}>Book Title / Author</SortableTh>
                 <SortableTh sortKey="level_category" direction={directionFor('level_category')} onSort={requestSort} className={`p-3 ${isVisible('level_category') ? '' : 'hidden'}`}>Level / Category</SortableTh>
                 <SortableTh sortKey="mrp" direction={directionFor('mrp')} onSort={requestSort} className={`p-3 ${isVisible('mrp') ? '' : 'hidden'}`}>MRP</SortableTh>
+                <SortableTh sortKey="condition" direction={directionFor('condition')} onSort={requestSort} className={`p-3 ${isVisible('condition') ? '' : 'hidden'}`}>Condition</SortableTh>
                 <SortableTh sortKey="years" direction={directionFor('years')} onSort={requestSort} className={`p-3 ${isVisible('years') ? '' : 'hidden'}`}>Publish / Purchase Year</SortableTh>
                 <SortableTh sortKey="inventory" direction={directionFor('inventory')} onSort={requestSort} className={`p-3 ${isVisible('inventory') ? '' : 'hidden'}`}>Inventory Count</SortableTh>
                 <SortableTh sortKey="status" direction={directionFor('status')} onSort={requestSort} className={`p-3 ${isVisible('status') ? '' : 'hidden'}`}>Status</SortableTh>
@@ -866,6 +953,20 @@ function Books() {
                           : '—'}
                       </td>
 
+                      <td className={`p-3 ${isVisible('condition') ? '' : 'hidden'}`}>
+                        {(() => {
+                          const cond = b.copies?.[0]?.current_condition || 'Good'
+                          return (
+                            <Badge tone={
+                              cond === 'Lost' || cond === 'Large Damage' ? 'danger' :
+                              cond === 'Small Damage' || cond === 'Damaged' ? 'warning' : 'success'
+                            }>
+                              {cond}
+                            </Badge>
+                          )
+                        })()}
+                      </td>
+
                       <td className={`p-3 text-xs ${isVisible('years') ? '' : 'hidden'}`}>
                         <div>
                           <span className="font-medium text-gray-700 dark:text-gray-300">Publish:</span> {b.publication_year || '—'}
@@ -908,8 +1009,10 @@ function Books() {
                                 setCopyFormData({
                                   purchase_year: '',
                                   purchase_price: '',
-                                  location: 'Main Shelf',
-                                  condition: 'NEW'
+                                  cupboard_id: b.copies?.[0]?.cupboard_id ? String(b.copies[0].cupboard_id) : '',
+                                  shelf_id: b.copies?.[0]?.shelf_id ? String(b.copies[0].shelf_id) : '',
+                                  location: b.copies?.[0]?.location || 'Main Shelf',
+                                  condition: 'Good'
                                 })
                               }}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/80 rounded-md font-semibold transition-colors border border-emerald-300 dark:border-emerald-800"
@@ -935,6 +1038,8 @@ function Books() {
                                   description: b.description || '',
                                   purchase_year: b.copies?.[0]?.purchase_year || b.publication_year || '',
                                   purchase_price: b.copies?.[0]?.purchase_price || '',
+                                  cupboard_id: b.copies?.[0]?.cupboard_id ? String(b.copies[0].cupboard_id) : '',
+                                  shelf_id: b.copies?.[0]?.shelf_id ? String(b.copies[0].shelf_id) : '',
                                   location: b.copies?.[0]?.location || 'Main Shelf'
                                 })
                                 setShowForm(true)
@@ -958,8 +1063,8 @@ function Books() {
 
                     {/* Expanded Copies View */}
                     {isExpanded && (
-                      <tr className="bg-gray-50/80 dark:bg-[#10101d]">
-                        <td colSpan="7" className="p-4">
+                      <tr className="bg-blue-50/20 dark:bg-[#121222]">
+                        <td colSpan="9" className="p-4">
                           <div className="rounded-lg border border-gray-200 dark:border-[#2a2a4a] bg-white dark:bg-[#1a1a2e] p-3 space-y-2">
                             <div className="flex justify-between items-center mb-2">
                               <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
@@ -972,8 +1077,10 @@ function Books() {
                                     setCopyFormData({
                                       purchase_year: '',
                                       purchase_price: '',
-                                      location: 'Main Shelf',
-                                      condition: 'NEW'
+                                      cupboard_id: b.copies?.[0]?.cupboard_id ? String(b.copies[0].cupboard_id) : '',
+                                      shelf_id: b.copies?.[0]?.shelf_id ? String(b.copies[0].shelf_id) : '',
+                                      location: b.copies?.[0]?.location || 'Main Shelf',
+                                      condition: 'Good'
                                     })
                                   }}
                                   className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline inline-flex items-center gap-1"
@@ -997,8 +1104,14 @@ function Books() {
                                     <span>Published: {b.publication_year || 'N/A'}</span>
                                   </div>
                                   <div className="text-gray-500 dark:text-gray-400 flex justify-between">
-                                    <span>Shelf: {c.location || 'Main Shelf'}</span>
-                                    <span>Cond: {c.condition || 'NEW'}</span>
+                                    <span>Location: {c.location || '—'}</span>
+                                    <span>Cond: <strong className={
+                                      c.current_condition === 'Lost' || c.current_condition === 'Large Damage'
+                                        ? 'text-rose-600 dark:text-rose-400'
+                                        : c.current_condition === 'Small Damage' || c.current_condition === 'Damaged'
+                                        ? 'text-amber-600 dark:text-amber-400'
+                                        : 'text-emerald-600 dark:text-emerald-400'
+                                    }>{c.current_condition || 'Good'}</strong></span>
                                   </div>
                                   {canDelete && (
                                     <div className="text-right pt-1">

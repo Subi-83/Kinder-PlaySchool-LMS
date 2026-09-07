@@ -33,7 +33,8 @@ class AuditLog(db.Model):
             'details': self.details,
             'ip_address': self.ip_address,
             'user_agent': self.user_agent,
-            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'created_at_iso': self.created_at.strftime('%Y-%m-%dT%H:%M:%SZ') if self.created_at else None
         }
     
     @classmethod
@@ -58,17 +59,17 @@ class AuditLog(db.Model):
     def get_user_logs(cls, user_id, limit=100):
         """Get audit logs for a specific user"""
         return cls.query.filter_by(user_id=user_id).order_by(
-            cls.created_at.desc()
+            cls.created_at.desc(), cls.audit_id.desc()
         ).limit(limit).all()
     
     @classmethod
     def get_module_logs(cls, module, limit=100):
         """Get audit logs for a specific module"""
         return cls.query.filter_by(module=module).order_by(
-            cls.created_at.desc()
+            cls.created_at.desc(), cls.audit_id.desc()
         ).limit(limit).all()
     
     @classmethod
     def get_recent_logs(cls, limit=100):
         """Get most recent audit logs"""
-        return cls.query.order_by(cls.created_at.desc()).limit(limit).all()
+        return cls.query.order_by(cls.created_at.desc(), cls.audit_id.desc()).limit(limit).all()

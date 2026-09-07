@@ -55,12 +55,29 @@ function AuditLogs() {
 
   const modules = [...new Set(logs.map(l => l.module).filter(Boolean))]
 
+  const formatDateTime = (log) => {
+    const isoStr = log.created_at_iso || (log.created_at ? log.created_at.replace(' ', 'T') + 'Z' : null)
+    if (!isoStr) return '-'
+    const d = new Date(isoStr)
+    return Number.isNaN(d.getTime()) ? (log.created_at || '-') : d.toLocaleString()
+  }
+
   // Logs are paginated server-side, so sorting acts on the current page
-  // of results (the page already loaded), not the entire audit trail.
+  // of results (the page already loaded). By default, logs that happened last
+  // show first (date desc) with audit_id as a secondary tie-breaker.
   const { sortedItems: sortedLogs, requestSort, directionFor } = useSortableData(
     filteredLogs,
-    null,
-    (row, key) => (key === 'user' ? (row.username || 'System') : key === 'date' ? row.created_at : row[key])
+    { key: 'date', direction: 'desc' },
+    (row, key) => {
+      if (key === 'user') return row.username || 'System'
+      if (key === 'date') {
+        const time = row.created_at_iso
+          ? new Date(row.created_at_iso).getTime()
+          : (row.created_at ? new Date(row.created_at.replace(' ', 'T') + 'Z').getTime() : 0)
+        return (Number.isNaN(time) ? 0 : time) * 1000000 + (row.audit_id || 0)
+      }
+      return row[key]
+    }
   )
 
   const totalPages = Math.ceil(totalLogs / perPage)
@@ -122,7 +139,7 @@ function AuditLogs() {
                         {log.details || '-'}
                       </td>
                       <td className={`px-4 py-3 text-sm text-gray-500 dark:text-gray-400 ${isVisible('date') ? '' : 'hidden'}`}>
-                        {log.created_at ? new Date(log.created_at).toLocaleString() : '-'}
+                        {formatDateTime(log)}
                       </td>
                     </tr>
                   ))}

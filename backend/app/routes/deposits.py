@@ -113,38 +113,45 @@ def get_refund_due_accounts():
 @jwt_required()
 @permission_required('deposit.refund')
 def refund_deposit(student_id):
-    """Return the complete balance when next-year library subscription is declined."""
+    """Return the complete deposit balance when library subscription is cancelled or not renewed."""
     data = request.get_json() or {}
     year_id = data.get('academic_year_id')
     academic_year = AcademicYear.query.get(year_id) if year_id else AcademicYear.get_current()
-    if not academic_year:
-        return jsonify({'error': 'Select a valid academic year.'}), 400
-
-    continuing = StudentEnrollment.query.filter_by(
-        student_id=student_id,
-        academic_year_id=academic_year.academic_year_id,
-        library_access=True
-    ).first()
-    if continuing:
-        return jsonify({'error': 'Deposit cannot be refunded because Library Subscription is Yes for this academic year.'}), 400
-    if BookIssue.query.filter(
+    reason = (data.get('reason') or '').strip()
+    
+    # 1. Prevent refund if student has active or overdue issued books
+    active_issues = BookIssue.query.filter(
         BookIssue.student_id == student_id,
         BookIssue.status.in_(['ACTIVE', 'OVERDUE'])
-    ).count() > 0:
+    ).count()
+    if active_issues > 0:
         return jsonify({'error': 'Return all issued books before refunding the deposit.'}), 400
 
     account = DepositAccount.query.filter_by(student_id=student_id).first()
     if not account or float(account.current_balance or 0) <= 0:
         return jsonify({'error': 'No deposit balance is available to refund.'}), 400
 
+    # 2. Prevent refund if unpaid fines exist
+    if float(account.outstanding_balance or 0) > 0:
+        return jsonify({'error': f'Cannot refund deposit: student has ₹{float(account.outstanding_balance):.2f} in unpaid charges. Clear outstanding charges first.'}), 400
+
+    # 3. If there is an active subscription, cancel it
+    active_sub = StudentSubscription.query.filter_by(
+        student_id=student_id,
+        status='ACTIVE'
+    ).first()
+    if active_sub:
+        active_sub.status = 'CANCELLED'
+
     amount = float(account.current_balance)
     current_user = get_current_user()
+    description = reason or (f'Deposit refund' + (f' for {academic_year.year_code}' if academic_year else ''))
     transaction = DepositTransaction(
         deposit_account_id=account.deposit_account_id,
         transaction_type='REFUND',
         amount=-amount,
         balance_after=0,
-        description=f'Deposit returned because Library Subscription is No for {academic_year.year_code}',
+        description=description,
         created_by=current_user.user_id if current_user else None
     )
     account.current_balance = 0
@@ -155,9 +162,40 @@ def refund_deposit(student_id):
         user_id=current_user.user_id if current_user else None,
         username=current_user.username if current_user else 'SYSTEM',
         action='DEPOSIT_REFUND', module='Deposit', record_id=str(student_id),
-        details=f'Refunded ₹{amount:.2f} for {academic_year.year_code}'
+        details=f'Refunded deposit ₹{amount:.2f}: {description}'
     )
     return jsonify({'message': f'Deposit of ₹{amount:.2f} refunded successfully.', 'transaction': transaction.to_dict()}), 200
+
+@deposits_bp.route('/ledger', methods=['GET'])
+@jwt_required()
+@permission_required('deposit.view')
+def get_deposit_ledger():
+    """Get complete deposit transaction ledger across all students or filtered by student/type."""
+    student_id = request.args.get('student_id', type=int)
+    tx_type = request.args.get('transaction_type')
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 20, type=int)
+
+    query = DepositTransaction.query.join(DepositAccount).join(Student)
+
+    if student_id:
+        query = query.filter(DepositAccount.student_id == student_id)
+    if tx_type:
+        query = query.filter(DepositTransaction.transaction_type == tx_type)
+
+    total = query.count()
+    transactions = query.order_by(
+        DepositTransaction.created_at.desc(),
+        DepositTransaction.transaction_id.desc()
+    ).offset((page - 1) * limit).limit(limit).all()
+
+    return jsonify({
+        'transactions': [t.to_dict() for t in transactions],
+        'total': total,
+        'page': page,
+        'limit': limit,
+        'pages': max(1, (total + limit - 1) // limit)
+    }), 200
 
 @deposits_bp.route('/student/<int:student_id>', methods=['GET'])
 @jwt_required()

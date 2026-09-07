@@ -16,6 +16,7 @@ const HISTORY_COLUMNS = [
   { key: 'book', label: 'Book ID & Title' },
   { key: 'issued_due', label: 'Issued / Due' },
   { key: 'returned_on', label: 'Returned On' },
+  { key: 'condition_info', label: 'Condition & Remarks' },
   { key: 'status', label: 'Status / Deductions', locked: true },
 ]
 
@@ -57,7 +58,8 @@ function Library() {
   const [returnForm, setReturnForm] = useState({
     return_date: todayStr,
     holiday_days: 0,
-    condition: 'GOOD',
+    condition: 'Good',
+    condition_remarks: '',
     is_damaged: false,
     is_lost: false,
     lost_charge_mode: 'MRP',
@@ -76,6 +78,23 @@ function Library() {
   const selectedBookMrp = Number(selectedIssueBook?.mrp || 0)
   const selectedStudentBelowMrp = selectedIssueStudent && selectedBookMrp > 0 && Number(selectedIssueStudent.deposit_balance || 0) < selectedBookMrp
   const canApproveLowDeposit = user?.role === 'ADMIN'
+
+  const issuePeriodDays = Number(librarySettings.issue_period_days) || 14
+
+  const calculatedDueDate = useMemo(() => {
+    if (!issueForm.issue_date) return ''
+    const baseDate = new Date(issueForm.issue_date + 'T00:00:00')
+    if (isNaN(baseDate.getTime())) return ''
+    baseDate.setDate(baseDate.getDate() + issuePeriodDays)
+
+    if (librarySettings.holiday_adjustment !== false && holidays?.length > 0) {
+      const holidayDates = new Set(holidays.map(h => h.holiday_date))
+      while (holidayDates.has(baseDate.toISOString().split('T')[0])) {
+        baseDate.setDate(baseDate.getDate() + 1)
+      }
+    }
+    return baseDate.toISOString().split('T')[0]
+  }, [issueForm.issue_date, issuePeriodDays, holidays, librarySettings.holiday_adjustment])
 
   // Presentation helper: sets the banner text alongside whether it renders
   // as a success or error style (keeps notification call sites concise).
@@ -236,6 +255,10 @@ function Library() {
       notify('Please select an available book copy.', true)
       return
     }
+    if (selectedIssueBook.current_condition === 'Lost') {
+      notify('This book copy is marked as Lost and cannot be issued.', true)
+      return
+    }
     if (selectedStudentBelowMrp) {
       notify(`Deposit must cover the book MRP of ₹${selectedBookMrp.toFixed(2)}.`, true)
       return
@@ -250,6 +273,7 @@ function Library() {
         student_id: selectedIssueStudent.student_id,
         book_copy_id: selectedIssueBook.book_copy_id,
         issue_date: issueForm.issue_date,
+        issue_condition: selectedIssueBook.current_condition || 'Good',
         admin_approved_low_deposit: issueForm.admin_approved_low_deposit
       })
       notify(`Book "${selectedIssueBook.title}" issued to ${selectedIssueStudent.student_name} successfully!`)
@@ -295,16 +319,15 @@ function Library() {
 
     let damageCharge = 0.0
     const cond = returnForm.condition
-    if (returnForm.is_lost || cond === 'LOST') {
+    const prevCond = selectedReturnIssue?.issue_condition || 'Good'
+    if (returnForm.is_lost || cond === 'Lost' || cond === 'LOST') {
       damageCharge = returnForm.lost_charge_mode === 'CUSTOM'
         ? Math.max(0, Number(returnForm.lost_amount || 0))
         : Number(selectedReturnIssue.mrp || librarySettings.damage_lost || 300)
-    } else if (cond === 'SMALL_DAMAGED' || cond === 'SMALL') {
-      damageCharge = Number(librarySettings.damage_small ?? 100)
-    } else if (cond === 'LARGE_DAMAGED' || cond === 'LARGE') {
-      damageCharge = Number(librarySettings.damage_large ?? 200)
-    } else if (returnForm.is_damaged || cond === 'DAMAGED' || cond === 'POOR') {
-      damageCharge = Number(librarySettings.damage_default ?? 100)
+    } else if (cond === 'Large Damage') {
+      damageCharge = prevCond !== 'Large Damage' ? 200.0 : 0.0
+    } else if (cond === 'Small Damage' || cond === 'Damaged' || cond === 'DAMAGED') {
+      damageCharge = prevCond === 'Good' ? 100.0 : 0.0
     }
 
     const totalCharge = lateFine + damageCharge
@@ -315,6 +338,7 @@ function Library() {
     return {
       issueDate: selectedReturnIssue.issue_date,
       dueDate: selectedReturnIssue.due_date,
+      actualReturnDate: returnForm.return_date || todayStr,
       rawOverdueDays,
       holidayDays,
       effectiveOverdueDays,
@@ -334,6 +358,10 @@ function Library() {
       notify('Please select an active issue record to return.', true)
       return
     }
+    if (!returnForm.condition) {
+      notify('Returned book condition is mandatory. Please select Good, Small Damage, Large Damage, or Lost.', true)
+      return
+    }
 
     try {
       const res = await api.post('/library/returns', {
@@ -341,8 +369,10 @@ function Library() {
         return_date: returnForm.return_date,
         holiday_days: returnForm.holiday_days,
         condition: returnForm.condition,
-        is_damaged: returnForm.is_damaged,
-        is_lost: returnForm.is_lost,
+        return_condition: returnForm.condition,
+        condition_remarks: returnForm.condition_remarks,
+        is_damaged: returnForm.condition === 'Small Damage' || returnForm.condition === 'Large Damage' || returnForm.condition === 'Damaged',
+        is_lost: returnForm.condition === 'Lost',
         lost_charge_mode: returnForm.lost_charge_mode,
         lost_amount: returnForm.lost_amount,
         notes: returnForm.notes
@@ -355,6 +385,13 @@ function Library() {
       setSelectedReturnIssue(null)
       setSelectedReturnStudent(null)
       setReturnBarcode('')
+      setReturnForm((prev) => ({
+        ...prev,
+        condition: 'Good',
+        condition_remarks: '',
+        is_damaged: false,
+        is_lost: false
+      }))
       load()
       setTimeout(() => setMessage(''), 5000)
     } catch (err) {
@@ -533,10 +570,45 @@ function Library() {
             onSelectBook={(copy) => setSelectedIssueBook(copy)}
           />
 
+          {selectedIssueBook && selectedIssueBook.current_condition === 'Lost' && (
+            <div className="text-rose-700 dark:text-rose-300 font-semibold text-xs bg-rose-50 dark:bg-rose-950/40 p-3 rounded-xl border border-rose-200 dark:border-rose-900 flex items-start gap-2">
+              <XCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+              <span>This book copy is marked as <strong>Lost</strong> and cannot be issued.</span>
+            </div>
+          )}
+
+          {selectedIssueBook && selectedIssueBook.current_condition !== 'Lost' && (
+            <div className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-[#10101d] px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800">
+              <span className="font-semibold uppercase text-[11px] text-gray-500">Physical Condition:</span>
+              <Badge tone={
+                selectedIssueBook.current_condition === 'Large Damage' ? 'danger' :
+                selectedIssueBook.current_condition === 'Small Damage' || selectedIssueBook.current_condition === 'Damaged' ? 'warning' : 'success'
+              }>
+                {selectedIssueBook.current_condition || 'Good'}
+              </Badge>
+            </div>
+          )}
+
+          {/* Lending Dates & Loan Period Overview */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-gray-50 dark:bg-[#10101d] rounded-xl border border-gray-200 dark:border-gray-800 text-xs">
+            <div>
+              <span className="block font-semibold uppercase text-gray-500 dark:text-gray-400">Current Date</span>
+              <span className="font-bold text-gray-900 dark:text-white text-sm">{todayStr}</span>
+            </div>
+            <div>
+              <span className="block font-semibold uppercase text-gray-500 dark:text-gray-400">Loan Period</span>
+              <span className="font-bold text-gray-900 dark:text-white text-sm">{issuePeriodDays} Days</span>
+            </div>
+            <div>
+              <span className="block font-semibold uppercase text-blue-600 dark:text-blue-400">Calculated Due Date</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{calculatedDueDate || '—'}</span>
+            </div>
+          </div>
+
           {/* Issue Date */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-              Issue Date
+              Issue Date (Defaults to Current Date)
             </label>
             <input
               type="date"
@@ -560,7 +632,7 @@ function Library() {
             type="submit"
             fullWidth
             size="lg"
-            disabled={!canIssue || !selectedIssueStudent || !selectedIssueStudent.library_access || !selectedIssueStudent.active_subscription || !selectedIssueBook || selectedStudentBelowMrp || (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit)}
+            disabled={!canIssue || !selectedIssueStudent || !selectedIssueStudent.library_access || !selectedIssueStudent.active_subscription || !selectedIssueBook || selectedIssueBook.current_condition === 'Lost' || selectedStudentBelowMrp || (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit)}
           >
             Confirm & Issue Book
           </Button>
@@ -578,7 +650,7 @@ function Library() {
             </span>
           </div>
 
-          {(returnForm.is_lost || returnForm.condition === 'LOST') && (
+          {(returnForm.is_lost || returnForm.condition === 'Lost' || returnForm.condition === 'LOST') && (
             <div className="rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50/60 dark:bg-rose-950/20 p-3 space-y-3">
               <label className="block text-xs font-bold uppercase text-rose-700 dark:text-rose-300">Lost-book charge</label>
               <div className="flex flex-wrap gap-4 text-sm">
@@ -651,6 +723,28 @@ function Library() {
             </div>
           )}
 
+          {/* Lending & Return Dates Overview */}
+          {selectedReturnIssue && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-gray-50 dark:bg-[#10101d] rounded-xl border border-gray-200 dark:border-gray-800 text-xs">
+              <div>
+                <span className="block font-semibold uppercase text-gray-500 dark:text-gray-400">Issue Date</span>
+                <span className="font-bold text-gray-900 dark:text-white text-sm">{selectedReturnIssue.issue_date || '—'}</span>
+              </div>
+              <div>
+                <span className="block font-semibold uppercase text-amber-600 dark:text-amber-400">Due / Expected Date</span>
+                <span className="font-bold text-amber-600 dark:text-amber-400 text-sm">{selectedReturnIssue.due_date || '—'}</span>
+              </div>
+              <div>
+                <span className="block font-semibold uppercase text-gray-500 dark:text-gray-400">Current Date</span>
+                <span className="font-bold text-gray-900 dark:text-white text-sm">{todayStr}</span>
+              </div>
+              <div>
+                <span className="block font-semibold uppercase text-emerald-600 dark:text-emerald-400">Actual Return Date</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">{returnForm.return_date || todayStr}</span>
+              </div>
+            </div>
+          )}
+
           {/* Return Date & Non-chargeable Holiday Days Input */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -681,34 +775,67 @@ function Library() {
             </div>
           </div>
 
-          {/* Book Condition & Damage Selection */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Book Condition & Remarks */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                Returned Book Condition
+                Previous Book Condition
+              </label>
+              <div className="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#10101d] px-3.5 py-2 text-sm flex items-center h-[38px]">
+                <Badge tone={
+                  (selectedReturnIssue?.issue_condition || 'Good') === 'Large Damage' ? 'danger' :
+                  (selectedReturnIssue?.issue_condition || 'Good') === 'Small Damage' || (selectedReturnIssue?.issue_condition || 'Good') === 'Damaged' ? 'warning' : 'success'
+                }>
+                  {selectedReturnIssue?.issue_condition || 'Good'}
+                </Badge>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Returned Book Condition <span className="text-rose-500">*</span>
               </label>
               <select
                 value={returnForm.condition}
-                onChange={(e) => setReturnForm({ ...returnForm, condition: e.target.value })}
+                required
+                onChange={(e) => {
+                  const val = e.target.value
+                  setReturnForm({
+                    ...returnForm,
+                    condition: val,
+                    is_damaged: val === 'Small Damage' || val === 'Large Damage',
+                    is_lost: val === 'Lost'
+                  })
+                }}
                 className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] p-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
               >
-                <option value="GOOD">Good Condition (No Charge)</option>
-                <option value="SMALL_DAMAGED">Small Damage (₹100)</option>
-                <option value="LARGE_DAMAGED">Large Damage (₹200)</option>
-                <option value="LOST">Lost Book (₹300)</option>
+                <option value="Good">Good</option>
+                <option value="Small Damage">Small Damage</option>
+                <option value="Large Damage">Large Damage</option>
+                <option value="Lost">Lost</option>
               </select>
             </div>
 
-            <div className="flex items-center gap-4 pt-4">
-              <Checkbox
-                checked={returnForm.is_damaged}
-                onChange={(e) => setReturnForm({ ...returnForm, is_damaged: e.target.checked })}
-                label="Damaged"
-              />
-              <Checkbox
-                checked={returnForm.is_lost}
-                onChange={(e) => setReturnForm({ ...returnForm, is_lost: e.target.checked })}
-                label="Lost Book"
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Condition Remarks {(returnForm.condition === 'Small Damage' || returnForm.condition === 'Large Damage' || returnForm.condition === 'Lost') && (
+                  <span className="text-amber-600 dark:text-amber-400 font-normal">({returnForm.condition})</span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={returnForm.condition_remarks || ''}
+                onChange={(e) => setReturnForm({ ...returnForm, condition_remarks: e.target.value })}
+                placeholder={
+                  returnForm.condition === 'Small Damage'
+                    ? 'e.g. Minor cover tear'
+                    : returnForm.condition === 'Large Damage'
+                    ? 'e.g. Multiple pages torn / severe binding damage'
+                    : returnForm.condition === 'Lost'
+                    ? 'e.g. Book lost by student'
+                    : 'Optional remarks...'
+                }
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] p-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
               />
             </div>
           </div>
@@ -718,17 +845,19 @@ function Library() {
             <div className="rounded-xl bg-slate-50 dark:bg-[#10101d] p-3.5 border border-slate-200 dark:border-slate-800 text-xs space-y-2">
               <div className="font-bold text-gray-900 dark:text-white flex justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
                 <span>Calculated Charges Breakdown</span>
-                <span>Total: ₹{returnCalculation.totalCharge.toFixed(2)}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">Total: ₹{returnCalculation.totalCharge.toFixed(2)}</span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-gray-600 dark:text-gray-300">
-                <div>Due Date: <strong>{returnCalculation.dueDate}</strong></div>
-                <div>Raw Late Days: <strong>{returnCalculation.rawOverdueDays} days</strong></div>
-                <div>Holidays Excluded: <strong>{returnCalculation.holidayDays} days</strong></div>
-                <div>Charged Late Days: <strong>{returnCalculation.effectiveOverdueDays} days</strong></div>
-                <div>Late Return Fine: <strong>₹{returnCalculation.lateFine.toFixed(2)}</strong></div>
-                <div>Damage / Lost Charge: <strong>₹{returnCalculation.damageCharge.toFixed(2)}</strong></div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-gray-600 dark:text-gray-300">
+                <div>Due Date: <strong className="text-gray-900 dark:text-white">{returnCalculation.dueDate}</strong></div>
+                <div>Actual Return Date: <strong className="text-gray-900 dark:text-white">{returnCalculation.actualReturnDate}</strong></div>
+                <div>Raw Late Days: <strong className="text-gray-900 dark:text-white">{returnCalculation.rawOverdueDays} days</strong></div>
+                <div>Holidays Excluded: <strong className="text-gray-900 dark:text-white">{returnCalculation.holidayDays} days</strong></div>
+                <div>Charged Late Days: <strong className="text-gray-900 dark:text-white">{returnCalculation.effectiveOverdueDays} days</strong></div>
+                <div>Late Return Fine: <strong className="text-gray-900 dark:text-white">₹{returnCalculation.lateFine.toFixed(2)}</strong></div>
+                <div>Condition / Damage: <strong className="text-gray-900 dark:text-white">₹{returnCalculation.damageCharge.toFixed(2)}</strong></div>
+                <div>Total Charges: <strong className="text-gray-900 dark:text-white">₹{returnCalculation.totalCharge.toFixed(2)}</strong></div>
               </div>
-              <div className="pt-1 border-t border-slate-200 dark:border-slate-800 flex justify-between font-semibold">
+              <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 flex justify-between font-semibold">
                 <span>Deducted from Deposit: <strong className="text-emerald-600">₹{returnCalculation.amountDeducted.toFixed(2)}</strong></span>
                 {returnCalculation.outstandingPayable > 0 && (
                   <span className="text-rose-500 font-bold">
@@ -780,6 +909,7 @@ function Library() {
                 <SortableTh sortKey="book" direction={directionFor('book')} onSort={requestSort} className={`px-4 py-3 ${isVisible('book') ? '' : 'hidden'}`}>Book ID & Title</SortableTh>
                 <SortableTh sortKey="issued_due" direction={directionFor('issued_due')} onSort={requestSort} className={`px-4 py-3 ${isVisible('issued_due') ? '' : 'hidden'}`}>Issued / Due</SortableTh>
                 <SortableTh sortKey="returned_on" direction={directionFor('returned_on')} onSort={requestSort} className={`px-4 py-3 ${isVisible('returned_on') ? '' : 'hidden'}`}>Returned On</SortableTh>
+                <SortableTh sortKey="condition_info" direction={directionFor('condition_info')} onSort={requestSort} className={`px-4 py-3 ${isVisible('condition_info') ? '' : 'hidden'}`}>Condition & Remarks</SortableTh>
                 <SortableTh sortKey="status" direction={directionFor('status')} onSort={requestSort} className={`px-4 py-3 ${isVisible('status') ? '' : 'hidden'}`}>Status / Deductions</SortableTh>
               </tr>
             </thead>
@@ -800,8 +930,26 @@ function Library() {
                   </td>
                   <td className={`px-4 py-3 text-xs text-gray-700 dark:text-gray-300 ${isVisible('returned_on') ? '' : 'hidden'}`}>
                     {i.return_details?.return_date || <span className="text-amber-500 font-semibold">Currently Held</span>}
-                    {i.return_details?.condition_returned && (
-                      <div className="text-gray-500">Condition: {i.return_details.condition_returned}</div>
+                  </td>
+                  <td className={`px-4 py-3 text-xs text-gray-700 dark:text-gray-300 ${isVisible('condition_info') ? '' : 'hidden'}`}>
+                    <div>Issue: <span className={`font-semibold ${
+                      i.issue_condition === 'Large Damage' ? 'text-rose-600 dark:text-rose-400' :
+                      i.issue_condition === 'Small Damage' || i.issue_condition === 'Damaged' ? 'text-amber-600 dark:text-amber-400' :
+                      'text-emerald-600 dark:text-emerald-400'
+                    }`}>{i.issue_condition || 'Good'}</span></div>
+                    {i.return_details ? (
+                      <div>
+                        Return: <span className={`font-semibold ${
+                          i.return_details.return_condition === 'Lost' || i.return_details.return_condition === 'Large Damage' ? 'text-rose-600 dark:text-rose-400' :
+                          i.return_details.return_condition === 'Small Damage' || i.return_details.return_condition === 'Damaged' ? 'text-amber-600 dark:text-amber-400' :
+                          'text-emerald-600 dark:text-emerald-400'
+                        }`}>{i.return_details.return_condition || i.return_details.condition_returned || 'Good'}</span>
+                      </div>
+                    ) : (
+                      <div className="text-gray-400 italic">Not returned</div>
+                    )}
+                    {i.return_details?.condition_remarks && (
+                      <div className="text-gray-500 dark:text-gray-400 mt-0.5 text-[11px] italic">"{i.return_details.condition_remarks}"</div>
                     )}
                   </td>
                   <td className={`px-4 py-3 text-xs ${isVisible('status') ? '' : 'hidden'}`}>
@@ -818,7 +966,7 @@ function Library() {
               ))}
               {filteredHistory.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="p-0">
+                  <td colSpan="6" className="p-0">
                     <EmptyState
                       icon={ClipboardList}
                       title="No records found"

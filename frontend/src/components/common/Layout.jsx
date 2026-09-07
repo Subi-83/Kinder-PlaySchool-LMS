@@ -7,10 +7,8 @@ import api from '../../services/api'
 
 function AdminLoginPrompts({ user, loginPromptKey }) {
   const [step, setStep] = useState(null)
-  const [holidayName, setHolidayName] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const [backupDue, setBackupDue] = useState(false)
   const [backupInterval, setBackupInterval] = useState(7)
 
   useEffect(() => {
@@ -20,44 +18,17 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
     // Consume immediately so React StrictMode or a page change cannot open it twice.
     sessionStorage.removeItem('show_admin_login_prompts')
     let active = true
-    Promise.allSettled([
-      api.get('/audit/notifications'),
-      api.get('/settings/backup-reminder-status')
-    ])
-      .then(([notificationResult, backupResult]) => {
+    api.get('/settings/backup-reminder-status')
+      .then((backupResult) => {
         if (!active) return
-        const notificationData = notificationResult.status === 'fulfilled' ? notificationResult.value.data : {}
-        const backupData = backupResult.status === 'fulfilled' ? backupResult.value.data : {}
-        const needsHolidayAnswer = (notificationData?.notifications || []).some(
-          (notice) => notice.requires_holiday_confirmation
-        )
+        const backupData = backupResult?.data || {}
         const isBackupDue = Boolean(backupData?.backup_due)
-        setBackupDue(isBackupDue)
         setBackupInterval(Number(backupData?.reminder_days || 7))
-        setStep(needsHolidayAnswer ? 'holiday' : (isBackupDue ? 'backup' : null))
+        setStep(isBackupDue ? 'backup' : null)
       })
+      .catch(() => {})
     return () => { active = false }
   }, [user?.role, loginPromptKey])
-
-  const answerHoliday = async (isHoliday) => {
-    if (isHoliday && !holidayName.trim()) {
-      setMessage('Enter the holiday name before confirming.')
-      return
-    }
-    setBusy(true)
-    setMessage('')
-    try {
-      await api.post('/audit/daily-holiday', {
-        is_holiday: isHoliday,
-        holiday_name: holidayName.trim() || 'Official Holiday'
-      })
-      setStep(backupDue ? 'backup' : null)
-    } catch (error) {
-      setMessage(error.response?.data?.error || 'Could not save today’s holiday status.')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const downloadBackup = async () => {
     setBusy(true)
@@ -81,33 +52,18 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
     }
   }
 
-  if (!step) return null
+  if (step !== 'backup') return null
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#393954] dark:bg-[#17172a]">
-        {step === 'holiday' ? (
-          <>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Is today a holiday?</h2>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Confirm today’s status so issue dates, return dates, and holiday calculations remain correct.</p>
-            <input value={holidayName} onChange={(event) => setHolidayName(event.target.value)} placeholder="Holiday name (required for Yes)" className="mt-4 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#393954] dark:bg-[#10101d] dark:text-white" />
-            {message && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{message}</p>}
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button disabled={busy} onClick={() => answerHoliday(false)} className="rounded-xl bg-gray-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">No, Working Day</button>
-              <button disabled={busy} onClick={() => answerHoliday(true)} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">Yes, Holiday</button>
-            </div>
-          </>
-        ) : (
-          <>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Download today’s backup?</h2>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Your {backupInterval}-day backup reminder is due. Keep a current copy of members, books, library transactions, deposits, subscriptions, holidays, and settings.</p>
-            {message && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{message}</p>}
-            <div className="mt-5 flex justify-end gap-2">
-              <button disabled={busy} onClick={() => setStep(null)} className="rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-bold text-gray-700 dark:border-[#393954] dark:text-gray-200">Later</button>
-              <button disabled={busy} onClick={downloadBackup} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{busy ? 'Preparing…' : 'Download Backup'}</button>
-            </div>
-          </>
-        )}
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Download today’s backup?</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Your {backupInterval}-day backup reminder is due. Keep a current copy of members, books, library transactions, deposits, subscriptions, holidays, and settings.</p>
+        {message && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{message}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button disabled={busy} onClick={() => setStep(null)} className="rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-bold text-gray-700 dark:border-[#393954] dark:text-gray-200">Later</button>
+          <button disabled={busy} onClick={downloadBackup} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{busy ? 'Preparing…' : 'Download Backup'}</button>
+        </div>
       </div>
     </div>
   )

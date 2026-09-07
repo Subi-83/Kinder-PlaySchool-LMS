@@ -118,6 +118,9 @@ def issue_book():
     if not copy:
         return jsonify({'error': 'Book copy not found'}), 404
     
+    if copy.current_condition == 'Lost' or copy.status == 'LOST':
+        return jsonify({'error': 'Cannot issue a lost book'}), 400
+
     if copy.status != 'AVAILABLE':
         return jsonify({'error': f'Book is not available (status: {copy.status})'}), 400
     
@@ -179,6 +182,20 @@ def issue_book():
     else:
         issue_date = datetime.now().date()
 
+    raw_issue_cond = data.get('issue_condition')
+    if raw_issue_cond:
+        issue_cond = str(raw_issue_cond).strip().title()
+        if issue_cond == 'Damaged':
+            issue_cond = 'Small Damage'
+        if issue_cond not in ['Good', 'Small Damage', 'Large Damage']:
+            return jsonify({'error': 'Invalid issue condition. Allowed values: Good, Small Damage, Large Damage.'}), 400
+    else:
+        issue_cond = copy.current_condition or 'Good'
+        if issue_cond == 'Damaged':
+            issue_cond = 'Small Damage'
+        if issue_cond not in ['Good', 'Small Damage', 'Large Damage']:
+            issue_cond = 'Good'
+
     # Create issue record
     issue = BookIssue(
         book_copy_id=book_copy_id,
@@ -187,6 +204,7 @@ def issue_book():
         issue_time=datetime.now().time(),
         due_date=adjust_due_date_for_holidays(issue_date + timedelta(days=issue_days)),
         issued_by=current_user.user_id,
+        issue_condition=issue_cond,
         status='ACTIVE'
     )
     
@@ -213,20 +231,40 @@ def return_book():
     data = request.get_json() or {}
     
     issue_id = data.get('issue_id')
-    condition_returned = str(data.get('condition', 'GOOD')).upper()
-    is_damaged = data.get('is_damaged', False) or condition_returned in ['SMALL_DAMAGED', 'LARGE_DAMAGED', 'DAMAGED', 'POOR']
-    is_lost = data.get('is_lost', False) or condition_returned == 'LOST'
-    notes = data.get('notes')
-    
     if not issue_id:
         return jsonify({'error': 'Issue ID required'}), 400
-    
+
     issue = BookIssue.query.get(issue_id)
     if not issue:
         return jsonify({'error': 'Issue not found'}), 404
-    
+
     if issue.status == 'RETURNED':
         return jsonify({'error': 'Book already returned'}), 400
+
+    raw_condition = data.get('return_condition') or data.get('condition')
+    if not raw_condition:
+        return jsonify({'error': 'Returned book condition is mandatory.'}), 400
+
+    return_condition = str(raw_condition).strip().title()
+    if return_condition == 'Damaged':
+        return_condition = 'Small Damage'
+    if return_condition not in ['Good', 'Small Damage', 'Large Damage', 'Lost']:
+        return jsonify({'error': 'Invalid book condition. Allowed values: Good, Small Damage, Large Damage, Lost.'}), 400
+
+    previous_condition = str(issue.issue_condition or 'Good').strip().title()
+    if previous_condition == 'Damaged':
+        previous_condition = 'Small Damage'
+    if previous_condition not in ['Good', 'Small Damage', 'Large Damage']:
+        previous_condition = 'Good'
+
+    condition_remarks = data.get('condition_remarks')
+    if condition_remarks is not None:
+        condition_remarks = str(condition_remarks).strip()
+
+    is_lost = (return_condition == 'Lost')
+    is_damaged = ('Damage' in return_condition)
+    condition_returned = 'DAMAGED' if is_damaged else 'GOOD'
+    notes = data.get('notes')
     
     return_date_str = data.get('return_date')
     if return_date_str:
@@ -248,27 +286,29 @@ def return_book():
     calculated_fine = effective_late_days * late_fine_per_day
     fine_amount = float(data.get('fine_amount', calculated_fine))
     
-    # Calculate damage charge
-    damage_charge = float(data.get('damage_charge', 0))
-    if damage_charge == 0:
-        if is_lost:
-            lost_charge_mode = str(data.get('lost_charge_mode', 'MRP')).upper()
-            book_mrp = float(issue.copy_ref.title_ref.mrp or 0) if issue.copy_ref and issue.copy_ref.title_ref else 0.0
-            if lost_charge_mode == 'CUSTOM':
-                try:
-                    damage_charge = float(data.get('lost_amount'))
-                except (TypeError, ValueError):
-                    return jsonify({'error': 'Enter a valid custom lost-book amount.'}), 400
-                if damage_charge < 0:
-                    return jsonify({'error': 'Lost-book amount cannot be negative.'}), 400
-            else:
-                damage_charge = book_mrp if book_mrp > 0 else SettingsService.get_float('damage_lost', 300)
-        elif condition_returned in ['SMALL', 'SMALL_DAMAGED']:
-            damage_charge = SettingsService.get_float('damage_small', 100)
-        elif condition_returned in ['LARGE', 'LARGE_DAMAGED']:
-            damage_charge = SettingsService.get_float('damage_large', 200)
-        elif is_damaged:
-            damage_charge = SettingsService.get_float('damage_default', 100)
+    # Calculate condition / damage charge from database and comparison matrix
+    # Never accept MRP from frontend; retrieve directly from database
+    book_mrp = float(issue.copy_ref.title_ref.mrp or 0.0) if issue.copy_ref and issue.copy_ref.title_ref else 0.0
+
+    condition_charge = 0.0
+    if return_condition == 'Lost':
+        condition_charge = book_mrp
+    elif return_condition == 'Large Damage':
+        # Good -> Large Damage: 200, Small Damage -> Large Damage: 200, Large Damage -> Large Damage: 0
+        if previous_condition != 'Large Damage':
+            condition_charge = 200.0
+        else:
+            condition_charge = 0.0
+    elif return_condition == 'Small Damage':
+        # Good -> Small Damage: 100, Small Damage -> Small Damage: 0, Large Damage -> Small Damage: 0
+        if previous_condition == 'Good':
+            condition_charge = 100.0
+        else:
+            condition_charge = 0.0
+    elif return_condition == 'Good':
+        condition_charge = 0.0
+
+    damage_charge = condition_charge
 
     fine_amount = round(max(fine_amount, 0), 2)
     damage_charge = round(max(damage_charge, 0), 2)
@@ -297,7 +337,7 @@ def return_book():
                     amount=-amount_deducted,
                     balance_after=deposit_account.current_balance,
                     reference_id=str(issue_id),
-                    description=f"Return #{issue_id}: Fine ₹{fine_amount:.2f}, Damage ₹{damage_charge:.2f}. Deducted ₹{amount_deducted:.2f}" + (f" (Unpaid Outstanding: ₹{outstanding_payable:.2f})" if outstanding_payable > 0 else ""),
+                    description=f"Return #{issue_id} ({previous_condition} → {return_condition}): Fine ₹{fine_amount:.2f}, Condition Charge ₹{damage_charge:.2f}. Deducted ₹{amount_deducted:.2f}" + (f" (Unpaid Outstanding: ₹{outstanding_payable:.2f})" if outstanding_payable > 0 else ""),
                     created_by=get_current_user().user_id
                 )
                 db.session.add(transaction)
@@ -308,7 +348,9 @@ def return_book():
         return_date=return_date,
         return_time=datetime.now().time(),
         received_by=get_current_user().user_id,
-        condition_returned=condition_returned if condition_returned in ['NEW', 'GOOD', 'FAIR', 'POOR', 'DAMAGED'] else 'GOOD',
+        condition_returned=condition_returned,
+        return_condition=return_condition,
+        condition_remarks=condition_remarks,
         is_damaged=is_damaged,
         is_lost=is_lost,
         fine_amount=fine_amount,
@@ -324,14 +366,12 @@ def return_book():
     # Update book copy
     copy = BookCopy.query.get(issue.book_copy_id)
     if copy:
+        copy.current_condition = return_condition
         if is_lost:
             copy.status = 'LOST'
-        elif is_damaged:
-            copy.condition = condition_returned if condition_returned in ['NEW', 'GOOD', 'FAIR', 'POOR', 'DAMAGED'] else 'DAMAGED'
-            copy.status = 'DAMAGED'
         else:
             copy.status = 'AVAILABLE'
-            copy.condition = condition_returned if condition_returned in ['NEW', 'GOOD', 'FAIR', 'POOR', 'DAMAGED'] else 'GOOD'
+            copy.condition = 'DAMAGED' if is_damaged else 'GOOD'
     
     db.session.commit()
     
@@ -342,7 +382,7 @@ def return_book():
         action='RETURN_BOOK',
         module='Library',
         record_id=str(issue_id),
-        details=f'Returned book, fine: {fine_amount}, damage: {damage_charge}, deducted: {amount_deducted}, outstanding: {outstanding_payable}'
+        details=f'Returned book ({previous_condition} → {return_condition}), fine: {fine_amount}, condition charge: {damage_charge}, deducted: {amount_deducted}, outstanding: {outstanding_payable}'
     )
     
     res = book_return.to_dict()
@@ -388,8 +428,10 @@ def record_damage_loss():
     if copy:
         if data.get('record_type') == 'LOSS':
             copy.status = 'LOST'
+            copy.current_condition = 'Lost'
         else:
             copy.condition = 'DAMAGED'
+            copy.current_condition = 'Damaged'
             copy.status = 'DAMAGED'
     
     # Create deposit transaction if charge should be applied

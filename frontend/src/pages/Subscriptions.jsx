@@ -24,6 +24,9 @@ const SUBSCRIPTION_PLAN_COLUMNS = [
   { key: 'max_books', label: 'Max Books' },
   { key: 'duration', label: 'Duration' },
   { key: 'price', label: 'Price' },
+  { key: 'subscription_fee', label: 'Subscription Fee' },
+  { key: 'fixed_deposit', label: 'Fixed Deposit' },
+  { key: 'total_amount', label: 'Total Amount' },
   { key: 'status', label: 'Status' },
   { key: 'actions', label: 'Actions', locked: true },
 ]
@@ -43,7 +46,9 @@ function Subscriptions() {
   const [editing, setEditing] = useState(null)
   const [upgradingSubscription, setUpgradingSubscription] = useState(null)
   const [renewingSubscription, setRenewingSubscription] = useState(null)
-  const [renewData, setRenewData] = useState({ plan_id: '', amount: '', payment_method: '' })
+  const [renewData, setRenewData] = useState({ plan_id: '', amount: '', payment_method: 'CASH' })
+  const [renewBreakdown, setRenewBreakdown] = useState(null)
+  const [renewBreakdownLoading, setRenewBreakdownLoading] = useState(false)
   const [upgradePlanId, setUpgradePlanId] = useState('')
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)
   const [plansPage, setPlansPage] = useState(1)
@@ -51,8 +56,12 @@ function Subscriptions() {
   const pageSize = 10
   const [assignData, setAssignData] = useState({
     student_id: '',
-    plan_id: ''
+    plan_id: '',
+    payment_method: 'CASH',
+    notes: ''
   })
+  const [assignBreakdown, setAssignBreakdown] = useState(null)
+  const [assignBreakdownLoading, setAssignBreakdownLoading] = useState(false)
   const [message, setMessage] = useState(null)
   const [formData, setFormData] = useState({
     plan_name: '',
@@ -60,6 +69,9 @@ function Subscriptions() {
     max_books: 1,
     duration_months: 3,
     price: '',
+    subscription_fee: '',
+    fixed_deposit: '',
+    total_amount: '',
     description: ''
   })
 
@@ -125,13 +137,48 @@ function Subscriptions() {
     loadData()
   }, [academicYearId])
 
+  useEffect(() => {
+    if (assignData.student_id && assignData.plan_id) {
+      let cancelled = false
+      setAssignBreakdownLoading(true)
+      api.get('/subscriptions/calculate-breakdown', {
+        params: { student_id: assignData.student_id, plan_id: assignData.plan_id }
+      }).then((res) => {
+        if (!cancelled) setAssignBreakdown(res.data)
+      }).catch((err) => {
+        console.error('Error calculating breakdown:', err)
+        if (!cancelled) setAssignBreakdown(null)
+      }).finally(() => {
+        if (!cancelled) setAssignBreakdownLoading(false)
+      })
+      return () => { cancelled = true }
+    } else {
+      setAssignBreakdown(null)
+    }
+  }, [assignData.student_id, assignData.plan_id])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const fee = parseFloat(formData.subscription_fee) || 0
+    const dep = parseFloat(formData.fixed_deposit) || 0
+    const total = parseFloat(formData.total_amount) || (fee + dep)
+    if (Math.abs(total - (fee + dep)) > 0.01) {
+      setMessage({ type: 'error', text: `Total Amount (₹${total.toFixed(2)}) must equal Subscription Fee (₹${fee.toFixed(2)}) + Fixed Deposit (₹${dep.toFixed(2)}) = ₹${(fee + dep).toFixed(2)}` })
+      return
+    }
     try {
+      const payload = {
+        ...formData,
+        subscription_fee: fee,
+        fixed_deposit: dep,
+        total_amount: total
+      }
       if (editing) {
         await api.put(`/subscriptions/plans/${editing}`, formData)
+        await api.put(`/subscriptions/plans/${editing}`, payload)
       } else {
         await api.post('/subscriptions/plans', formData)
+        await api.post('/subscriptions/plans', payload)
       }
       setShowForm(false)
       setEditing(null)
@@ -141,6 +188,9 @@ function Subscriptions() {
         max_books: 1,
         duration_months: 3,
         price: '',
+        subscription_fee: '',
+        fixed_deposit: '',
+        total_amount: '',
         description: ''
       })
       await loadData()
@@ -173,6 +223,8 @@ function Subscriptions() {
       await api.post('/subscriptions/assign', { ...assignData, academic_year_id: academicYearId })
       setMessage({ type: 'success', text: 'Subscription assigned successfully!' })
       setAssignData({ student_id: '', plan_id: '' })
+      setAssignData({ student_id: '', plan_id: '', payment_method: 'CASH', notes: '' })
+      setAssignBreakdown(null)
       await loadData()
       setTimeout(() => setMessage(null), 4000)
     } catch (err) {
@@ -180,11 +232,42 @@ function Subscriptions() {
     }
   }
 
-  const openRenew = (subscription) => {
-    const planId = subscription.plan?.subscription_plan_id || subscription.subscription_plan_id || ''
-    const plan = plans.find((item) => item.subscription_plan_id === Number(planId))
+  const openRenew = async (subscription) => {
+    const planId = String(subscription.plan?.subscription_plan_id || subscription.subscription_plan_id || (plans[0]?.subscription_plan_id ?? ''))
     setRenewingSubscription(subscription)
-    setRenewData({ plan_id: String(planId), amount: String(plan?.price ?? subscription.amount_paid ?? ''), payment_method: '' })
+    setRenewData({ plan_id: planId, amount: '', payment_method: 'CASH' })
+    if (subscription.student_id && planId) {
+      try {
+        setRenewBreakdownLoading(true)
+        const res = await api.get('/subscriptions/calculate-breakdown', {
+          params: { student_id: subscription.student_id, plan_id: Number(planId) }
+        })
+        setRenewBreakdown(res.data)
+        setRenewData({ plan_id: planId, amount: String(res.data.total_payable), payment_method: 'CASH' })
+      } catch (err) {
+        console.error('Error fetching renewal breakdown:', err)
+      } finally {
+        setRenewBreakdownLoading(false)
+      }
+    }
+  }
+
+  const handleRenewPlanChange = async (newPlanId) => {
+    setRenewData((prev) => ({ ...prev, plan_id: newPlanId }))
+    if (renewingSubscription?.student_id && newPlanId) {
+      try {
+        setRenewBreakdownLoading(true)
+        const res = await api.get('/subscriptions/calculate-breakdown', {
+          params: { student_id: renewingSubscription.student_id, plan_id: Number(newPlanId) }
+        })
+        setRenewBreakdown(res.data)
+        setRenewData((prev) => ({ ...prev, amount: String(res.data.total_payable) }))
+      } catch (err) {
+        console.error('Error fetching renewal breakdown:', err)
+      } finally {
+        setRenewBreakdownLoading(false)
+      }
+    }
   }
 
   const handleRenew = async (e) => {
@@ -199,6 +282,8 @@ function Subscriptions() {
       })
       setRenewingSubscription(null)
       setRenewData({ plan_id: '', amount: '', payment_method: '' })
+      setRenewBreakdown(null)
+      setRenewData({ plan_id: '', amount: '', payment_method: 'CASH' })
       setMessage({ type: 'success', text: 'Subscription renewed successfully!' })
       await loadData()
       setTimeout(() => setMessage(null), 3000)
@@ -351,6 +436,69 @@ function Subscriptions() {
                 />
               </div>
             </div>
+
+            {/* Fee, Deposit, and Total Amount */}
+            <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                    Subscription Fee (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.subscription_fee}
+                    onChange={(e) => {
+                      const fee = parseFloat(e.target.value) || 0
+                      const dep = parseFloat(formData.fixed_deposit) || 0
+                      setFormData({ ...formData, subscription_fee: e.target.value, total_amount: (fee + dep).toFixed(2) })
+                    }}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-semibold"
+                    required
+                  />
+                  <span className="text-[10px] text-gray-500">School revenue</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                    Fixed Deposit (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.fixed_deposit}
+                    onChange={(e) => {
+                      const dep = parseFloat(e.target.value) || 0
+                      const fee = parseFloat(formData.subscription_fee) || 0
+                      setFormData({ ...formData, fixed_deposit: e.target.value, total_amount: (fee + dep).toFixed(2) })
+                    }}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-semibold"
+                    required
+                  />
+                  <span className="text-[10px] text-gray-500">Refundable balance</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                    Total Amount (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.total_amount}
+                    onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-bold"
+                    required
+                  />
+                  <span className="text-[10px] text-gray-500">Fee + Deposit</span>
+                </div>
+              </div>
+            </div>
+
             <div className="flex gap-3">
               <Button type="submit" variant="primary">
                 {editing ? 'Update Plan' : 'Create Plan'}
@@ -393,36 +541,126 @@ function Subscriptions() {
       {subscriptionTab === 'records' && renewingSubscription && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
           <form onSubmit={handleRenew} className="w-full max-w-lg max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#2a2a4a] dark:bg-[#17172a]">
-            <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Renew Subscription</h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{renewingSubscription.student_name}</p>
+            <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-[#2a2a4a]">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <RotateCcw className="h-5 w-5 text-blue-500" /> Renew Subscription
+                </h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {renewingSubscription.student_name} ({renewingSubscription.student_uid})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setRenewingSubscription(null); setRenewBreakdown(null) }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Subscription Plan
-              <select required value={renewData.plan_id} onChange={(e) => {
-                const plan = plans.find((item) => item.subscription_plan_id === Number(e.target.value))
-                setRenewData({ ...renewData, plan_id: e.target.value, amount: String(plan?.price ?? '') })
-              }} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]">
+
+            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">
+              Subscription Plan
+              <select
+                required
+                value={renewData.plan_id}
+                onChange={(e) => handleRenewPlanChange(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]"
+              >
                 <option value="">-- Choose Plan --</option>
-                {plans.filter((plan) => plan.is_active).map((plan) => <option key={plan.subscription_plan_id} value={plan.subscription_plan_id}>{plan.plan_name} - ₹{plan.price}</option>)}
+                {plans.filter((plan) => plan.is_active).map((plan) => (
+                  <option key={plan.subscription_plan_id} value={plan.subscription_plan_id}>
+                    {plan.plan_name} — ₹{plan.total_amount || plan.price} (Fee: ₹{plan.subscription_fee || 0}, Deposit: ₹{plan.fixed_deposit || 0})
+                  </option>
+                ))}
               </select>
             </label>
-            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Amount Paid
-              <input required type="number" min="0" step="0.01" value={renewData.amount} onChange={(e) => setRenewData({ ...renewData, amount: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]" />
-            </label>
-            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Payment Method
-              <select required value={renewData.payment_method} onChange={(e) => setRenewData({ ...renewData, payment_method: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]">
-                <option value="">-- Select Payment Method --</option>
-                <option value="UPI">UPI</option>
-                <option value="BANK_TRANSFER">Bank Transfer</option>
-                <option value="CASH">Cash</option>
-                <option value="CARD">Card</option>
-                <option value="CHEQUE">Cheque</option>
-                <option value="OTHER">Other</option>
-              </select>
-            </label>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => { setRenewingSubscription(null); setRenewData({ plan_id: '', amount: '', payment_method: '' }) }}>Cancel</Button>
-              <Button type="submit" variant="success">Confirm Renewal</Button>
+
+            {/* Live Financial Breakdown Card */}
+            {renewBreakdownLoading ? (
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-[#10101d] text-center text-xs text-gray-500">
+                Calculating deposit carry-forward…
+              </div>
+            ) : renewBreakdown ? (
+              <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/20 p-4 space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center justify-between">
+                  <span>Financial Breakdown</span>
+                  <Badge tone={renewBreakdown.additional_deposit_required === 0 ? 'success' : 'warning'}>
+                    {renewBreakdown.additional_deposit_required === 0 ? 'Deposit Carried Forward' : 'Deposit Top-up Required'}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Subscription Fee</span>
+                    <span className="font-bold text-gray-900 dark:text-white text-sm">₹{renewBreakdown.subscription_fee.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400 block">Non-refundable</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Plan Fixed Deposit</span>
+                    <span className="font-bold text-gray-900 dark:text-white text-sm">₹{renewBreakdown.fixed_deposit.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400 block">Refundable balance</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Current Deposit</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">₹{renewBreakdown.current_deposit_balance.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400 block">Carried: ₹{renewBreakdown.carried_forward_deposit.toFixed(2)}</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Add'l Deposit Needed</span>
+                    <span className="font-bold text-amber-600 dark:text-amber-400 text-sm">₹{renewBreakdown.additional_deposit_required.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400 block">To meet plan deposit</span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-blue-100/70 dark:bg-blue-900/40 flex justify-between items-center text-sm font-bold text-blue-950 dark:text-blue-100">
+                  <span>Total Amount Payable</span>
+                  <span className="text-base text-blue-700 dark:text-blue-300">₹{renewBreakdown.total_payable.toFixed(2)}</span>
+                </div>
+
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed">
+                  {renewBreakdown.additional_deposit_required === 0
+                    ? `Current deposit balance (₹${renewBreakdown.current_deposit_balance.toFixed(2)}) is sufficient. Deposit is carried forward at ₹0 additional charge. Only the renewal fee is payable.`
+                    : `Current deposit (₹${renewBreakdown.current_deposit_balance.toFixed(2)}) is below the required ₹${renewBreakdown.fixed_deposit.toFixed(2)}. Additional deposit of ₹${renewBreakdown.additional_deposit_required.toFixed(2)} will replenish it upon renewal.`}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">
+                Total Payable (₹)
+                <input
+                  type="number"
+                  readOnly
+                  value={renewBreakdown ? renewBreakdown.total_payable : renewData.amount}
+                  className="mt-1 w-full rounded-xl border border-gray-300 bg-gray-50 dark:bg-[#10101d] px-3 py-2 text-sm font-bold text-gray-900 dark:text-white"
+                />
+              </label>
+
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">
+                Payment Method *
+                <select
+                  required
+                  value={renewData.payment_method}
+                  onChange={(e) => setRenewData({ ...renewData, payment_method: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-[#2a2a4a] dark:bg-[#0f0f1a]"
+                >
+                  <option value="UPI">UPI</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="CASH">Cash</option>
+                  <option value="CARD">Card</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-[#2a2a4a]">
+              <Button type="button" variant="secondary" onClick={() => { setRenewingSubscription(null); setRenewBreakdown(null) }}>Cancel</Button>
+              <Button type="submit" variant="success" disabled={renewBreakdownLoading || !renewData.plan_id}>Confirm Renewal</Button>
             </div>
           </form>
         </div>
@@ -430,8 +668,8 @@ function Subscriptions() {
 
       {/* Assign Subscription Section */}
       {subscriptionTab === 'assign' && canAssign && (
-        <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-          <div className="flex justify-between items-center mb-4">
+        <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm space-y-4">
+          <div className="flex justify-between items-center">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-blue-500" aria-hidden="true" /> Assign New Subscription
             </h3>
@@ -440,46 +678,127 @@ function Subscriptions() {
             </span>
           </div>
 
-          <form onSubmit={handleAssign} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                Select {memberLabel} ({eligibleStudents.length} Eligible)
-              </label>
-              <select
-                value={assignData.student_id}
-                onChange={(e) => setAssignData({ ...assignData, student_id: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                required
-              >
-                <option value="">-- Choose {memberLabel} --</option>
-                {eligibleStudents.map(s => (
-                  <option key={s.student_id} value={s.student_id}>
-                    {s.student_uid} - {s.student_name}
-                  </option>
-                ))}
-              </select>
+          <form onSubmit={handleAssign} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  Select {memberLabel} ({eligibleStudents.length} Eligible) *
+                </label>
+                <select
+                  value={assignData.student_id}
+                  onChange={(e) => setAssignData({ ...assignData, student_id: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                  required
+                >
+                  <option value="">-- Choose {memberLabel} --</option>
+                  {eligibleStudents.map(s => (
+                    <option key={s.student_id} value={s.student_id}>
+                      {s.student_uid} - {s.student_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  Select Subscription Plan *
+                </label>
+                <select
+                  value={assignData.plan_id}
+                  onChange={(e) => setAssignData({ ...assignData, plan_id: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                  required
+                >
+                  <option value="">-- Choose Plan --</option>
+                  {plans.filter(p => p.is_active).map(p => (
+                    <option key={p.subscription_plan_id} value={p.subscription_plan_id}>
+                      {p.plan_name} — Total ₹{p.total_amount || p.price} (Fee: ₹{p.subscription_fee || 0}, Deposit: ₹{p.fixed_deposit || 0}, {p.duration_months}m)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  Payment Method *
+                </label>
+                <select
+                  value={assignData.payment_method}
+                  onChange={(e) => setAssignData({ ...assignData, payment_method: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                  required
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="CARD">Card</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                Select Subscription Plan
-              </label>
-              <select
-                value={assignData.plan_id}
-                onChange={(e) => setAssignData({ ...assignData, plan_id: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                required
+
+            {/* Dynamic Financial Breakdown Card for Assign */}
+            {assignBreakdownLoading ? (
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-[#10101d] text-center text-xs text-gray-500">
+                Calculating deposit carry-forward and amount payable…
+              </div>
+            ) : assignBreakdown ? (
+              <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center justify-between">
+                  <span>Subscription Payment Breakdown</span>
+                  <Badge tone={assignBreakdown.additional_deposit_required === 0 ? 'success' : 'primary'}>
+                    {assignBreakdown.additional_deposit_required === 0 ? 'Full Deposit Carried Forward' : 'New Deposit Collection'}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Subscription Fee</span>
+                    <span className="font-bold text-gray-900 dark:text-white text-base">₹{assignBreakdown.subscription_fee.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400">School revenue</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Required Deposit</span>
+                    <span className="font-bold text-gray-900 dark:text-white text-base">₹{assignBreakdown.fixed_deposit.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400">Fixed for plan</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Current Deposit</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-base">₹{assignBreakdown.current_deposit_balance.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400">Existing balance</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white dark:bg-[#121224] border border-gray-100 dark:border-gray-800">
+                    <span className="text-gray-500 dark:text-gray-400 block">Deposit to Pay</span>
+                    <span className="font-bold text-amber-600 dark:text-amber-400 text-base">₹{assignBreakdown.additional_deposit_required.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-400">Top-up needed</span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex justify-between items-center font-bold text-emerald-900 dark:text-emerald-200">
+                  <span className="text-sm">Total Amount Payable (Fee + Deposit to Pay)</span>
+                  <span className="text-lg text-emerald-700 dark:text-emerald-300">₹{assignBreakdown.total_payable.toFixed(2)}</span>
+                </div>
+
+                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                  {assignBreakdown.current_deposit_balance > 0
+                    ? `Existing balance of ₹${assignBreakdown.current_deposit_balance.toFixed(2)} will be carried forward. Remaining deposit balance after payment: ₹${assignBreakdown.deposit_balance_after.toFixed(2)}.`
+                    : `Initial fixed deposit of ₹${assignBreakdown.additional_deposit_required.toFixed(2)} will be deposited into the student's library deposit account.`}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                variant="success"
+                size="lg"
+                disabled={eligibleStudents.length === 0 || !assignData.student_id || !assignData.plan_id || assignBreakdownLoading}
               >
-                <option value="">-- Choose Plan --</option>
-                {plans.filter(p => p.is_active).map(p => (
-                  <option key={p.subscription_plan_id} value={p.subscription_plan_id}>
-                    {p.plan_name} - ₹{p.price} ({p.duration_months} month{p.duration_months > 1 ? 's' : ''}, max {p.max_books} books)
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" variant="success" fullWidth disabled={eligibleStudents.length === 0}>
-                Assign Subscription
+                Assign Subscription {assignBreakdown ? `(Pay ₹${assignBreakdown.total_payable.toFixed(2)})` : ''}
               </Button>
             </div>
           </form>
@@ -588,6 +907,9 @@ function Subscriptions() {
                 <SortableTh sortKey="max_books" direction={planDirectionFor('max_books')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('max_books') ? '' : 'hidden'}`}>Max Books</SortableTh>
                 <SortableTh sortKey="duration" direction={planDirectionFor('duration')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('duration') ? '' : 'hidden'}`}>Duration</SortableTh>
                 <SortableTh sortKey="price" direction={planDirectionFor('price')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('price') ? '' : 'hidden'}`}>Price</SortableTh>
+                <SortableTh sortKey="subscription_fee" direction={planDirectionFor('subscription_fee')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('subscription_fee') ? '' : 'hidden'}`}>Subscription Fee</SortableTh>
+                <SortableTh sortKey="fixed_deposit" direction={planDirectionFor('fixed_deposit')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('fixed_deposit') ? '' : 'hidden'}`}>Fixed Deposit</SortableTh>
+                <SortableTh sortKey="total_amount" direction={planDirectionFor('total_amount')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('total_amount') ? '' : 'hidden'}`}>Total Amount</SortableTh>
                 <SortableTh sortKey="status" direction={planDirectionFor('status')} onSort={requestPlanSort} className={`px-4 py-3 ${isPlanVisible('status') ? '' : 'hidden'}`}>Status</SortableTh>
                 <th className={`px-4 py-3 text-right ${isPlanVisible('actions') ? '' : 'hidden'}`}>Actions</th>
               </tr>
@@ -600,6 +922,9 @@ function Subscriptions() {
                     <td className={`px-4 py-3 text-sm text-gray-600 dark:text-gray-400 ${isPlanVisible('max_books') ? '' : 'hidden'}`}>{p.max_books} books</td>
                     <td className={`px-4 py-3 text-sm text-gray-600 dark:text-gray-400 ${isPlanVisible('duration') ? '' : 'hidden'}`}>{p.duration_months} months</td>
                     <td className={`px-4 py-3 font-bold text-gray-900 dark:text-white ${isPlanVisible('price') ? '' : 'hidden'}`}>₹{p.price}</td>
+                    <td className={`px-4 py-3 text-sm font-medium text-emerald-600 dark:text-emerald-400 ${isPlanVisible('subscription_fee') ? '' : 'hidden'}`}>₹{p.subscription_fee != null ? Number(p.subscription_fee).toLocaleString('en-IN') : '0'}</td>
+                    <td className={`px-4 py-3 text-sm font-medium text-blue-600 dark:text-blue-400 ${isPlanVisible('fixed_deposit') ? '' : 'hidden'}`}>₹{p.fixed_deposit != null ? Number(p.fixed_deposit).toLocaleString('en-IN') : '0'}</td>
+                    <td className={`px-4 py-3 font-bold text-gray-900 dark:text-white ${isPlanVisible('total_amount') ? '' : 'hidden'}`}>₹{p.total_amount != null ? Number(p.total_amount).toLocaleString('en-IN') : Number(p.price || 0).toLocaleString('en-IN')}</td>
                     <td className={`px-4 py-3 text-xs ${isPlanVisible('status') ? '' : 'hidden'}`}>
                       <Badge tone={p.is_active ? 'success' : 'neutral'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
                     </td>
@@ -619,6 +944,9 @@ function Subscriptions() {
                                 max_books: p.max_books || 1,
                                 duration_months: p.duration_months || 3,
                                 price: p.price || '',
+                                subscription_fee: p.subscription_fee != null ? p.subscription_fee : '',
+                                fixed_deposit: p.fixed_deposit != null ? p.fixed_deposit : '',
+                                total_amount: p.total_amount != null ? p.total_amount : p.price || '',
                                 description: p.description || ''
                               })
                               setShowForm(true)

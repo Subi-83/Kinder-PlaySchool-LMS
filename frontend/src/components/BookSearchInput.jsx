@@ -127,12 +127,23 @@ export default function BookSearchInput({ onSelectBook, selectedBook, availableO
                   </div>
                 </div>
 
-                <div className="text-right flex-shrink-0">
+                <div className="text-right flex-shrink-0 flex items-center gap-1.5">
                   <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      copy.current_condition === 'Lost' || copy.current_condition === 'Large Damage'
+                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                        : copy.current_condition === 'Small Damage' || copy.current_condition === 'Damaged'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                    }`}
+                  >
+                    {copy.current_condition || 'Good'}
+                  </span>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
                       copy.status === 'AVAILABLE'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                        : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
                     }`}
                   >
                     {copy.status}

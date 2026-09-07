@@ -109,7 +109,7 @@ function Students() {
       setTimeout(() => setSuccess(''), 5000)
     } catch (e) {
       setError(e.data?.error || e.response?.data?.error || e.message || 'Could not reset student data.')
-    } fontFinally: {
+    } finally {
       setResetting(false)
     }
   }
@@ -124,10 +124,15 @@ function Students() {
       ])
       setStudents(s.data || [])
       setProgrammes(p.data || [])
-      setAcademicYears(y.data || [])
+      const years = y.data || []
+      setAcademicYears(years)
+      const activeYear = years.find((yr) => yr.is_current) || years[0]
+      if (activeYear) {
+        setImportYear((prev) => prev || activeYear.academic_year_id)
+      }
     } catch (e) {
       setError(e.data?.error || e.message || 'Could not load JK member master data.')
-    }finally{
+    } finally {
       setLoading(false)
     }
   }
@@ -256,14 +261,27 @@ function Students() {
       const response = await api.post('/students/import-students', body, { headers: { 'Content-Type': 'multipart/form-data' } })
       const summary = response.data
       setImportReport(summary)
-      let msg = `Imported ${summary.enrollments_created} enrollment(s): ${summary.new_students} new student(s), ${summary.existing_students} existing student(s).`
-      if (summary.skipped?.length) {
-        const skippedNotes = summary.skipped.map(s => `Row ${s.row}: ${s.reason}`).join('; ')
-        msg += ` (${summary.skipped.length} row(s) skipped: ${skippedNotes})`
+
+      if (summary.enrollments_created === 0 && summary.new_students === 0 && summary.existing_students === 0) {
+        let errMsg = 'No student enrollments or matching records were processed from this file.'
+        if (summary.skipped?.length) {
+          errMsg += ' Skipped rows: ' + summary.skipped.map(s => `Row ${s.row}: ${s.reason}`).join('; ')
+        }
+        setError(errMsg)
+      } else {
+        let msg = `Successfully processed: ${summary.enrollments_created} enrollment(s) created, ${summary.new_students} new student(s), ${summary.existing_students} existing student(s) matched.`
+        if (summary.skipped?.length) {
+          const skippedNotes = summary.skipped.map(s => `Row ${s.row}: ${s.reason}`).join('; ')
+          msg += ` (${summary.skipped.length} row(s) skipped: ${skippedNotes})`
+        }
+        if (summary.warnings?.length) {
+          const warningNotes = summary.warnings.map(w => `Row ${w.row} (${w.student}): ${w.message}`).join('; ')
+          msg += ` [Notes: ${warningNotes}]`
+        }
+        setSuccess(msg)
+        setShowImport(false)
+        setStudentExcelFile(null)
       }
-      setSuccess(msg)
-      setShowImport(false)
-      setStudentExcelFile(null)
       await load()
     } catch (e) {
       setError(e.data?.error || e.response?.data?.error || 'Could not import student spreadsheet.')
@@ -874,7 +892,7 @@ function Students() {
                   <FileSpreadsheet className="h-5 w-5 text-violet-600" aria-hidden="true" /> Import {membersLabel} from Excel / CSV
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
-                <p className="text-[11px] text-gray-400 mt-1">Existing members are matched only by child name and birthdate. Shared parent details will not merge siblings or twins.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Existing members are matched by child name and birthdate.</p>
               </div>
               <IconButton
                 icon={X}
@@ -883,9 +901,17 @@ function Students() {
                 onClick={() => {
                   setShowImport(false)
                   setStudentExcelFile(null)
+                  setError('')
                 }}
               />
             </div>
+
+            {error && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+                <span>{error}</span>
+              </div>
+            )}
 
             <form onSubmit={importStudentSpreadsheet} className="space-y-4">
               <div>
@@ -942,6 +968,9 @@ function Students() {
                     Selected file: {studentExcelFile.name} ({(studentExcelFile.size / 1024).toFixed(1)} KB)
                   </p>
                 )}
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                  Supported columns: <strong>Child's Name</strong>, <strong>Birthdate / Age</strong>, <strong>Grade / Programme</strong>, <strong>Mother's / Father's Mobile & Name</strong>, <strong>Email</strong>, <strong>School</strong>, <strong>Library Subscription</strong>.
+                </p>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">

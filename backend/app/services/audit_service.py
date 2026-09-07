@@ -42,7 +42,8 @@ class AuditService:
         Get most recent audit logs
         """
         return AuditLog.query.order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod
@@ -53,7 +54,8 @@ class AuditService:
         return AuditLog.query.filter_by(
             user_id=user_id
         ).order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod
@@ -64,7 +66,8 @@ class AuditService:
         return AuditLog.query.filter_by(
             module=module
         ).order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod
@@ -75,7 +78,8 @@ class AuditService:
         return AuditLog.query.filter_by(
             action=action
         ).order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod
@@ -86,7 +90,8 @@ class AuditService:
         return AuditLog.query.filter(
             AuditLog.created_at.between(start_date, end_date)
         ).order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod
@@ -97,7 +102,8 @@ class AuditService:
         return AuditLog.query.filter_by(
             record_id=str(record_id)
         ).order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod
@@ -113,7 +119,8 @@ class AuditService:
                 AuditLog.username.like(f'%{query}%')
             )
         ).order_by(
-            AuditLog.created_at.desc()
+            AuditLog.created_at.desc(),
+            AuditLog.audit_id.desc()
         ).offset(offset).limit(limit).all()
     
     @staticmethod

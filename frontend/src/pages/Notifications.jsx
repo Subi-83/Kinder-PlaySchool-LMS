@@ -74,14 +74,20 @@ function BookConditionReview({ notice, onSaved, onError }) {
   )
 }
 
+function formatNotificationDate(notice) {
+  const isoStr = notice.created_at_iso || (notice.created_at ? notice.created_at.replace(' ', 'T') + 'Z' : null)
+  if (!isoStr) return 'Current'
+  const d = new Date(isoStr)
+  return Number.isNaN(d.getTime()) ? (notice.created_at || 'Current') : d.toLocaleString()
+}
+
 function Notifications() {
   const { membersLabel } = useAppSettings()
-  const tabs = ['MEMBERS', 'Books', 'Library', 'Deposit', 'Holiday', 'Users']
-  const [activeTab, setActiveTab] = useState('MEMBERS')
+  const tabs = ['ALL', 'MEMBERS', 'Books', 'Library', 'Deposit', 'Holiday', 'Users']
+  const [activeTab, setActiveTab] = useState('ALL')
   const [data, setData] = useState({ notifications: [], pending_count: 0 })
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
-  const [holidayName, setHolidayName] = useState('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [dateFilter, setDateFilter] = useState('ALL')
@@ -119,32 +125,22 @@ function Notifications() {
     }
   }
 
-  const answerHoliday = async (isHoliday) => {
-    try {
-      const response = await api.post('/audit/daily-holiday', {
-        is_holiday: isHoliday,
-        holiday_name: holidayName || 'Official Holiday'
-      })
-      setMessage(response.data?.message || 'Holiday status saved.')
-      setHolidayName('')
-      await load()
-    } catch (error) {
-      setMessage(error.response?.data?.error || 'Could not save today’s holiday status.')
-    }
-  }
-
   if (loading) return <p className="py-16 text-center text-gray-500">Loading notifications…</p>
 
-  const belongsToTab = (notice) => {
+  const isNoticeInTab = (notice, targetTab) => {
+    if (targetTab === 'ALL') return true
     const action = notice.action || ''
     const module = notice.module || ''
-    if (activeTab === 'MEMBERS') return module === 'Student'
-    if (activeTab === 'Books') return ['Book', 'BookCopy'].includes(module) && action !== 'BOOK_CONDITION_REVIEW'
-    if (activeTab === 'Library') return module === 'Library' || action === 'BOOK_CONDITION_REVIEW' || ['RETURN_BOOK', 'RECORD_DAMAGE_LOSS'].includes(action)
-    if (activeTab === 'Deposit') return module === 'Deposit' || action.startsWith('DEPOSIT_')
-    if (activeTab === 'Holiday') return module === 'Holiday' || action.includes('HOLIDAY')
-    return module === 'User' || action.includes('APPROVED') || action.includes('REJECTED')
+    if (targetTab === 'MEMBERS') return module === 'Student' || action.includes('STUDENT')
+    if (targetTab === 'Books') return ['Book', 'BookCopy'].includes(module) && action !== 'BOOK_CONDITION_REVIEW'
+    if (targetTab === 'Library') return module === 'Library' || action === 'BOOK_CONDITION_REVIEW' || ['RETURN_BOOK', 'RECORD_DAMAGE_LOSS', 'ISSUE_BOOK'].includes(action)
+    if (targetTab === 'Deposit') return module === 'Deposit' || action.startsWith('DEPOSIT_')
+    if (targetTab === 'Holiday') return module === 'Holiday' || action.includes('HOLIDAY')
+    return ['User', 'Auth'].includes(module) || action.includes('USER') || action.includes('LOGIN') || action.includes('LOGOUT') || action.includes('APPROVED') || action.includes('REJECTED')
   }
+
+  const belongsToTab = (notice) => isNoticeInTab(notice, activeTab)
+
   const matchesFilters = (notice) => {
     const query = search.trim().toLowerCase()
     const searchable = [notice.action, notice.details, notice.username, notice.module, notice.record_id, notice.book_title, notice.barcode].filter(Boolean).join(' ').toLowerCase()
@@ -153,7 +149,8 @@ function Notifications() {
     if (typeFilter === 'REVIEW' && notice.action !== 'BOOK_CONDITION_REVIEW') return false
     if (typeFilter === 'SYSTEM' && notice.username !== 'System') return false
     if (dateFilter !== 'ALL') {
-      const created = new Date(String(notice.created_at || '').replace(' ', 'T'))
+      const isoStr = notice.created_at_iso || (notice.created_at ? notice.created_at.replace(' ', 'T') + 'Z' : '')
+      const created = new Date(isoStr)
       if (Number.isNaN(created.getTime())) return false
       const days = Number(dateFilter)
       const cutoff = new Date()
@@ -185,14 +182,7 @@ function Notifications() {
 
       <div className="flex gap-2 overflow-x-auto border-b border-gray-200 dark:border-[#292944]">
         {tabs.map((tab) => {
-          const count = data.notifications.filter((notice) => {
-            if (tab === 'MEMBERS') return notice.module === 'Student'
-            if (tab === 'Books') return ['Book', 'BookCopy'].includes(notice.module) && notice.action !== 'BOOK_CONDITION_REVIEW'
-            if (tab === 'Library') return notice.module === 'Library' || notice.action === 'BOOK_CONDITION_REVIEW'
-            if (tab === 'Deposit') return notice.module === 'Deposit' || notice.action.startsWith('DEPOSIT_')
-            if (tab === 'Holiday') return notice.module === 'Holiday' || notice.action.includes('HOLIDAY')
-            return notice.module === 'User' || notice.action.includes('APPROVED') || notice.action.includes('REJECTED')
-          }).length
+          const count = data.notifications.filter((notice) => isNoticeInTab(notice, tab)).length
           const isActive = activeTab === tab
           return (
             <button
@@ -202,7 +192,7 @@ function Notifications() {
                 isActive ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'
               }`}
             >
-              <span>{tab === 'MEMBERS' ? membersLabel : tab}</span>
+              <span>{tab === 'ALL' ? 'All Activities' : tab === 'MEMBERS' ? membersLabel : tab}</span>
               {count > 0 && (
                 <Badge tone={isActive ? 'primary' : 'neutral'}>{count}</Badge>
               )}
@@ -266,7 +256,7 @@ function Notifications() {
                 <div>
                   <h3 className="font-bold text-gray-900 dark:text-white">{notice.action.replaceAll('_', ' ')}</h3>
                   <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{notice.details}</p>
-                  <p className="mt-1 text-xs text-gray-400">By {notice.username || 'System'} · {notice.created_at || 'Current'}</p>
+                  <p className="mt-1 text-xs text-gray-400">By {notice.username || 'System'} · {formatNotificationDate(notice)}</p>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {notice.requires_approval && notice.action === 'DEPOSIT_CORRECTION_REQUEST' && (
@@ -306,34 +296,6 @@ function Notifications() {
 
               {notice.action === 'BOOK_CONDITION_REVIEW' && (
                 <BookConditionReview notice={notice} onSaved={reviewSaved} onError={setMessage} />
-              )}
-
-              {notice.requires_holiday_confirmation && (
-                <div className="mt-4 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 p-4">
-                  <p className="text-xs text-amber-800 dark:text-amber-300 mb-2">
-                    Calendar currently marks today as: <strong>{notice.configured_holiday ? 'Holiday' : 'Working day'}</strong>
-                  </p>
-                  <input
-                    value={holidayName}
-                    onChange={(event) => setHolidayName(event.target.value)}
-                    placeholder="Holiday name (required only for Yes)"
-                    className="w-full sm:w-80 rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-[#10101d] px-3 py-2 text-sm"
-                  />
-                  <div className="flex gap-2 mt-3">
-                    <button
-                      onClick={() => answerHoliday(true)}
-                      className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold"
-                    >
-                      Yes, Today Is Holiday
-                    </button>
-                    <button
-                      onClick={() => answerHoliday(false)}
-                      className="px-4 py-2 rounded-lg bg-gray-700 text-white text-xs font-bold"
-                    >
-                      No, Working Day
-                    </button>
-                  </div>
-                </div>
               )}
             </div>
           ))

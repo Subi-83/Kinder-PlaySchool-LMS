@@ -127,6 +127,8 @@ class DepositTransaction(db.Model):
         db.Enum('INITIAL_DEPOSIT', 'TOP_UP', 'FINE', 'DAMAGE_CHARGE', 'LOST_BOOK', 'ADJUSTMENT', 'REFUND'),
         nullable=False
     )
+    # Types: INITIAL_DEPOSIT, TOP_UP, CARRY_FORWARD, DEPOSIT_DEDUCTION, REFUND, FINE, DAMAGE_CHARGE, LOST_BOOK, ADJUSTMENT
+    transaction_type = db.Column(db.String(50), nullable=False)
     amount = db.Column(db.DECIMAL(10, 2), nullable=False)
     balance_after = db.Column(db.DECIMAL(10, 2), nullable=False)
     reference_id = db.Column(db.String(50), nullable=True, comment='Reference to issue_id, damage_id, etc.')
@@ -141,9 +143,13 @@ class DepositTransaction(db.Model):
         return f'<DepositTransaction {self.transaction_id} - {self.amount}>'
     
     def to_dict(self):
+        student = self.account_ref.student if self.account_ref else None
         return {
             'transaction_id': self.transaction_id,
             'deposit_account_id': self.deposit_account_id,
+            'student_id': student.student_id if student else None,
+            'student_uid': student.student_uid if student else None,
+            'student_name': student.student_name if student else None,
             'transaction_type': self.transaction_type,
             'amount': float(self.amount),
             'balance_after': float(self.balance_after),
