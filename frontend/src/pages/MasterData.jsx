@@ -1640,7 +1640,7 @@ function SubscriptionPlansPanel({ canEdit }) {
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a4a] text-gray-600 dark:text-gray-300"
+                className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2a4a] text-gray-600 dark:text-gray-300"
               >
                 <XCircle className="h-5 w-5" />
               </button>
