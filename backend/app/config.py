@@ -154,7 +154,10 @@ class Config:
     # FRONTEND CONFIGURATION
     # ============================================================
     
-    FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+    # In the bundled deployment Flask serves the React build on the same
+    # origin. The LAN launchers set this to http://<server-lan-ip>:5000 so
+    # emailed password-reset links work from other devices on the network.
+    FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5000')
     FRONTEND_RESET_PASSWORD_URL = f"{FRONTEND_URL}/reset-password"
     
     # ============================================================

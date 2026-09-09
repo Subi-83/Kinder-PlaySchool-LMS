@@ -4,7 +4,7 @@ Application Factory - Creates and configures the Flask application
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from flask import Flask, jsonify, request
+from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_cors import CORS  # type: ignore
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate  # type: ignore
@@ -26,7 +26,18 @@ jwt = JWTManager()
 
 def create_app(config_class=None):
     """Application factory function"""
+    # The React production build lives beside ``backend`` at frontend/dist.
+    # Keep this path independent of the process working directory so launchers,
+    # Waitress, and WSGI hosts all serve the same files.
+    if getattr(sys, 'frozen', False):
+        # Running as a PyInstaller exe: frontend/dist is placed next to the
+        # executable itself, not inside the temp extraction folder.
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    frontend_dist = os.path.join(base_dir, 'frontend', 'dist')
     app = Flask(__name__)
+    app.config['FRONTEND_DIST'] = frontend_dist
     app.url_map.strict_slashes = False
     
     # Load configuration
@@ -64,20 +75,42 @@ def create_app(config_class=None):
     def expired_token_response(callback):
         return jsonify({'error': 'Token expired', 'message': 'The provided token has expired. Please login again.'}), 401
     
-    # Root and health check
-    @app.route('/')
+    # API health check remains under the API namespace. The root URL is the
+    # React application in the single-server deployment.
     @app.route('/api/health')
     def health_check():
         return jsonify({
             'status': 'ok',
             'app': 'Kinder Park LMS API',
             'version': '1.0.0',
-            'frontend_url': 'http://localhost:5173'
+            'frontend_url': app.config.get('FRONTEND_URL')
         }), 200
 
     # Register blueprints
     from app.routes import register_blueprints
     register_blueprints(app)
+
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_react_app(path):
+        """Serve built React assets, or index.html for client-side routes."""
+        # Never turn an unknown API URL into an HTML response.
+        if path == 'api' or path.startswith('api/'):
+            abort(404)
+
+        build_dir = app.config['FRONTEND_DIST']
+        index_file = os.path.join(build_dir, 'index.html')
+        if not os.path.isfile(index_file):
+            return jsonify({
+                'error': 'Frontend build not found',
+                'message': 'Build the frontend with: cd frontend && npm run build'
+            }), 503
+
+        # Serve actual files (for example /assets/index-*.js) and let React
+        # Router handle every other non-API path.
+        if path and os.path.isfile(os.path.join(build_dir, path)):
+            return send_from_directory(build_dir, path)
+        return send_from_directory(build_dir, 'index.html')
     
     # Register error handlers
     register_error_handlers(app)
@@ -154,4 +187,3 @@ def setup_logging(app):
     
     app.logger.info("Logging configured successfully")
     app.logger.info(f"Environment: {app.config.get('FLASK_ENV', 'development')}")
-

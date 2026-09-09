@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Kinder Park LMS
+Comment=Start the Kinder Park Learning Management System
+Exec=/home/subitha/Projects/PlaySchool/playschool-main/start_lms.sh
+Icon=/home/subitha/Projects/PlaySchool/playschool-main/frontend/public/favicon.svg
+Terminal=true
+Categories=Education;Office;
+StartupNotify=true

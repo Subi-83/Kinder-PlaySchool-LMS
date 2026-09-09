@@ -12,10 +12,8 @@ Built with **Flask (Python)** on the backend, **React + Vite + Tailwind CSS** on
 - [Prerequisites](#-prerequisites)
 - [Project Directory Structure](#-project-directory-structure)
 - [Cross-Platform Setup & Installation](#-cross-platform-setup--installation)
-  - [Automated Setup (Recommended)](#1-automated-setup-recommended)
-  - [Manual Setup Guide](#2-manual-setup-guide)
-    - [Ubuntu / Linux Setup](#ubuntu--linux-setup)
-    - [Windows Setup](#windows-setup)
+  - [Ubuntu / Linux](#ubuntu--linux)
+  - [Windows](#windows)
 - [Database Setup & Seeding](#-database-setup--seeding)
 - [Running the Application](#-running-the-application)
 - [Default User Credentials](#-default-user-credentials)
@@ -60,7 +58,7 @@ Built with **Flask (Python)** on the backend, **React + Vite + Tailwind CSS** on
 ## 📋 Prerequisites
 
 Before starting, ensure you have installed:
-1. **Python**: Python `3.8` or higher ([Download Python](https://www.python.org/downloads/))
+1. **Python**: Python `3.10` or higher ([Download Python](https://www.python.org/downloads/))
 2. **Node.js**: Node.js `v18.0.0` or higher and `npm` ([Download Node.js](https://nodejs.org/))
 3. **MySQL**: MySQL Server `8.0+` or MariaDB (via MySQL Community Server, XAMPP, or WAMP)
 
@@ -94,9 +92,9 @@ playschool-main/
 │   │   └── services/         # API Service client (Axios)
 │   ├── package.json          # Frontend Node dependencies & scripts
 │   └── vite.config.js        # Vite configuration & API proxy
-├── kinder_park_library.sql   # SQL database export dump
-├── setup.sh                  # Automated setup script for Ubuntu / Linux / macOS
-├── setup.bat                 # Automated setup script for Windows
+├── start_lms.sh              # Linux launcher for the combined server
+├── start_lms.bat             # Windows launcher for the combined server
+├── kinder-park-lms.desktop   # Linux desktop launcher
 ├── .gitignore                # Project-wide Git ignore rules
 └── README.md                 # Project documentation
 ```
@@ -105,104 +103,79 @@ playschool-main/
 
 ## 🚀 Cross-Platform Setup & Installation
 
-Follow these instructions to set up the project on either **Ubuntu (Linux)** or **Windows**.
+These steps use the production setup: Flask/Waitress serves both the React
+build and the API on port `5000`. Run all commands from the project root unless
+the command says otherwise. Keep passwords only in `backend/.env`.
 
-### 1. Automated Setup (Recommended)
+### Ubuntu / Linux
 
-#### 🐧 On Ubuntu / Linux / macOS
-Open terminal in the project root folder:
-```bash
-chmod +x setup.sh
-./setup.sh
-```
+1. Install Python, Node.js, npm, and MySQL:
 
-#### 🪟 On Windows
-Double-click `setup.bat` or run it in Command Prompt:
-```cmd
-setup.bat
-```
-
----
-
-### 2. Manual Setup Guide
-
-If you prefer to configure manually or run individual steps:
-
-#### Ubuntu / Linux Setup
-
-1. **Clone or navigate to project directory**:
    ```bash
-   cd playschool-main
+   sudo apt update
+   sudo apt install -y python3 python3-venv python3-pip nodejs npm mysql-server
+   sudo systemctl enable --now mysql
    ```
 
-2. **Backend Setup**:
+2. Create the environment file and install backend packages:
+
    ```bash
-   # Copy environment file template
+   cd /path/to/playschool-main
    cp backend/.env.example backend/.env
-
-   # Move to backend directory
-   cd backend
-
-   # Create virtual environment (install python3-venv if needed: sudo apt install python3-venv)
-   python3 -m venv venv
-
-   # Activate virtual environment
-   source venv/bin/activate
-
-   # Install dependencies
-   pip install --upgrade pip
-   pip install -r requirements.txt
-
-   # Return to root directory
-   cd ..
+   python3 -m venv backend/venv
+   backend/venv/bin/python -m pip install --upgrade pip
+   backend/venv/bin/pip install -r backend/requirements.txt
    ```
 
-3. **Frontend Setup**:
+3. Install frontend packages and make the production build:
+
    ```bash
    cd frontend
    npm install
+   npm run build
    cd ..
    ```
 
----
+4. Complete [Database Setup & Seeding](#-database-setup--seeding), then start
+   the LMS with `chmod +x start_lms.sh && ./start_lms.sh`.
 
-#### Windows Setup
+### Windows
 
-1. **Open Command Prompt (cmd) or PowerShell** in the project root directory:
+1. Install Python 3.10+ (select **Add Python to PATH**), Node.js 18+, and MySQL
+   8 / MySQL Community Server. XAMPP or WAMP MySQL also works.
+
+2. Start MySQL. In an Administrator Command Prompt, this is usually:
+
    ```cmd
-   cd path\to\playschool-main
+   net start MySQL80
    ```
 
-2. **Backend Setup**:
+   If your service uses another name, start it from Windows Services or the
+   XAMPP/WAMP control panel.
+
+3. In Command Prompt, prepare the backend:
+
    ```cmd
-   REM Copy environment file template
+   cd C:\path\to\playschool-main
    copy backend\.env.example backend\.env
-
-   REM Move to backend directory
-   cd backend
-
-   REM Create virtual environment
-   python -m venv venv
-
-   REM Activate virtual environment (Command Prompt)
-   venv\Scripts\activate.bat
-
-   REM OR if using PowerShell:
-   REM .\venv\Scripts\Activate.ps1
-
-   REM Install dependencies
-   python -m pip install --upgrade pip
-   pip install -r requirements.txt
-
-   REM Return to root directory
-   cd ..
+   python -m venv backend\venv
+   backend\venv\Scripts\python.exe -m pip install --upgrade pip
+   backend\venv\Scripts\pip.exe install -r backend\requirements.txt
    ```
 
-3. **Frontend Setup**:
+4. Install frontend packages and make the production build:
+
    ```cmd
    cd frontend
    npm install
+   npm run build
    cd ..
+   ```
+
+5. Complete [Database Setup & Seeding](#-database-setup--seeding), then run:
+
+   ```cmd
+   start_lms.bat
    ```
 
 ---
@@ -237,64 +210,105 @@ If you prefer to configure manually or run individual steps:
    ```
 
 4. **Initialize Schema & Seed Initial Data**:
-   Run the database reset and seeding script from the `backend/` folder:
+   This resets the configured LMS database. Use it only for a fresh install or
+   when you intentionally want to replace existing LMS data.
 
    **Linux / Ubuntu**:
    ```bash
-   cd backend
-   source venv/bin/activate
-   python reset_db.py --yes
-   python seed.py
+   backend/venv/bin/python backend/reset_db.py --yes
+   backend/venv/bin/python backend/seed.py
    ```
 
    **Windows**:
    ```cmd
-   cd backend
-   venv\Scripts\activate.bat
-   python reset_db.py --yes
-   python seed.py
-   ```
-
-   *Alternatively, you can import `kinder_park_library.sql` directly using MySQL CLI or phpMyAdmin:*
-   ```bash
-   mysql -u root -p kinder_park_library < kinder_park_library.sql
+   backend\venv\Scripts\python.exe backend\reset_db.py --yes
+   backend\venv\Scripts\python.exe backend\seed.py
    ```
 
 ---
 
 ## 🏃 Running the Application
 
-Both backend and frontend servers need to run simultaneously.
+The production deployment uses one server: Waitress runs Flask on port `5000`,
+serving both the `/api/*` endpoints and the React build in `frontend/dist`.
+React Router routes such as `/login` are returned as `index.html`; an unknown
+`/api/*` endpoint remains a JSON 404.
 
-### Step 1: Start Backend (Port 5000)
+Build the frontend whenever its source changes:
+
+```bash
+cd frontend && npm run build
+```
+
+After pulling changes into an existing virtual environment, install/update the
+backend dependencies once:
+
+```bash
+backend/venv/bin/pip install -r backend/requirements.txt
+```
+
+On Windows, use:
+
+```cmd
+backend\venv\Scripts\pip.exe install -r backend\requirements.txt
+```
+
+Then launch the application from the project root:
 
 - **Ubuntu / Linux**:
   ```bash
-  cd backend
-  source venv/bin/activate
-  python run.py
+  chmod +x start_lms.sh
+  ./start_lms.sh
   ```
 
-- **Windows**:
+- **Windows (Command Prompt)**:
   ```cmd
-  cd backend
-  venv\Scripts\activate.bat
-  python run.py
+  start_lms.bat
   ```
 
-The API server will run at: `http://localhost:5000`
+Each launcher activates `backend/venv`, detects the LAN IPv4 address, opens the
+default browser, and starts Waitress on `0.0.0.0:5000`. For example, other
+devices connected to the same Wi-Fi can use `http://192.168.1.15:5000`.
+It also uses that same address in password-reset emails, so recipients can
+open their reset link from another device on the network. Configure
+`MAIL_USERNAME` and `MAIL_PASSWORD` in `backend/.env` before sending email.
+For Gmail, enable 2-Step Verification and use a Google App Password:
 
-### Step 2: Start Frontend (Port 5173)
+```env
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=True
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-16-character-app-password
+MAIL_DEFAULT_SENDER=your-email@gmail.com
+```
 
-Open a new terminal window / prompt:
+### Linux desktop launcher
 
-- **Ubuntu / Linux & Windows**:
+`kinder-park-lms.desktop` is configured for this checked-out project location.
+Double-click it in a file manager, or install it in the application menu:
+
+```bash
+chmod +x kinder-park-lms.desktop
+cp kinder-park-lms.desktop ~/.local/share/applications/
+```
+
+If the project is moved, update the `Exec=` and `Icon=` paths in that file
+before installing it.
+
+### Firewall commands for LAN access
+
+- **Ubuntu / UFW**:
   ```bash
-  cd frontend
-  npm run dev
+  sudo ufw allow 5000/tcp
+  sudo ufw status
   ```
 
-The Web Application UI will be available at: `http://localhost:5173`
+- **Windows (run Command Prompt as Administrator)**:
+  ```cmd
+  netsh advfirewall firewall add rule name="Kinder Park LMS (TCP 5000)" dir=in action=allow protocol=TCP localport=5000
+  netsh advfirewall firewall show rule name="Kinder Park LMS (TCP 5000)"
+  ```
 
 ---
 
@@ -323,7 +337,10 @@ The `backend/.env` file controls system settings:
 | `DB_NAME` | `kinder_park_library` | Target database schema name |
 | `DB_PORT` | `3306` | MySQL port number |
 | `JWT_SECRET_KEY` | *(random string)* | Secret key for JWT signing |
-| `CORS_ORIGINS` | `http://localhost:5173` | Allowed frontend origin URLs |
+| `CORS_ORIGINS` | Development origins | Allowed frontend origin URLs |
+| `FRONTEND_URL` | `http://localhost:5000` | Public LMS URL used in reset emails; launchers set the LAN IP automatically |
+| `MAIL_USERNAME` | *(empty)* | SMTP account used to send password-reset emails |
+| `MAIL_PASSWORD` | *(empty)* | SMTP password or Gmail App Password |
 | `OPEN_LIBRARY_API_URL` | `https://openlibrary.org/api/books` | External API for book metadata lookup |
 
 ---
