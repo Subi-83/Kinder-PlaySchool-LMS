@@ -41,7 +41,7 @@ function Login() {
           plain gradient on its right edge so it never has to visually
           collide with the real card — no matter the viewport width. */}
       <div
-        className="hidden md:block absolute inset-y-0 left-0 w-[64%] lg:w-[56%] bg-cover bg-left"
+        className="hidden md:block absolute inset-y-0 left-0 w-[64%] lg:w-[56%] bg-contain bg-no-repeat bg-left"
         style={{
           backgroundImage: `url(${loginHero})`,
           WebkitMaskImage: 'linear-gradient(to right, black 65%, transparent 100%)',
