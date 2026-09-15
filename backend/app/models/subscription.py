@@ -64,6 +64,9 @@ class StudentSubscription(db.Model):
     subscription_fee_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
     deposit_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
     total_paid = db.Column(db.DECIMAL(10, 2), nullable=True)
+    is_custom_plan = db.Column(db.Boolean, default=False, nullable=False)
+    custom_subscription_fee = db.Column(db.DECIMAL(10, 2), nullable=True)
+    custom_deposit_amount = db.Column(db.DECIMAL(10, 2), nullable=True)
     payment_date = db.Column(db.Date, nullable=True)
     payment_method = db.Column(db.String(50), nullable=True)
     notes = db.Column(db.Text, nullable=True)
@@ -76,25 +79,55 @@ class StudentSubscription(db.Model):
         return f'<StudentSubscription {self.subscription_id} - {self.status}>'
     
     def to_dict(self):
+        is_custom = bool(self.is_custom_plan or (self.plan_ref and self.plan_ref.plan_code == 'CUSTOM'))
+        sub_fee = float(self.subscription_fee_paid) if self.subscription_fee_paid is not None else (
+            float(self.custom_subscription_fee) if self.custom_subscription_fee is not None else (
+                float(self.plan_ref.subscription_fee) if self.plan_ref else (float(self.amount_paid) if self.amount_paid is not None else 0.0)
+            )
+        )
+        dep_paid = float(self.deposit_paid) if self.deposit_paid is not None else (
+            float(self.custom_deposit_amount) if self.custom_deposit_amount is not None else (
+                float(self.plan_ref.fixed_deposit) if self.plan_ref else 0.0
+            )
+        )
+        total = float(self.total_paid) if self.total_paid is not None else (
+            float(self.amount_paid) if self.amount_paid is not None else (sub_fee + dep_paid)
+        )
+
+        plan_data = self.plan_ref.to_dict() if self.plan_ref else None
+        if is_custom:
+            if not plan_data:
+                plan_data = {'plan_name': 'Customized Plan', 'plan_code': 'CUSTOM'}
+            else:
+                plan_data = dict(plan_data)
+                plan_data['plan_name'] = 'Customized Plan'
+                plan_data['subscription_fee'] = sub_fee
+                plan_data['fixed_deposit'] = dep_paid
+                plan_data['total_amount'] = total
+
         return {
             'subscription_id': self.subscription_id,
             'student_id': self.student_id,
             'student_uid': self.student_ref.student_uid if self.student_ref else None,
             'student_name': self.student_ref.student_name if self.student_ref else None,
-            'plan': self.plan_ref.to_dict() if self.plan_ref else None,
+            'plan': plan_data,
+            'plan_display_name': 'Customized Plan' if is_custom else (self.plan_ref.plan_name if self.plan_ref else 'Standard Plan'),
+            'is_custom_plan': is_custom,
+            'custom_subscription_fee': float(self.custom_subscription_fee) if self.custom_subscription_fee is not None else None,
+            'custom_deposit_amount': float(self.custom_deposit_amount) if self.custom_deposit_amount is not None else None,
             'academic_year_id': self.academic_year_id,
             'academic_year': self.academic_year_ref.to_dict_brief() if self.academic_year_ref else None,
+            'academic_year_name': self.academic_year_ref.year_name if self.academic_year_ref else (self.academic_year_ref.year_code if self.academic_year_ref else None),
             'start_date': self.start_date.strftime('%Y-%m-%d') if self.start_date else None,
             'end_date': self.end_date.strftime('%Y-%m-%d') if self.end_date else None,
             'status': self.status,
             'is_active': self.status == 'ACTIVE',
             'is_expired': self.is_expired(),
             'days_remaining': self.get_days_remaining(),
-            'amount_paid': float(self.amount_paid) if self.amount_paid else None,
-            'amount_paid': float(self.amount_paid) if self.amount_paid is not None else None,
-            'subscription_fee_paid': float(self.subscription_fee_paid) if self.subscription_fee_paid is not None else (float(self.amount_paid) if self.amount_paid is not None else None),
-            'deposit_paid': float(self.deposit_paid) if self.deposit_paid is not None else 0.0,
-            'total_paid': float(self.total_paid) if self.total_paid is not None else (float(self.amount_paid) if self.amount_paid is not None else None),
+            'amount_paid': total,
+            'subscription_fee_paid': sub_fee,
+            'deposit_paid': dep_paid,
+            'total_paid': total,
             'payment_date': self.payment_date.strftime('%Y-%m-%d') if self.payment_date else None,
             'payment_method': self.payment_method,
             'notes': self.notes,
@@ -140,17 +173,22 @@ class StudentSubscription(db.Model):
         ).first()
     
     def renew(self, plan_id=None, duration_months=None, amount=None):
-        """Renew a subscription"""
+        """Renew a subscription; strictly enforces March 31 academic year end date."""
         if plan_id:
             self.subscription_plan_id = plan_id
             plan = SubscriptionPlan.query.get(plan_id)
             if plan:
                 duration_months = plan.duration_months
         
-        if duration_months:
-            self.start_date = datetime.now().date()
-            self.end_date = self.start_date + timedelta(days=duration_months * 30)
-            self.status = 'ACTIVE'
+        self.start_date = datetime.now().date()
+        if self.academic_year_ref and self.academic_year_ref.end_date:
+            self.end_date = self.academic_year_ref.end_date
+        else:
+            d = self.start_date
+            ay_end_year = d.year + 1 if d.month >= 4 else d.year
+            from datetime import date
+            self.end_date = date(ay_end_year, 3, 31)
+        self.status = 'ACTIVE'
         
         if amount:
             self.amount_paid = amount

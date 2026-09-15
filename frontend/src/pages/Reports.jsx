@@ -7,8 +7,6 @@ import { useAppSettings } from '../context/AppSettingsContext'
 import { PageHeader, Button, Card, LoadingState, EmptyState, Checkbox, useSortableData } from '../components/ui'
 
 const tabs = [
-  { id: 'stock', label: 'Stock Summary', perm: 'report.stock' },
-  { id: 'members', label: 'Members Summary', perm: 'report.member' },
   { id: 'students-detailed', label: 'JK Members Report', perm: 'report.member' },
   { id: 'subscription-payments', label: 'Subscription Payments', perm: 'report.financial' },
   { id: 'books-detailed', label: 'Books Report', perm: 'report.stock' },
@@ -25,6 +23,12 @@ const BOOK_FIELD_ORDER = {
   books_list: ['book_id', 'name', 'author', 'publisher', 'price', 'available_books'],
   lost_books_list: ['book_id', 'name', 'author', 'publisher', 'price', 'condition', 'location', 'notes'],
   issued_books_list: ['book_id', 'name', 'author', 'member_id', 'member_name', 'issue_date', 'due_date', 'status']
+}
+
+const REPORT_FIELD_ORDER = {
+  subscription_payments: ['subscription_id', 'student_id', 'roll_number', 'student_name', 'plan_name', 'start_date', 'end_date', 'amount', 'paid_amount', 'payment_date', 'payment_method'],
+  financial_subscription_payments: ['subscription_id', 'student_id', 'roll_number', 'student_name', 'plan_name', 'start_date', 'end_date', 'amount', 'paid_amount', 'payment_date', 'payment_method'],
+  ebooks_list: ['record_id', 'book_title', 'author', 'publisher', 'publication_year']
 }
 
 const moneyKeys = ['fines', 'financial', 'students-detailed', 'subscription-payments', 'books-detailed']
@@ -61,10 +65,18 @@ const download = (body, name, type) => {
 function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggleField }) {
   const [page, setPage] = useState(1)
   const perPage = 10
-  const { sortedItems: sortedRows, requestSort, directionFor } = useSortableData(rows)
+  const tableFields = rows[0] ? Object.keys(rows[0]) : selectedFields
+  const rowsInFirstColumnOrder = useMemo(() => {
+    if (activeTab !== 'financial') return rows
+    const firstField = tableFields[0]
+    if (!firstField) return rows
+    return [...rows].sort((left, right) => String(left[firstField] ?? '').localeCompare(
+      String(right[firstField] ?? ''), undefined, { numeric: true, sensitivity: 'base' }
+    ))
+  }, [rows, tableFields, activeTab])
+  const { sortedItems: sortedRows, requestSort, directionFor } = useSortableData(rowsInFirstColumnOrder)
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / perPage))
   const visibleRows = sortedRows.slice((page - 1) * perPage, page * perPage)
-  const tableFields = rows[0] ? Object.keys(rows[0]) : selectedFields
 
   useEffect(() => setPage(1), [rows, activeTab])
 
@@ -127,7 +139,6 @@ function Reports() {
   const [extraData, setExtraData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [metricsPage, setMetricsPage] = useState(1)
   const [selectedMetrics, setSelectedMetrics] = useState([])
   const [selectedListFields, setSelectedListFields] = useState({})
   const [academicYears, setAcademicYears] = useState([])
@@ -136,7 +147,6 @@ function Reports() {
   const [studentSearch, setStudentSearch] = useState('')
 
   // Filter state for Students Detailed Report
-  const [studentLevelFilter, setStudentLevelFilter] = useState('ALL')
   const [libraryAccessFilter, setLibraryAccessFilter] = useState('ALL')
   const [subStatusFilter, setSubStatusFilter] = useState('ALL')
   const [depositStatusFilter, setDepositStatusFilter] = useState('ALL')
@@ -194,7 +204,6 @@ function Reports() {
       if (academicYearId) params.append('academic_year_id', academicYearId)
 
       if (tab.id === 'students-detailed') {
-        if (studentLevelFilter !== 'ALL') params.append('level', studentLevelFilter)
         if (libraryAccessFilter !== 'ALL') params.append('library_access', libraryAccessFilter)
         if (subStatusFilter !== 'ALL') params.append('subscription_status', subStatusFilter)
         if (depositStatusFilter !== 'ALL') params.append('deposit_status', depositStatusFilter)
@@ -219,19 +228,8 @@ function Reports() {
       const res = await api.get(url)
       setData(res.data || {})
 
-      // Fetch supplementary detailed table rows for legacy reports
       setExtraData([])
-      if (tab.id === 'stock') {
-        try {
-          const pop = await api.get('/reports/popular-books')
-          if (Array.isArray(pop.data) && pop.data.length > 0) setExtraData([['Popular Books', pop.data]])
-        } catch (_) {}
-      } else if (tab.id === 'members') {
-        try {
-          const top = await api.get('/reports/top-students')
-          if (Array.isArray(top.data) && top.data.length > 0) setExtraData([['Top Active Readers', top.data]])
-        } catch (_) {}
-      } else if (tab.id === 'issue-return') {
+      if (tab.id === 'issue-return') {
         try {
           const alerts = await api.get('/reports/dashboard-alerts')
           const alertTables = []
@@ -252,7 +250,6 @@ function Reports() {
     load()
   }, [
     active,
-    studentLevelFilter,
     libraryAccessFilter,
     subStatusFilter,
     depositStatusFilter,
@@ -273,8 +270,8 @@ function Reports() {
     if (active === 'students-detailed') {
       const students = data.students_list || []
       const groupFields = {
-        personal: ['student_id', 'student_name', 'date_of_birth', 'gender', 'school', 'mother_name', 'mother_phone', 'father_name', 'father_phone'],
-        programme: ['student_id', 'student_name', 'academic_year', 'programme', 'grade', 'roll_number', 'library_access'],
+        personal: ['student_id', 'roll_number', 'student_name', 'date_of_birth', 'school', 'mother_name', 'mother_phone', 'father_name', 'father_phone'],
+        programme: ['student_id', 'roll_number', 'student_name', 'academic_year', 'programme', 'grade', 'library_access'],
         deposits: ['student_id', 'student_name', 'academic_year', 'deposit_amount', 'outstanding_amount', 'deposit_status'],
         subscriptions: ['student_id', 'student_name', 'academic_year', 'subscription_plan', 'subscription_status', 'subscription_start_date', 'subscription_end_date', 'subscription_amount']
       }
@@ -290,22 +287,34 @@ function Reports() {
         return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
       })
     }
+    if (active === 'issue-return') {
+      return [...rawLists, ...extraData].map(([title, rows]) => {
+        if (title !== 'Low Deposit Accounts') return [title, rows]
+        return [title, rows.map((row) => ({
+          student_id: row.student_uid || row.student_id,
+          student_name: row.student_name,
+          current_balance: row.current_balance
+        }))]
+      })
+    }
+    if (active === 'subscription-payments' || active === 'ebooks-detailed' || active === 'financial') {
+      const key = active === 'subscription-payments'
+        ? 'subscription_payments'
+        : active === 'financial' ? 'financial_subscription_payments' : 'ebooks_list'
+      const fields = REPORT_FIELD_ORDER[key]
+      return rawLists.map(([title, rows]) => {
+        if (active === 'financial' && title !== 'subscription_payments') return [title, rows]
+        return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
+      })
+    }
     return [...rawLists, ...extraData]
   }, [active, data, extraData, studentReportGroup])
-  const metricsPerPage = 10
-  const metricPages = Math.max(1, Math.ceil(scalar.length / metricsPerPage))
-  const visibleMetrics = scalar.slice((metricsPage - 1) * metricsPerPage, metricsPage * metricsPerPage)
-
   useEffect(() => {
     setSelectedMetrics(scalar.map(([key]) => key))
     setSelectedListFields(Object.fromEntries(
       lists.map(([title, rows]) => [title, rows[0] ? Object.keys(rows[0]) : (active === 'books-detailed' ? BOOK_FIELD_ORDER[title] || [] : [])])
     ))
   }, [active, data, extraData, studentReportGroup])
-
-  useEffect(() => {
-    setMetricsPage(1)
-  }, [active, scalar.length])
 
   const toggleMetric = (key) => {
     setSelectedMetrics((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
@@ -332,7 +341,6 @@ function Reports() {
 
   const resetFilters = () => {
     setStudentSearch('')
-    setStudentLevelFilter('ALL')
     setLibraryAccessFilter('ALL')
     setSubStatusFilter('ALL')
     setDepositStatusFilter('ALL')
@@ -600,26 +608,6 @@ function Reports() {
                 </select>
               </div>
               <div>
-                <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Level / Grade</label>
-                <select
-                  value={studentLevelFilter}
-                  onChange={(e) => setStudentLevelFilter(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a2e] px-2.5 py-1.5 text-gray-900 dark:text-white"
-                >
-                  <option value="ALL">All Levels / Grades</option>
-                  {programmes.map((p) => (
-                    <option key={p.programme_id} value={p.programme_name}>
-                      {p.display_name || p.programme_name}
-                    </option>
-                  ))}
-                  <option value="Level 1">Level 1</option>
-                  <option value="Level 2">Level 2</option>
-                  <option value="Level 3">Level 3</option>
-                  <option value="Nursery">Nursery</option>
-                </select>
-              </div>
-
-              <div>
                 <label className="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Library Access</label>
                 <select
                   value={libraryAccessFilter}
@@ -834,42 +822,6 @@ function Reports() {
                       <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{formatVal(active, key, value)}</p>
                     </div>
                   ))}
-                </div>
-              </div>
-            )}
-
-            {/* Tabular View of Executive Metrics for legacy views */}
-            {scalar.length > 0 && !['students-detailed', 'books-detailed'].includes(active) && (
-              <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">Tabular Breakdown</h3>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{schoolName} Report</span>
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#292944] bg-white dark:bg-[#10101d]">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 uppercase font-bold text-xs">
-                      <tr>
-                        <th className="px-5 py-3.5">Metric / Indicator</th>
-                        <th className="px-5 py-3.5 text-right">Calculated Value</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-[#292944]">
-                      {visibleMetrics.map(([key, value], idx) => (
-                        <tr key={key} className={idx % 2 === 0 ? 'bg-white dark:bg-[#10101d]' : 'bg-gray-50/50 dark:bg-[#141426]'}>
-                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-gray-100">
-                            <label className="inline-flex items-center gap-2 cursor-pointer">
-                              <Checkbox size="sm" checked={selectedMetrics.includes(key)} onChange={() => toggleMetric(key)} />
-                              {pretty(key)}
-                            </label>
-                          </td>
-                          <td className="px-5 py-3.5 font-bold text-right text-gray-900 dark:text-white">{formatVal(active, key, value)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-3">
-                  <Pagination currentPage={metricsPage} totalPages={metricPages} totalItems={scalar.length} perPage={metricsPerPage} onPageChange={setMetricsPage} itemLabel="metrics" />
                 </div>
               </div>
             )}

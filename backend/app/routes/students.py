@@ -9,6 +9,7 @@ from app.models.library import BookIssue
 from app.models.subscription import StudentSubscription
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
+from datetime import datetime, timedelta
 from datetime import datetime, date, timedelta
 from io import BytesIO, StringIO
 from zipfile import ZipFile, BadZipFile
@@ -189,6 +190,7 @@ def _parse_student_file(file_bytes, filename="file.xlsx"):
                 continue
         if text is None:
             raise ValueError('Unable to read CSV file encoding.')
+        reader = csv.reader(StringIO(text))
         
         sample_lines = '\n'.join([line for line in text.splitlines() if line.strip()][:5])
         try:
@@ -234,6 +236,8 @@ def _parse_student_file(file_bytes, filename="file.xlsx"):
             if not sheet_paths:
                 raise ValueError('No worksheet found in the Excel archive.')
             
+            sheet_paths.sort()
+            sheet = ET.fromstring(archive.read(sheet_paths[0]))
             sheet_paths.sort(key=lambda s: int(re.search(r'\d+', s).group(0)) if re.search(r'\d+', s) else 0)
             sheet = None
             for s_path in sheet_paths:
@@ -336,6 +340,7 @@ def _normalise_programme_fields(name, grade_level=None):
 def _match_programme(value, default_programme=None, auto_create=True):
     val_str = str(value or '').strip()
     if not val_str:
+        return default_programme
         if default_programme:
             return default_programme
         active_prog = Programme.query.filter_by(is_active=True).order_by(Programme.sort_order, Programme.programme_id).first()
@@ -372,6 +377,8 @@ def _match_programme(value, default_programme=None, auto_create=True):
     # Auto-create only the clean name; grade level is stored in its own field.
     if auto_create:
         clean_title = programme_name[:100]
+        words = [w for w in clean_title.upper().split() if w.isalnum()]
+        code = ''.join(w[0] for w in words[:4]) if words else clean_title[:4].upper()
         if clean_title.isdigit():
             clean_title = f"Grade {clean_title}"
             code = f"GR{clean_title.split()[-1]}"
@@ -403,6 +410,7 @@ def _match_programme(value, default_programme=None, auto_create=True):
         db.session.flush()
         return new_prog
 
+    return default_programme
     if default_programme:
         return default_programme
     return Programme.query.filter_by(is_active=True).order_by(Programme.sort_order, Programme.programme_id).first()
@@ -423,7 +431,15 @@ def _match_subscription_plan(value):
 @permission_required('student.view')
 def get_students():
     """Get all students"""
-    students = Student.query.filter_by(is_active=True, member_group_code='JK_MEMBERS').order_by(Student.student_name).all()
+    students = Student.query.filter_by(is_active=True, member_group_code='JK_MEMBERS').all()
+
+    def roll_number_key(student):
+        enrollment = next((item for item in student.enrollments if item.status == 'ACTIVE'), None)
+        enrollment = enrollment or max(student.enrollments, key=lambda item: item.enrollment_id, default=None)
+        roll_number = (enrollment.roll_number if enrollment else '') or ''
+        return (not roll_number.isdigit(), int(roll_number) if roll_number.isdigit() else roll_number)
+
+    students.sort(key=roll_number_key)
     return jsonify([s.to_dict() for s in students]), 200
 
 @students_bp.route('/member-groups', methods=['GET'])
@@ -488,7 +504,15 @@ def get_group_members(group_code):
     group = MemberGroup.query.get(group_code)
     if not group:
         return jsonify({'error': 'Member group not found.'}), 404
-    members = Student.query.filter_by(member_group_code=group_code, is_active=True).order_by(Student.student_name).all()
+    members = Student.query.filter_by(member_group_code=group_code, is_active=True).all()
+
+    def roll_number_key(member):
+        enrollment = next((item for item in member.enrollments if item.status == 'ACTIVE'), None)
+        enrollment = enrollment or max(member.enrollments, key=lambda item: item.enrollment_id, default=None)
+        roll_number = (enrollment.roll_number if enrollment else '') or ''
+        return (not roll_number.isdigit(), int(roll_number) if roll_number.isdigit() else roll_number)
+
+    members.sort(key=roll_number_key)
     return jsonify({'group': group.to_dict(), 'members': [member.to_dict() for member in members]}), 200
 
 @students_bp.route('/group/<string:group_code>', methods=['POST'])
@@ -602,7 +626,8 @@ def create_student():
         db.session.add(DepositAccount(student_id=student.student_id))
     db.session.add(StudentEnrollment(student_id=student.student_id, academic_year_id=academic_year.academic_year_id,
         programme_id=programme.programme_id, grade=data['grade'].strip(), section=data.get('section'),
-        roll_number=Student.generate_roll_number(academic_year, programme), enrollment_date=datetime.now().date()))
+        roll_number=Student.generate_roll_number(academic_year, programme), enrollment_date=datetime.now().date(),
+        library_access=bool(student.library_access)))
     db.session.commit()
     current_user = get_current_user()
     user_id = current_user.user_id if current_user else None
@@ -658,7 +683,11 @@ def update_student(student_id):
         if 'medical_notes' in data:
             student.medical_notes = data['medical_notes']
         if 'library_access' in data:
-            student.library_access = bool(data['library_access'])
+            new_access = bool(data['library_access'])
+            student.library_access = new_access
+            for enr in student.enrollments:
+                if enr.status == 'ACTIVE':
+                    enr.library_access = new_access
         if 'is_active' in data:
             student.is_active = data['is_active']
 
@@ -983,7 +1012,7 @@ def import_membership_spreadsheet():
                     subscription_plan_id=plan.subscription_plan_id,
                     academic_year_id=academic_year.academic_year_id,
                     start_date=academic_year.start_date,
-                    end_date=min(academic_year.end_date, academic_year.start_date + timedelta(days=plan.duration_months * 30)),
+                    end_date=academic_year.end_date,
                     status='ACTIVE',
                     amount_paid=plan.price,
                     payment_date=datetime.now().date(),

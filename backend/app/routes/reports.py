@@ -45,8 +45,8 @@ def member_report():
     expired_members = StudentSubscription.query.filter_by(status='EXPIRED').count()
     
     # Students with no subscription
-    students_with_subs = db.session.query(StudentSubscription.student_id).distinct().subquery()
-    no_subscription = Student.query.filter(~Student.student_id.in_(students_with_subs)).count()
+    sub_query = db.select(StudentSubscription.student_id).distinct()
+    no_subscription = Student.query.filter(~Student.student_id.in_(sub_query)).count()
     
     return jsonify({
         'total_students': total_students,
@@ -156,11 +156,31 @@ def financial_report():
     ).scalar() or 0
 
     financial_transactions = DepositTransaction.query.order_by(
-        DepositTransaction.created_at.desc()
+        DepositTransaction.transaction_id.asc()
     ).all()
     subscription_payments = StudentSubscription.query.filter(
         StudentSubscription.amount_paid.isnot(None)
-    ).order_by(StudentSubscription.payment_date.desc()).all()
+    ).order_by(StudentSubscription.subscription_id.asc()).all()
+
+    financial_subscription_rows = []
+    for subscription in subscription_payments:
+        enrollment = StudentEnrollment.query.filter_by(
+            student_id=subscription.student_id,
+            academic_year_id=subscription.academic_year_id
+        ).order_by(StudentEnrollment.enrollment_id.desc()).first()
+        financial_subscription_rows.append({
+            'subscription_id': subscription.subscription_id,
+            'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
+            'roll_number': enrollment.roll_number if enrollment else '-',
+            'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
+            'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
+            'start_date': subscription.start_date.strftime('%Y-%m-%d') if subscription.start_date else None,
+            'end_date': subscription.end_date.strftime('%Y-%m-%d') if subscription.end_date else None,
+            'amount': float(subscription.plan_ref.price or 0) if subscription.plan_ref else 0.0,
+            'paid_amount': float(subscription.amount_paid or 0),
+            'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
+            'payment_method': subscription.payment_method or '-'
+        })
     
     return jsonify({
         'total_deposits': float(total_deposits),
@@ -185,19 +205,7 @@ def financial_report():
             }
             for transaction in financial_transactions
         ],
-        'subscription_payments': [
-            {
-                'subscription_id': subscription.subscription_id,
-                'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
-                'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
-                'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
-                'amount_paid': float(subscription.amount_paid),
-                'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
-                'payment_method': subscription.payment_method,
-                'status': subscription.status,
-            }
-            for subscription in subscription_payments
-        ]
+        'subscription_payments': financial_subscription_rows
     }), 200
 
 @reports_bp.route('/issue-return', methods=['GET'])
@@ -404,7 +412,7 @@ def students_detailed_report():
             query = query.filter(Student.created_at < ed)
         except ValueError: pass
 
-    students = query.order_by(Student.student_name).all()
+    students = query.order_by(Student.student_id).all()
     results = []
 
     for s in students:
@@ -491,6 +499,12 @@ def students_detailed_report():
             'deposit_status': deposit_status
         })
 
+    def roll_number_key(row):
+        roll_number = str(row.get('roll_number') or '')
+        return (not roll_number.isdigit(), int(roll_number) if roll_number.isdigit() else roll_number)
+
+    results.sort(key=roll_number_key)
+
     return jsonify({
         'total_students': len(results),
         'library_access_enabled': sum(1 for r in results if r['library_access'] == 'Yes'),
@@ -509,27 +523,30 @@ def subscription_payment_report():
     query = StudentSubscription.query
     if academic_year_id:
         query = query.filter(StudentSubscription.academic_year_id == academic_year_id)
-    subscriptions = query.order_by(StudentSubscription.payment_date.desc(), StudentSubscription.subscription_id.desc()).all()
-
-    rows = [{
-        'subscription_id': subscription.subscription_id,
-        'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
-        'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
-        'academic_year': subscription.academic_year_ref.year_code if subscription.academic_year_ref else '-',
-        'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
-        'plan_price': float(subscription.plan_ref.price or 0) if subscription.plan_ref else 0.0,
-        'amount_paid': float(subscription.amount_paid or 0),
-        'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
-        'payment_method': subscription.payment_method or '-',
-        'start_date': subscription.start_date.strftime('%Y-%m-%d') if subscription.start_date else None,
-        'end_date': subscription.end_date.strftime('%Y-%m-%d') if subscription.end_date else None,
-        'status': subscription.status,
-        'notes': subscription.notes or '-'
-    } for subscription in subscriptions]
+    subscriptions = query.order_by(StudentSubscription.subscription_id.asc()).all()
+    rows = []
+    for subscription in subscriptions:
+        enrollment = StudentEnrollment.query.filter_by(
+            student_id=subscription.student_id,
+            academic_year_id=subscription.academic_year_id
+        ).order_by(StudentEnrollment.enrollment_id.desc()).first()
+        rows.append({
+            'subscription_id': subscription.subscription_id,
+            'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
+            'roll_number': enrollment.roll_number if enrollment else '-',
+            'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
+            'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
+            'start_date': subscription.start_date.strftime('%Y-%m-%d') if subscription.start_date else None,
+            'end_date': subscription.end_date.strftime('%Y-%m-%d') if subscription.end_date else None,
+            'amount': float(subscription.plan_ref.price or 0) if subscription.plan_ref else 0.0,
+            'paid_amount': float(subscription.amount_paid or 0),
+            'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
+            'payment_method': subscription.payment_method or '-'
+        })
 
     return jsonify({
         'total_payments': len(rows),
-        'total_amount_paid': sum(row['amount_paid'] for row in rows),
+        'total_amount_paid': sum(row['paid_amount'] for row in rows),
         'active_subscriptions': sum(1 for row in rows if row['status'] == 'ACTIVE'),
         'pending_subscriptions': sum(1 for row in rows if row['status'] == 'PENDING'),
         'subscription_payments': rows
@@ -571,7 +588,7 @@ def books_detailed_report():
             query = query.filter(BookTitle.created_at < ed)
         except ValueError: pass
 
-    book_titles = query.order_by(BookTitle.title).all()
+    book_titles = query.order_by(BookTitle.book_title_id).all()
     results = []
     lost_book_results = []
     issued_book_results = []
@@ -659,6 +676,14 @@ def books_detailed_report():
                     'status': current_issue.status if current_issue else 'ISSUED'
                 })
 
+    def book_id_key(row):
+        book_id = str(row.get('book_id') or '')
+        return (not book_id.isdigit(), int(book_id) if book_id.isdigit() else book_id)
+
+    results.sort(key=book_id_key)
+    lost_book_results.sort(key=book_id_key)
+    issued_book_results.sort(key=book_id_key)
+
     return jsonify({
         'total_titles': len(results),
         'total_copies': sum(int(r['total_quantity']) for r in results),
@@ -697,14 +722,11 @@ def ebooks_detailed_report():
         'record_id': f'EB-{book.book_title_id:04d}',
         'book_title': book.title,
         'author': book.author,
-        'isbn': book.isbn or '-',
         'publisher': book.publisher or '-',
-        'publication_year': book.publication_year or '-',
-        'record_count': int(book.ebook_count or 0),
-        'description': book.description or '-'
+        'publication_year': book.publication_year or '-'
     } for book in ebooks]
     return jsonify({
         'total_titles': len(rows),
-        'total_records': sum(row['record_count'] for row in rows),
+        'total_records': sum(int(book.ebook_count or 0) for book in ebooks),
         'ebooks_list': rows
     }), 200

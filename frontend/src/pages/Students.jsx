@@ -76,7 +76,6 @@ function Students() {
   const [importProgramme, setImportProgramme] = useState('')
   const [importing, setImporting] = useState(false)
   const [importReport, setImportReport] = useState(null)
-  const [resetting, setResetting] = useState(false)
   const [reEnrollForm, setReEnrollForm] = useState(emptyReEnrollForm())
 
   // Additional Filter States
@@ -94,26 +93,6 @@ function Students() {
   const canEdit = user?.role === 'ADMIN' || hasPermission('student.edit')
   const canDelete = user?.role === 'ADMIN' || hasPermission('student.delete')
 
-  const handleResetAll = async () => {
-    const confirmation = window.prompt(
-      'WARNING: This will permanently DELETE ALL JK member records, enrollments, deposit accounts, and reset all roll numbers to 0001!\n\nType "RESET" to confirm:'
-    )
-    if (confirmation !== 'RESET') return
-    try {
-      setResetting(true)
-      setError('')
-      setSuccess('')
-      const res = await api.post('/students/reset-all')
-      setSuccess(res.data?.message || 'All student data cleared and roll numbers reset to 0001 successfully.')
-      await load()
-      setTimeout(() => setSuccess(''), 5000)
-    } catch (e) {
-      setError(e.data?.error || e.response?.data?.error || e.message || 'Could not reset student data.')
-    } finally {
-      setResetting(false)
-    }
-  }
-
   const load = async () => {
     try {
       setLoading(true)
@@ -124,6 +103,7 @@ function Students() {
       ])
       setStudents(s.data || [])
       setProgrammes(p.data || [])
+      setAcademicYears(y.data || [])
       const years = y.data || []
       setAcademicYears(years)
       const activeYear = years.find((yr) => yr.is_current) || years[0]
@@ -333,7 +313,7 @@ function Students() {
     search || filterYear || filterProgramme || filterGrade || filterSchool || filterStatus || filterLibraryAccess || filterSubStatus
   )
 
-  const { sortedItems: sortedStudents, requestSort, directionFor } = useSortableData(filtered, null, (row, key) => {
+  const { sortedItems: sortedStudents, requestSort, directionFor } = useSortableData(filtered, { key: 'roll', direction: 'asc' }, (row, key) => {
     const activeEnc = row.enrollments?.find((e) => e.status === 'ACTIVE') || row.current_enrollment
     if (key === 'roll') return activeEnc?.roll_number || row.student_uid
     if (key === 'programme') return activeEnc?.programme?.display_name || activeEnc?.programme?.programme_name
@@ -422,16 +402,6 @@ function Students() {
             >
               Import Excel
             </Button>
-            {canDelete && (
-              <Button
-                variant="danger"
-                icon={Trash2}
-                loading={resetting}
-                onClick={handleResetAll}
-              >
-                {resetting ? 'Resetting…' : 'Reset All'}
-              </Button>
-            )}
           </>
         )}
       />
@@ -892,6 +862,7 @@ function Students() {
                   <FileSpreadsheet className="h-5 w-5 text-violet-600" aria-hidden="true" /> Import {membersLabel} from Excel / CSV
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Existing members are matched only by child name and birthdate. Shared parent details will not merge siblings or twins.</p>
                 <p className="text-[11px] text-gray-400 mt-1">Existing members are matched by child name and birthdate.</p>
               </div>
               <IconButton

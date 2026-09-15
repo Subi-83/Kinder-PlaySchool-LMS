@@ -13,8 +13,12 @@ const SUBSCRIPTION_RECORD_COLUMNS = [
   { key: 'member_id', label: 'Member ID' },
   { key: 'member_name', label: 'Member Name', locked: true },
   { key: 'plan', label: 'Plan' },
+  { key: 'academic_year', label: 'Academic Year' },
   { key: 'start_date', label: 'Start Date' },
   { key: 'end_date', label: 'End Date' },
+  { key: 'subscription_fee', label: 'Subscription Fee' },
+  { key: 'deposit', label: 'Deposit' },
+  { key: 'total_amount', label: 'Total Amount' },
   { key: 'status', label: 'Status' },
   { key: 'actions', label: 'Actions', locked: true },
 ]
@@ -46,7 +50,14 @@ function Subscriptions() {
   const [editing, setEditing] = useState(null)
   const [upgradingSubscription, setUpgradingSubscription] = useState(null)
   const [renewingSubscription, setRenewingSubscription] = useState(null)
-  const [renewData, setRenewData] = useState({ plan_id: '', amount: '', payment_method: 'CASH' })
+  const [renewData, setRenewData] = useState({
+    plan_id: '',
+    is_custom_plan: false,
+    custom_subscription_fee: '',
+    custom_deposit_amount: '',
+    amount: '',
+    payment_method: 'CASH'
+  })
   const [renewBreakdown, setRenewBreakdown] = useState(null)
   const [renewBreakdownLoading, setRenewBreakdownLoading] = useState(false)
   const [upgradePlanId, setUpgradePlanId] = useState('')
@@ -57,6 +68,9 @@ function Subscriptions() {
   const [assignData, setAssignData] = useState({
     student_id: '',
     plan_id: '',
+    is_custom_plan: false,
+    custom_subscription_fee: '',
+    custom_deposit_amount: '',
     payment_method: 'CASH',
     notes: ''
   })
@@ -86,7 +100,11 @@ function Subscriptions() {
   } = useSortableData(activeSubscriptions, null, (row, key) => {
     if (key === 'member_id') return row.student_uid
     if (key === 'member_name') return row.student_name
-    if (key === 'plan') return row.plan?.plan_name
+    if (key === 'plan') return row.is_custom_plan ? 'Customized Plan' : (row.plan?.plan_name || '')
+    if (key === 'academic_year') return row.academic_year_name || row.academic_year?.year_name || row.academic_year?.year_code || ''
+    if (key === 'subscription_fee') return row.subscription_fee_paid ?? 0
+    if (key === 'deposit') return row.deposit_paid ?? 0
+    if (key === 'total_amount') return row.total_paid ?? row.amount_paid ?? 0
     return row[key]
   })
   const {
@@ -141,9 +159,16 @@ function Subscriptions() {
     if (assignData.student_id && assignData.plan_id) {
       let cancelled = false
       setAssignBreakdownLoading(true)
-      api.get('/subscriptions/calculate-breakdown', {
-        params: { student_id: assignData.student_id, plan_id: assignData.plan_id }
-      }).then((res) => {
+      const params = {
+        student_id: assignData.student_id,
+        plan_id: assignData.plan_id
+      }
+      if (assignData.is_custom_plan) {
+        params.is_custom = true
+        params.custom_subscription_fee = parseFloat(assignData.custom_subscription_fee) || 0
+        params.custom_deposit_amount = parseFloat(assignData.custom_deposit_amount) || 0
+      }
+      api.get('/subscriptions/calculate-breakdown', { params }).then((res) => {
         if (!cancelled) setAssignBreakdown(res.data)
       }).catch((err) => {
         console.error('Error calculating breakdown:', err)
@@ -155,7 +180,13 @@ function Subscriptions() {
     } else {
       setAssignBreakdown(null)
     }
-  }, [assignData.student_id, assignData.plan_id])
+  }, [
+    assignData.student_id,
+    assignData.plan_id,
+    assignData.is_custom_plan,
+    assignData.custom_subscription_fee,
+    assignData.custom_deposit_amount
+  ])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -174,10 +205,8 @@ function Subscriptions() {
         total_amount: total
       }
       if (editing) {
-        await api.put(`/subscriptions/plans/${editing}`, formData)
         await api.put(`/subscriptions/plans/${editing}`, payload)
       } else {
-        await api.post('/subscriptions/plans', formData)
         await api.post('/subscriptions/plans', payload)
       }
       setShowForm(false)
@@ -219,11 +248,36 @@ function Subscriptions() {
       setMessage({ type: 'error', text: 'Please select both student and plan.' })
       return
     }
+    if (assignData.is_custom_plan) {
+      const subFee = parseFloat(assignData.custom_subscription_fee)
+      const depAmt = parseFloat(assignData.custom_deposit_amount)
+      if (isNaN(subFee) || subFee < 0 || isNaN(depAmt) || depAmt < 0) {
+        setMessage({ type: 'error', text: 'Please enter valid non-negative numbers for Subscription Amount and Deposit Amount.' })
+        return
+      }
+    }
     try {
-      await api.post('/subscriptions/assign', { ...assignData, academic_year_id: academicYearId })
+      const payload = {
+        student_id: assignData.student_id,
+        plan_id: assignData.plan_id,
+        academic_year_id: academicYearId,
+        payment_method: assignData.payment_method,
+        notes: assignData.notes,
+        is_custom_plan: assignData.is_custom_plan,
+        custom_subscription_fee: assignData.is_custom_plan ? parseFloat(assignData.custom_subscription_fee) : undefined,
+        custom_deposit_amount: assignData.is_custom_plan ? parseFloat(assignData.custom_deposit_amount) : undefined
+      }
+      await api.post('/subscriptions/assign', payload)
       setMessage({ type: 'success', text: 'Subscription assigned successfully!' })
-      setAssignData({ student_id: '', plan_id: '' })
-      setAssignData({ student_id: '', plan_id: '', payment_method: 'CASH', notes: '' })
+      setAssignData({
+        student_id: '',
+        plan_id: '',
+        is_custom_plan: false,
+        custom_subscription_fee: '',
+        custom_deposit_amount: '',
+        payment_method: 'CASH',
+        notes: ''
+      })
       setAssignBreakdown(null)
       await loadData()
       setTimeout(() => setMessage(null), 4000)
@@ -234,16 +288,31 @@ function Subscriptions() {
 
   const openRenew = async (subscription) => {
     const planId = String(subscription.plan?.subscription_plan_id || subscription.subscription_plan_id || (plans[0]?.subscription_plan_id ?? ''))
+    const isCustom = Boolean(subscription.is_custom_plan || subscription.plan?.plan_code === 'CUSTOM' || subscription.plan?.plan_name === 'Customized Plan')
+    const customFee = subscription.subscription_fee_paid != null ? String(subscription.subscription_fee_paid) : (subscription.custom_subscription_fee != null ? String(subscription.custom_subscription_fee) : '')
+    const customDep = subscription.deposit_paid != null ? String(subscription.deposit_paid) : (subscription.custom_deposit_amount != null ? String(subscription.custom_deposit_amount) : '')
+
     setRenewingSubscription(subscription)
-    setRenewData({ plan_id: planId, amount: '', payment_method: 'CASH' })
+    setRenewData({
+      plan_id: planId,
+      is_custom_plan: isCustom,
+      custom_subscription_fee: customFee,
+      custom_deposit_amount: customDep,
+      amount: '',
+      payment_method: 'CASH'
+    })
     if (subscription.student_id && planId) {
       try {
         setRenewBreakdownLoading(true)
-        const res = await api.get('/subscriptions/calculate-breakdown', {
-          params: { student_id: subscription.student_id, plan_id: Number(planId) }
-        })
+        const params = { student_id: subscription.student_id, plan_id: Number(planId) }
+        if (isCustom) {
+          params.is_custom = true
+          params.custom_subscription_fee = parseFloat(customFee) || 0
+          params.custom_deposit_amount = parseFloat(customDep) || 0
+        }
+        const res = await api.get('/subscriptions/calculate-breakdown', { params })
         setRenewBreakdown(res.data)
-        setRenewData({ plan_id: planId, amount: String(res.data.total_payable), payment_method: 'CASH' })
+        setRenewData(prev => ({ ...prev, amount: String(res.data.total_payable) }))
       } catch (err) {
         console.error('Error fetching renewal breakdown:', err)
       } finally {
@@ -253,13 +322,52 @@ function Subscriptions() {
   }
 
   const handleRenewPlanChange = async (newPlanId) => {
-    setRenewData((prev) => ({ ...prev, plan_id: newPlanId }))
+    const selectedPlan = plans.find((p) => String(p.subscription_plan_id) === String(newPlanId))
+    const isCustom = selectedPlan?.plan_code === 'CUSTOM' || selectedPlan?.plan_name === 'Customized Plan'
+    setRenewData((prev) => ({
+      ...prev,
+      plan_id: newPlanId,
+      is_custom_plan: isCustom,
+      custom_subscription_fee: isCustom ? prev.custom_subscription_fee : '',
+      custom_deposit_amount: isCustom ? prev.custom_deposit_amount : ''
+    }))
     if (renewingSubscription?.student_id && newPlanId) {
       try {
         setRenewBreakdownLoading(true)
-        const res = await api.get('/subscriptions/calculate-breakdown', {
-          params: { student_id: renewingSubscription.student_id, plan_id: Number(newPlanId) }
-        })
+        const params = { student_id: renewingSubscription.student_id, plan_id: Number(newPlanId) }
+        if (isCustom) {
+          params.is_custom = true
+          params.custom_subscription_fee = parseFloat(renewData.custom_subscription_fee) || 0
+          params.custom_deposit_amount = parseFloat(renewData.custom_deposit_amount) || 0
+        }
+        const res = await api.get('/subscriptions/calculate-breakdown', { params })
+        setRenewBreakdown(res.data)
+        setRenewData((prev) => ({ ...prev, amount: String(res.data.total_payable) }))
+      } catch (err) {
+        console.error('Error fetching renewal breakdown:', err)
+      } finally {
+        setRenewBreakdownLoading(false)
+      }
+    }
+  }
+
+  const handleRenewAmountChange = async (feeVal, depVal) => {
+    setRenewData((prev) => ({
+      ...prev,
+      custom_subscription_fee: feeVal,
+      custom_deposit_amount: depVal
+    }))
+    if (renewingSubscription?.student_id && renewData.plan_id) {
+      try {
+        setRenewBreakdownLoading(true)
+        const params = {
+          student_id: renewingSubscription.student_id,
+          plan_id: Number(renewData.plan_id),
+          is_custom: true,
+          custom_subscription_fee: parseFloat(feeVal) || 0,
+          custom_deposit_amount: parseFloat(depVal) || 0
+        }
+        const res = await api.get('/subscriptions/calculate-breakdown', { params })
         setRenewBreakdown(res.data)
         setRenewData((prev) => ({ ...prev, amount: String(res.data.total_payable) }))
       } catch (err) {
@@ -276,14 +384,26 @@ function Subscriptions() {
       setMessage({ type: 'error', text: 'Please select a plan and payment method.' })
       return
     }
+    if (renewData.is_custom_plan) {
+      const subFee = parseFloat(renewData.custom_subscription_fee)
+      const depAmt = parseFloat(renewData.custom_deposit_amount)
+      if (isNaN(subFee) || subFee < 0 || isNaN(depAmt) || depAmt < 0) {
+        setMessage({ type: 'error', text: 'Please enter valid non-negative numbers for Subscription Amount and Deposit Amount.' })
+        return
+      }
+    }
     try {
       await api.post(`/subscriptions/renew/${renewingSubscription.subscription_id}`, {
-        plan_id: Number(renewData.plan_id), amount: Number(renewData.amount), payment_method: renewData.payment_method
+        plan_id: Number(renewData.plan_id),
+        amount: Number(renewData.amount),
+        payment_method: renewData.payment_method,
+        is_custom_plan: renewData.is_custom_plan,
+        custom_subscription_fee: renewData.is_custom_plan ? parseFloat(renewData.custom_subscription_fee) : undefined,
+        custom_deposit_amount: renewData.is_custom_plan ? parseFloat(renewData.custom_deposit_amount) : undefined
       })
       setRenewingSubscription(null)
-      setRenewData({ plan_id: '', amount: '', payment_method: '' })
+      setRenewData({ plan_id: '', is_custom_plan: false, custom_subscription_fee: '', custom_deposit_amount: '', amount: '', payment_method: 'CASH' })
       setRenewBreakdown(null)
-      setRenewData({ plan_id: '', amount: '', payment_method: 'CASH' })
       setMessage({ type: 'success', text: 'Subscription renewed successfully!' })
       await loadData()
       setTimeout(() => setMessage(null), 3000)
@@ -576,6 +696,46 @@ function Subscriptions() {
               </select>
             </label>
 
+            {renewData.is_custom_plan && (
+              <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/30 dark:bg-blue-950/20 space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                  <Settings className="h-3.5 w-3.5" /> Customized Plan Amounts
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                      Subscription Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required
+                      placeholder="0.00"
+                      value={renewData.custom_subscription_fee}
+                      onChange={(e) => handleRenewAmountChange(e.target.value, renewData.custom_deposit_amount)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                      Deposit Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required
+                      placeholder="0.00"
+                      value={renewData.custom_deposit_amount}
+                      onChange={(e) => handleRenewAmountChange(renewData.custom_subscription_fee, e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Live Financial Breakdown Card */}
             {renewBreakdownLoading ? (
               <div className="p-4 rounded-xl bg-gray-50 dark:bg-[#10101d] text-center text-xs text-gray-500">
@@ -583,6 +743,10 @@ function Subscriptions() {
               </div>
             ) : renewBreakdown ? (
               <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/20 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-blue-100/50 dark:bg-blue-900/30 text-xs text-blue-900 dark:text-blue-200">
+                  <span><strong>Academic Year:</strong> {renewBreakdown.academic_year_name || 'Academic Year'}</span>
+                  <span><strong>Expires:</strong> <span className="font-bold text-emerald-700 dark:text-emerald-300">{renewBreakdown.end_date} (31 March)</span></span>
+                </div>
                 <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center justify-between">
                   <span>Financial Breakdown</span>
                   <Badge tone={renewBreakdown.additional_deposit_required === 0 ? 'success' : 'warning'}>
@@ -705,7 +869,18 @@ function Subscriptions() {
                 </label>
                 <select
                   value={assignData.plan_id}
-                  onChange={(e) => setAssignData({ ...assignData, plan_id: e.target.value })}
+                  onChange={(e) => {
+                    const planId = e.target.value
+                    const p = plans.find(pl => String(pl.subscription_plan_id) === String(planId))
+                    const isCustom = p?.plan_code === 'CUSTOM' || p?.plan_name === 'Customized Plan'
+                    setAssignData({
+                      ...assignData,
+                      plan_id: planId,
+                      is_custom_plan: isCustom,
+                      custom_subscription_fee: isCustom ? assignData.custom_subscription_fee : '',
+                      custom_deposit_amount: isCustom ? assignData.custom_deposit_amount : ''
+                    })
+                  }}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
                   required
                 >
@@ -738,6 +913,49 @@ function Subscriptions() {
               </div>
             </div>
 
+            {assignData.is_custom_plan && (
+              <div className="p-4 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/30 dark:bg-blue-950/20">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 mb-3 flex items-center gap-1.5">
+                  <Settings className="h-3.5 w-3.5" /> Customized Plan Amounts
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                      Subscription Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required
+                      placeholder="e.g. 500.00"
+                      value={assignData.custom_subscription_fee}
+                      onChange={(e) => setAssignData({ ...assignData, custom_subscription_fee: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
+                    />
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 block">Custom non-refundable subscription fee for this student.</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                      Deposit Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required
+                      placeholder="e.g. 1500.00"
+                      value={assignData.custom_deposit_amount}
+                      onChange={(e) => setAssignData({ ...assignData, custom_deposit_amount: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
+                    />
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 block">Custom refundable deposit requirement for this student.</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Dynamic Financial Breakdown Card for Assign */}
             {assignBreakdownLoading ? (
               <div className="p-4 rounded-xl bg-gray-50 dark:bg-[#10101d] text-center text-xs text-gray-500">
@@ -745,6 +963,10 @@ function Subscriptions() {
               </div>
             ) : assignBreakdown ? (
               <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-blue-100/50 dark:bg-blue-900/30 text-xs text-blue-900 dark:text-blue-200">
+                  <span><strong>Academic Year:</strong> {assignBreakdown.academic_year_name || 'Academic Year'}</span>
+                  <span><strong>Validity:</strong> {assignBreakdown.start_date} to <span className="font-bold text-emerald-700 dark:text-emerald-300">{assignBreakdown.end_date} (31 March)</span></span>
+                </div>
                 <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center justify-between">
                   <span>Subscription Payment Breakdown</span>
                   <Badge tone={assignBreakdown.additional_deposit_required === 0 ? 'success' : 'primary'}>
@@ -829,8 +1051,12 @@ function Subscriptions() {
                 <SortableTh sortKey="member_id" direction={subscriptionDirectionFor('member_id')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('member_id') ? '' : 'hidden'}`}>{memberLabel} ID</SortableTh>
                 <SortableTh sortKey="member_name" direction={subscriptionDirectionFor('member_name')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('member_name') ? '' : 'hidden'}`}>{memberLabel} Name</SortableTh>
                 <SortableTh sortKey="plan" direction={subscriptionDirectionFor('plan')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('plan') ? '' : 'hidden'}`}>Plan</SortableTh>
+                <SortableTh sortKey="academic_year" direction={subscriptionDirectionFor('academic_year')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('academic_year') ? '' : 'hidden'}`}>Academic Year</SortableTh>
                 <SortableTh sortKey="start_date" direction={subscriptionDirectionFor('start_date')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('start_date') ? '' : 'hidden'}`}>Start Date</SortableTh>
                 <SortableTh sortKey="end_date" direction={subscriptionDirectionFor('end_date')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('end_date') ? '' : 'hidden'}`}>End Date</SortableTh>
+                <SortableTh sortKey="subscription_fee" direction={subscriptionDirectionFor('subscription_fee')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('subscription_fee') ? '' : 'hidden'}`}>Subscription Fee</SortableTh>
+                <SortableTh sortKey="deposit" direction={subscriptionDirectionFor('deposit')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('deposit') ? '' : 'hidden'}`}>Deposit</SortableTh>
+                <SortableTh sortKey="total_amount" direction={subscriptionDirectionFor('total_amount')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('total_amount') ? '' : 'hidden'}`}>Total Amount</SortableTh>
                 <SortableTh sortKey="status" direction={subscriptionDirectionFor('status')} onSort={requestSubscriptionSort} className={`px-4 py-3 ${isSubVisible('status') ? '' : 'hidden'}`}>Status</SortableTh>
                 <th className={`px-4 py-3 text-right ${isSubVisible('actions') ? '' : 'hidden'}`}>Actions</th>
               </tr>
@@ -846,13 +1072,32 @@ function Subscriptions() {
                       {sub.student_name}
                     </td>
                     <td className={`px-4 py-3 font-medium text-gray-800 dark:text-gray-200 ${isSubVisible('plan') ? '' : 'hidden'}`}>
-                      {sub.plan?.plan_name || 'Standard Plan'}
+                      <div className="flex items-center gap-1.5">
+                        <span>{sub.plan_display_name || sub.plan?.plan_name || (sub.is_custom_plan ? 'Customized Plan' : 'Standard Plan')}</span>
+                        {sub.is_custom_plan && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                            Custom
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className={`px-4 py-3 text-xs font-semibold text-gray-700 dark:text-gray-300 ${isSubVisible('academic_year') ? '' : 'hidden'}`}>
+                      {sub.academic_year_name || sub.academic_year?.year_name || sub.academic_year?.year_code || '—'}
                     </td>
                     <td className={`px-4 py-3 text-xs text-gray-600 dark:text-gray-400 ${isSubVisible('start_date') ? '' : 'hidden'}`}>
                       {sub.start_date}
                     </td>
-                    <td className={`px-4 py-3 text-xs text-gray-600 dark:text-gray-400 ${isSubVisible('end_date') ? '' : 'hidden'}`}>
+                    <td className={`px-4 py-3 text-xs font-medium text-blue-600 dark:text-blue-400 ${isSubVisible('end_date') ? '' : 'hidden'}`}>
                       {sub.end_date}
+                    </td>
+                    <td className={`px-4 py-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 ${isSubVisible('subscription_fee') ? '' : 'hidden'}`}>
+                      ₹{sub.subscription_fee_paid != null ? Number(sub.subscription_fee_paid).toLocaleString('en-IN') : (sub.custom_subscription_fee != null ? Number(sub.custom_subscription_fee).toLocaleString('en-IN') : Number(sub.plan?.subscription_fee || 0).toLocaleString('en-IN'))}
+                    </td>
+                    <td className={`px-4 py-3 text-xs font-semibold text-blue-600 dark:text-blue-400 ${isSubVisible('deposit') ? '' : 'hidden'}`}>
+                      ₹{sub.deposit_paid != null ? Number(sub.deposit_paid).toLocaleString('en-IN') : (sub.custom_deposit_amount != null ? Number(sub.custom_deposit_amount).toLocaleString('en-IN') : Number(sub.plan?.fixed_deposit || 0).toLocaleString('en-IN'))}
+                    </td>
+                    <td className={`px-4 py-3 text-xs font-bold text-gray-900 dark:text-white ${isSubVisible('total_amount') ? '' : 'hidden'}`}>
+                      ₹{sub.total_paid != null ? Number(sub.total_paid).toLocaleString('en-IN') : Number(sub.amount_paid || 0).toLocaleString('en-IN')}
                     </td>
                     <td className={`px-4 py-3 text-xs ${isSubVisible('status') ? '' : 'hidden'}`}>
                       <Badge tone={sub.status === 'ACTIVE' ? 'success' : 'danger'} icon={sub.status === 'ACTIVE' ? CheckCircle2 : XCircle}>

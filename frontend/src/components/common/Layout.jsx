@@ -30,9 +30,34 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
     return () => { active = false }
   }, [user?.role, loginPromptKey])
 
+  const [statusMsg, setStatusMsg] = useState(null)
+  const [backupResult, setBackupResult] = useState(null)
+
+  const handleBackupNow = async () => {
+    setBusy(true)
+    setMessage('Creating backup...')
+    setStatusMsg({ type: 'info', text: 'Creating backup (JSON + SQL) and sending to admin email...' })
+    try {
+      const response = await api.post('/settings/backup/run')
+      const data = response.data || {}
+      setBackupResult(data)
+      if (data.email_sent) {
+        setStatusMsg({ type: 'success', text: 'Backup completed successfully and sent to admin email.' })
+      } else {
+        setStatusMsg({ type: 'warning', text: 'Backup generated successfully, but email delivery failed.' })
+      }
+    } catch (error) {
+      setStatusMsg({
+        type: 'error',
+        text: error.response?.data?.message || error.response?.data?.error || 'Failed to create backup.'
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const downloadBackup = async () => {
     setBusy(true)
-    setMessage('')
     try {
       const response = await api.get('/settings/export-backup')
       const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
@@ -44,9 +69,8 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
       link.click()
       link.remove()
       URL.revokeObjectURL(url)
-      setStep(null)
     } catch (error) {
-      setMessage(error.response?.data?.error || 'Could not download the backup.')
+      setStatusMsg({ type: 'error', text: error.response?.data?.error || 'Could not download the backup.' })
     } finally {
       setBusy(false)
     }
@@ -57,12 +81,40 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#393954] dark:bg-[#17172a]">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Download today’s backup?</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Your {backupInterval}-day backup reminder is due. Keep a current copy of members, books, library transactions, deposits, subscriptions, holidays, and settings.</p>
-        {message && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{message}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <button disabled={busy} onClick={() => setStep(null)} className="rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-bold text-gray-700 dark:border-[#393954] dark:text-gray-200">Later</button>
-          <button disabled={busy} onClick={downloadBackup} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{busy ? 'Preparing…' : 'Download Backup'}</button>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Database Backup Reminder</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Your {backupInterval}-day backup reminder is due. Creating a backup generates both a complete JSON archive and a native SQL dump, then automatically emails them to registered administrators.
+        </p>
+        {statusMsg && (
+          <div className={`mt-3 p-3 rounded-xl text-xs font-semibold ${
+            statusMsg.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+              : statusMsg.type === 'warning'
+              ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+              : statusMsg.type === 'info'
+              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+              : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+          }`}>
+            {statusMsg.text}
+          </div>
+        )}
+        {backupResult && (
+          <div className="mt-3 text-xs text-gray-500 space-y-1">
+            <p><strong>JSON:</strong> {backupResult.json_file}</p>
+            <p><strong>SQL:</strong> {backupResult.sql_file}</p>
+            {backupResult.recipients && <p><strong>Recipients:</strong> {backupResult.recipients.join(', ')}</p>}
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button disabled={busy} onClick={() => setStep(null)} className="rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-bold text-gray-700 dark:border-[#393954] dark:text-gray-200">
+            {statusMsg?.type === 'success' ? 'Close' : 'Later'}
+          </button>
+          <button disabled={busy} onClick={downloadBackup} className="rounded-xl border border-blue-200 dark:border-blue-800 px-4 py-2.5 text-sm font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30">
+            Download JSON
+          </button>
+          <button disabled={busy} onClick={handleBackupNow} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60 hover:bg-blue-700">
+            {busy ? 'Creating backup…' : 'Backup Now'}
+          </button>
         </div>
       </div>
     </div>

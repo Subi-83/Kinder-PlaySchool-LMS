@@ -115,7 +115,31 @@ def create_app(config_class=None):
     # Register error handlers
     register_error_handlers(app)
     
+    # Auto-ensure required custom subscription schema columns exist
+    with app.app_context():
+        _ensure_schema_columns(app)
+    
     return app
+
+def _ensure_schema_columns(app):
+    """Ensure additive columns exist without breaking existing deployments"""
+    try:
+        from sqlalchemy import text, inspect
+        engine = db.engine
+        inspector = inspect(engine)
+        table_names = inspector.get_table_names()
+        if 'student_subscriptions' in table_names:
+            cols = [c['name'] for c in inspector.get_columns('student_subscriptions')]
+            with engine.connect() as conn:
+                if 'is_custom_plan' not in cols:
+                    conn.execute(text("ALTER TABLE student_subscriptions ADD COLUMN is_custom_plan TINYINT(1) NOT NULL DEFAULT 0;"))
+                if 'custom_subscription_fee' not in cols:
+                    conn.execute(text("ALTER TABLE student_subscriptions ADD COLUMN custom_subscription_fee DECIMAL(10,2) NULL;"))
+                if 'custom_deposit_amount' not in cols:
+                    conn.execute(text("ALTER TABLE student_subscriptions ADD COLUMN custom_deposit_amount DECIMAL(10,2) NULL;"))
+                conn.commit()
+    except Exception as e:
+        app.logger.warning(f"Schema verification check notice: {e}")
 
 def register_error_handlers(app):
     """Register custom error handlers"""

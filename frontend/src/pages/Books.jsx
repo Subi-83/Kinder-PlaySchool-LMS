@@ -329,7 +329,7 @@ function Books() {
     books.length
   ])
 
-  const { sortedItems: sortedBooks, requestSort, directionFor } = useSortableData(filteredBooks, null, (row, key) => {
+  const { sortedItems: sortedBooks, requestSort, directionFor } = useSortableData(filteredBooks, { key: 'book_id', direction: 'asc' }, (row, key) => {
     if (key === 'book_id') {
       return [...(row.copies || [])]
         .sort((left, right) => String(left.barcode || '').localeCompare(String(right.barcode || ''), undefined, { numeric: true }))[0]?.barcode || row.book_title_id

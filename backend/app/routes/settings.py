@@ -1,4 +1,6 @@
-from flask import Blueprint, request, jsonify
+import os
+import re
+from flask import Blueprint, request, jsonify, current_app, send_file
 from flask_jwt_extended import jwt_required
 from app import db
 from app.models.settings import SystemSetting, Holiday
@@ -332,6 +334,39 @@ def export_full_backup():
         'settings': [s.to_dict() for s in SystemSetting.query.all()]
     }
     return jsonify(backup_data), 200
+
+@settings_bp.route('/backup/run', methods=['POST'])
+@jwt_required()
+@admin_required
+def trigger_backup_job():
+    """Trigger full backup job (JSON + SQL + Email to admin)."""
+    from app.services.backup_service import run_backup_job
+    current_user = get_current_user()
+    user_id = current_user.user_id if current_user else None
+    username = current_user.username if current_user else 'admin'
+    
+    result = run_backup_job(user_id=user_id, username=username)
+    status_code = 200 if result.get('success') else 500
+    return jsonify(result), status_code
+
+@settings_bp.route('/backup/download/<string:filename>', methods=['GET'])
+@jwt_required()
+@admin_required
+def download_backup_file(filename):
+    """Safely download a generated backup file."""
+    # Validate filename pattern to prevent directory traversal
+    if not re.match(r'^playschool_backup_\d{4}-\d{2}-\d{2}_\d{4}\.(json|sql)$', filename):
+        return jsonify({'error': 'Invalid backup filename'}), 400
+
+    backup_dir = current_app.config.get('BACKUP_DIR') or 'backups'
+    if not os.path.isabs(backup_dir):
+        backup_dir = os.path.join(current_app.root_path, '..', backup_dir)
+    
+    file_path = os.path.join(backup_dir, filename)
+    if not os.path.isfile(file_path):
+        return jsonify({'error': 'Backup file not found'}), 404
+        
+    return send_file(file_path, as_attachment=True, download_name=filename)
 
 @settings_bp.route('/import-backup', methods=['POST'])
 @jwt_required()

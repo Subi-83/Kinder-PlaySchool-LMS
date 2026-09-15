@@ -494,6 +494,29 @@ def seed_database():
 
         db.session.commit()
 
+        print(" -> Seeding E-Book Records...")
+        ebooks_data = [
+            ('EBL10001', 'The Little Seed', 'Eric Carle', 'L1', 'FIC', 'World of Eric Carle', 2001),
+            ('EBL20001', 'The Tiger Who Came to Tea', 'Judith Kerr', 'L2', 'FAIRY', 'HarperCollins', 1968),
+            ('EBL30001', 'Ada Twist, Scientist', 'Andrea Beaty', 'L3', 'SCI', 'Abrams Books', 2016),
+            ('EBL40001', 'The Magic Faraway Tree', 'Enid Blyton', 'L4', 'FIC', 'Egmont', 1943),
+        ]
+        for ebook_id, title, author, level_code, category_code, publisher, publication_year in ebooks_data:
+            if BookTitle.query.filter_by(e_book_id=ebook_id).first():
+                continue
+            db.session.add(BookTitle(
+                e_book_id=ebook_id,
+                title=title,
+                author=author,
+                level_id=level_objs[level_code].level_id,
+                category_id=cat_objs[category_code].category_id,
+                publisher=publisher,
+                publication_year=publication_year,
+                ebook_count=1,
+                description='Sample e-book record for reports and the e-books register.'
+            ))
+        db.session.commit()
+
         # Fetch all available copies
         all_copies = BookCopy.query.all()
 

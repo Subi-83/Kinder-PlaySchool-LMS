@@ -397,7 +397,7 @@ def update_ebook_endpoint(book_id):
 @permission_required('book.view')
 def get_books():
     """Get physical book titles only; e-books have their own register."""
-    books = BookTitle.query.filter(BookTitle.copies.any()).order_by(BookTitle.title).all()
+    books = BookTitle.query.join(BookCopy).order_by(BookCopy.barcode.asc(), BookCopy.copy_number.asc()).all()
     return jsonify([b.to_dict() for b in books]), 200
 
 @books_bp.route('/ebooks', methods=['GET'])
@@ -1467,4 +1467,3 @@ def activate_shelf(shelf_id):
     shelf.is_active = True
     db.session.commit()
     return jsonify(shelf.to_dict()), 200
-
