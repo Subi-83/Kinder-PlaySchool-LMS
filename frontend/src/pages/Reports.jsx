@@ -8,7 +8,7 @@ import { PageHeader, Button, Card, LoadingState, EmptyState, Checkbox, useSortab
 
 const tabs = [
   { id: 'students-detailed', label: 'JK Members Report', perm: 'report.member' },
-  { id: 'subscription-payments', label: 'Subscription Payments', perm: 'report.financial' },
+  // { id: 'subscription-payments', label: 'Subscription Payments', perm: 'report.financial' },
   { id: 'books-detailed', label: 'Books Report', perm: 'report.stock' },
   { id: 'ebooks-detailed', label: 'E-books Report', perm: 'report.stock' },
   { id: 'fines', label: 'Fines Report', perm: 'report.fine' },
@@ -16,7 +16,11 @@ const tabs = [
   { id: 'issue-return', label: 'Issue / Return Report', perm: 'report.issue_return' }
 ]
 
-const FIELD_LABELS = { book_id: 'Book ID', available_books: 'No. of Available Books' }
+const FIELD_LABELS = {
+  book_id: 'Book ID', student_id: 'Student ID', subscription_id: 'Subscription ID',
+  roll_number: 'Roll Number', paid_amount: 'Paid Amount', balance_after: 'Balance Amount',
+  available_books: 'No. of Available Books', price: 'MRP'
+}
 const pretty = (key) => FIELD_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 const BOOK_FIELD_ORDER = {
@@ -28,6 +32,9 @@ const BOOK_FIELD_ORDER = {
 const REPORT_FIELD_ORDER = {
   subscription_payments: ['subscription_id', 'student_id', 'roll_number', 'student_name', 'plan_name', 'start_date', 'end_date', 'amount', 'paid_amount', 'payment_date', 'payment_method'],
   financial_subscription_payments: ['subscription_id', 'student_id', 'roll_number', 'student_name', 'plan_name', 'start_date', 'end_date', 'amount', 'paid_amount', 'payment_date', 'payment_method'],
+  financial_deposit_transactions: ['transaction_id', 'student_id', 'student_name', 'transaction_type', 'amount', 'balance_after', 'created_at', 'reference_id'],
+  issue_return_records: ['student_id', 'student_name', 'book_title', 'issue_date', 'due_date', 'fine_amount', 'damage_charge'],
+  current_overdue_books: ['student_id', 'student_name', 'book_title', 'days_overdue', 'due_date'],
   ebooks_list: ['record_id', 'book_title', 'author', 'publisher', 'publication_year']
 }
 
@@ -115,7 +122,7 @@ function PaginatedReportTable({ title, rows, activeTab, selectedFields, onToggle
                 <tr key={(page - 1) * perPage + index} className="hover:bg-blue-50/30 dark:hover:bg-[#19192e]">
                   {Object.entries(row).map(([cellKey, value]) => (
                     <td className={`px-5 py-3.5 text-gray-700 dark:text-gray-300 ${typeof value === 'number' ? 'text-right font-medium' : ''}`} key={cellKey}>
-                      {typeof value === 'number' && /(amount|fine|charge|balance|deposit)/.test(cellKey) ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : String(value ?? '-')}
+                      {typeof value === 'number' && /(amount|fine|charge|balance|deposit|price|mrp)/.test(cellKey) ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : String(value ?? '-')}
                     </td>
                   ))}
                 </tr>
@@ -289,6 +296,14 @@ function Reports() {
     }
     if (active === 'issue-return') {
       return [...rawLists, ...extraData].map(([title, rows]) => {
+        if (title === 'issue_return_records') {
+          const fields = REPORT_FIELD_ORDER.issue_return_records
+          return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
+        }
+        if (title === 'Current Overdue Books') {
+          const fields = REPORT_FIELD_ORDER.current_overdue_books
+          return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, field === 'student_id' ? (row.student_uid || row.student_id) : row[field]])))]
+        }
         if (title !== 'Low Deposit Accounts') return [title, rows]
         return [title, rows.map((row) => ({
           student_id: row.student_uid || row.student_id,
@@ -303,8 +318,12 @@ function Reports() {
         : active === 'financial' ? 'financial_subscription_payments' : 'ebooks_list'
       const fields = REPORT_FIELD_ORDER[key]
       return rawLists.map(([title, rows]) => {
-        if (active === 'financial' && title !== 'subscription_payments') return [title, rows]
-        return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
+        const selectedFields = active === 'financial' && title === 'deposit_transactions'
+          ? REPORT_FIELD_ORDER.financial_deposit_transactions
+          : active === 'financial' && title !== 'subscription_payments' ? null : fields
+        return selectedFields
+          ? [title, rows.map((row) => Object.fromEntries(selectedFields.map((field) => [field, row[field]])))]
+          : [title, rows]
       })
     }
     return [...rawLists, ...extraData]

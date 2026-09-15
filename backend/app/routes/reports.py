@@ -128,6 +128,18 @@ def fine_report():
 @permission_required('report.financial')
 def financial_report():
     """Get financial report"""
+    def subscription_amounts(subscription):
+        plan = subscription.plan_ref
+        if subscription.is_custom_plan and subscription.custom_subscription_fee is not None:
+            amount = subscription.custom_subscription_fee
+        else:
+            plan_amounts = (plan.subscription_fee, plan.price, plan.total_amount) if plan else ()
+            amount = next((value for value in plan_amounts if value is not None and value > 0), next((value for value in plan_amounts if value is not None), 0))
+        paid_amount = next((value for value in (
+            subscription.total_paid, subscription.amount_paid, subscription.subscription_fee_paid
+        ) if value is not None), 0)
+        return float(amount), float(paid_amount)
+
     total_deposits = db.session.query(
         db.func.sum(DepositTransaction.amount)
     ).filter(
@@ -168,16 +180,21 @@ def financial_report():
             student_id=subscription.student_id,
             academic_year_id=subscription.academic_year_id
         ).order_by(StudentEnrollment.enrollment_id.desc()).first()
+        if not enrollment:
+            enrollment = StudentEnrollment.query.filter_by(student_id=subscription.student_id).order_by(
+                StudentEnrollment.enrollment_id.desc()
+            ).first()
+        amount, paid_amount = subscription_amounts(subscription)
         financial_subscription_rows.append({
             'subscription_id': subscription.subscription_id,
             'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
             'roll_number': enrollment.roll_number if enrollment else '-',
             'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
-            'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
+            'plan_name': 'Customized Plan' if subscription.is_custom_plan else (subscription.plan_ref.plan_name if subscription.plan_ref else None),
             'start_date': subscription.start_date.strftime('%Y-%m-%d') if subscription.start_date else None,
             'end_date': subscription.end_date.strftime('%Y-%m-%d') if subscription.end_date else None,
-            'amount': float(subscription.plan_ref.price or 0) if subscription.plan_ref else 0.0,
-            'paid_amount': float(subscription.amount_paid or 0),
+            'amount': amount,
+            'paid_amount': paid_amount,
             'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
             'payment_method': subscription.payment_method or '-'
         })
@@ -524,22 +541,39 @@ def subscription_payment_report():
     if academic_year_id:
         query = query.filter(StudentSubscription.academic_year_id == academic_year_id)
     subscriptions = query.order_by(StudentSubscription.subscription_id.asc()).all()
+    def subscription_amounts(subscription):
+        plan = subscription.plan_ref
+        if subscription.is_custom_plan and subscription.custom_subscription_fee is not None:
+            amount = subscription.custom_subscription_fee
+        else:
+            plan_amounts = (plan.subscription_fee, plan.price, plan.total_amount) if plan else ()
+            amount = next((value for value in plan_amounts if value is not None and value > 0), next((value for value in plan_amounts if value is not None), 0))
+        paid_amount = next((value for value in (
+            subscription.total_paid, subscription.amount_paid, subscription.subscription_fee_paid
+        ) if value is not None), 0)
+        return float(amount), float(paid_amount)
+
     rows = []
     for subscription in subscriptions:
         enrollment = StudentEnrollment.query.filter_by(
             student_id=subscription.student_id,
             academic_year_id=subscription.academic_year_id
         ).order_by(StudentEnrollment.enrollment_id.desc()).first()
+        if not enrollment:
+            enrollment = StudentEnrollment.query.filter_by(student_id=subscription.student_id).order_by(
+                StudentEnrollment.enrollment_id.desc()
+            ).first()
+        amount, paid_amount = subscription_amounts(subscription)
         rows.append({
             'subscription_id': subscription.subscription_id,
             'student_id': subscription.student_ref.student_uid if subscription.student_ref else None,
             'roll_number': enrollment.roll_number if enrollment else '-',
             'student_name': subscription.student_ref.student_name if subscription.student_ref else None,
-            'plan_name': subscription.plan_ref.plan_name if subscription.plan_ref else None,
+            'plan_name': 'Customized Plan' if subscription.is_custom_plan else (subscription.plan_ref.plan_name if subscription.plan_ref else None),
             'start_date': subscription.start_date.strftime('%Y-%m-%d') if subscription.start_date else None,
             'end_date': subscription.end_date.strftime('%Y-%m-%d') if subscription.end_date else None,
-            'amount': float(subscription.plan_ref.price or 0) if subscription.plan_ref else 0.0,
-            'paid_amount': float(subscription.amount_paid or 0),
+            'amount': amount,
+            'paid_amount': paid_amount,
             'payment_date': subscription.payment_date.strftime('%Y-%m-%d') if subscription.payment_date else None,
             'payment_method': subscription.payment_method or '-'
         })
@@ -637,7 +671,7 @@ def books_detailed_report():
             'author': b.author,
             'category': cat_name,
             'level': level_name,
-            'mrp': float(b.mrp) if b.mrp is not None else None,
+            'mrp': float(b.mrp) if b.mrp is not None else (float(first_copy.purchase_price) if first_copy and first_copy.purchase_price is not None else None),
             'publisher': b.publisher or '-',
             'publication_year': b.publication_year or '-',
             'purchase_years': ', '.join(str(year) for year in sorted({copy.purchase_year for copy in copies if copy.purchase_year})) or '-',
@@ -656,7 +690,7 @@ def books_detailed_report():
                     'name': b.title,
                     'author': b.author,
                     'publisher': b.publisher or '-',
-                    'price': float(b.mrp) if b.mrp is not None else None,
+                    'price': float(b.mrp) if b.mrp is not None else (float(copy.purchase_price) if copy.purchase_price is not None else None),
                     'condition': copy.condition,
                     'location': copy.location or '-',
                     'notes': copy.notes or '-'
