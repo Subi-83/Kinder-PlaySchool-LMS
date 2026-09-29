@@ -694,7 +694,7 @@ function Students() {
                   </td>
                   <td className={`px-4 py-3 ${isVisible('programme') ? '' : 'hidden'}`}>
                     <div className="font-medium text-gray-900 dark:text-white">{activeEnc?.programme?.display_name || activeEnc?.programme?.programme_name || '—'}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Grade: {activeEnc?.grade || '—'}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Age: {activeEnc?.grade || '—'}</div>
                   </td>
 
                   {/* Library Access Toggle Button */}
