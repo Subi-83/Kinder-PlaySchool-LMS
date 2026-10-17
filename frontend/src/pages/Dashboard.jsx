@@ -100,7 +100,7 @@ function Dashboard() {
   const cards = [
     { label: membersLabel, value: stats.total_students, icon: GraduationCap, tone: 'blue', to: '/students' },
     { label: 'Active memberships', value: stats.active_members, icon: Sparkles, tone: 'violet', to: '/subscriptions' },
-    { label: 'Books in library', value: stats.total_books - stats.lost, icon: BookOpen, tone: 'amber', to: '/books' },
+    { label: 'Books in library', value: stats.total_books, icon: BookOpen, tone: 'amber', to: '/books' },
     { label: 'Available now', value: stats.available, icon: CheckCircle2, tone: 'emerald', to: '/books' },
     { label: 'Currently issued', value: stats.active_issues, icon: BookOpenCheck, tone: 'cyan', to: '/library' },
     { label: 'Overdue', value: stats.overdue, icon: AlarmClock, tone: 'rose', to: '/library' },

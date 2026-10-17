@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { useAppSettings } from '../context/AppSettingsContext'
-import { PageHeader, Button, IconButton, Badge, EmptyState, LoadingState, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, IconButton, Badge, EmptyState, LoadingState, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 
 const STUDENT_COLUMNS = [
   { key: 'roll', label: 'Roll & ID', locked: true },
@@ -337,8 +337,8 @@ function Students() {
   const totalItems = sortedStudents.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
   const paginatedStudents = sortedStudents.slice(
-  (currentPage - 1) * pageSize,
-  currentPage * pageSize
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
   )
 
   const textFields = [
@@ -367,14 +367,14 @@ function Students() {
           <>
             <Button
               variant="primary"
-              icon={showForm ? X : Plus}
+              icon={Plus}
               onClick={() => {
                 setForm(emptyForm())
                 setEditing(null)
-                setShowForm((v) => !v)
+                setShowForm(true)
               }}
             >
-              {showForm ? 'Cancel' : `New ${memberLabel}`}
+              New {memberLabel}
             </Button>
             <Button
               variant="success"
@@ -453,10 +453,18 @@ function Students() {
         </div>
       )}
 
-      {/* CREATE / EDIT FORM */}
-      {showForm && (
-        <form onSubmit={submit} className="bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-sm space-y-4">
-          <h3 className="font-bold text-gray-900 dark:text-white text-lg">{editing ? `Edit ${memberLabel} Record` : `Create New ${memberLabel}`}</h3>
+      {/* CREATE / EDIT MODAL */}
+      <Modal
+        isOpen={showForm}
+        onClose={() => {
+          setShowForm(false)
+          setEditing(null)
+        }}
+        title={editing ? `Edit ${memberLabel} Record` : `Create New ${memberLabel}`}
+        description={editing ? `Update personal details, contact info, and status for this ${memberLabel.toLowerCase()}.` : `Enter details below to register a new ${memberLabel.toLowerCase()} in the system.`}
+        size="4xl"
+      >
+        <form onSubmit={submit} className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {textFields.filter(([key]) => !editing || key !== 'grade').map(([key, label, type, optional]) => (
               <React.Fragment key={key}>
@@ -532,11 +540,23 @@ function Students() {
             </div>
           </div>
 
-          <Button type="submit" variant="primary">
-            {editing ? `Update ${memberLabel}` : `Save ${memberLabel}`}
-          </Button>
+          <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowForm(false)
+                setEditing(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              {editing ? `Update ${memberLabel}` : `Save ${memberLabel}`}
+            </Button>
+          </div>
         </form>
-      )}
+      </Modal>
 
       {/* FILTER BAR */}
       <div className="bg-white dark:bg-[#17172a] rounded-2xl p-5 border border-gray-200 dark:border-[#292944] shadow-sm space-y-3">
@@ -571,92 +591,92 @@ function Students() {
 
         <div className="overflow-x-auto pb-2">
           <div className="flex min-w-max gap-3">
-          {/* Year Filter */}
-          <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Academic Year
-          <select
-            value={filterYear}
-            onChange={(e) => setFilterYear(e.target.value)}
-            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
-          >
-            <option value="">All Academic Years</option>
-            {academicYears.map((y) => (
-              <option key={y.academic_year_id} value={y.academic_year_id}>
-                {y.year_code}
-              </option>
-            ))}
-          </select>
-          </label>
+            {/* Year Filter */}
+            <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Academic Year
+              <select
+                value={filterYear}
+                onChange={(e) => setFilterYear(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+              >
+                <option value="">All Academic Years</option>
+                {academicYears.map((y) => (
+                  <option key={y.academic_year_id} value={y.academic_year_id}>
+                    {y.year_code}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          {/* Programme Filter */}
-          <label className="w-56 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Programme
-          <select
-            value={filterProgramme}
-            onChange={(e) => setFilterProgramme(e.target.value)}
-            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
-          >
-            <option value="">All Programmes</option>
-            {programmes.map((p) => (
-              <option key={p.programme_id} value={p.programme_id}>
-                {p.display_name || p.programme_code || p.programme_name}
-              </option>
-            ))}
-          </select>
-          </label>
+            {/* Programme Filter */}
+            <label className="w-56 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Programme
+              <select
+                value={filterProgramme}
+                onChange={(e) => setFilterProgramme(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+              >
+                <option value="">All Programmes</option>
+                {programmes.map((p) => (
+                  <option key={p.programme_id} value={p.programme_id}>
+                    {p.display_name || p.programme_code || p.programme_name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          {/* Grade Filter */}
-          <label className="w-44 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Grade
-          <select
-            value={filterGrade}
-            onChange={(e) => setFilterGrade(e.target.value)}
-            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
-          >
-            <option value="">All Grades</option>
-            {availableGrades.map((g) => (
-              <option key={g} value={g}>
-                Grade: {g}
-              </option>
-            ))}
-          </select>
-          </label>
+            {/* Grade Filter */}
+            <label className="w-44 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Grade
+              <select
+                value={filterGrade}
+                onChange={(e) => setFilterGrade(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+              >
+                <option value="">All Grades</option>
+                {availableGrades.map((g) => (
+                  <option key={g} value={g}>
+                    Grade: {g}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          {/* Library Access Filter */}
-          <label className="w-52 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Library Access
-          <select
-            value={filterLibraryAccess}
-            onChange={(e) => setFilterLibraryAccess(e.target.value)}
-            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
-          >
-            <option value="">Library Access (All)</option>
-            <option value="ENABLED">Library Access: Enabled</option>
-            <option value="DISABLED">Library Access: Disabled</option>
-          </select>
-          </label>
+            {/* Library Access Filter */}
+            <label className="w-52 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Library Access
+              <select
+                value={filterLibraryAccess}
+                onChange={(e) => setFilterLibraryAccess(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+              >
+                <option value="">Library Access (All)</option>
+                <option value="ENABLED">Library Access: Enabled</option>
+                <option value="DISABLED">Library Access: Disabled</option>
+              </select>
+            </label>
 
-          {/* Subscription Filter */}
-          <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Subscription
-          <select
-            value={filterSubStatus}
-            onChange={(e) => setFilterSubStatus(e.target.value)}
-            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
-          >
-            <option value="">Subscription (All)</option>
-            <option value="ACTIVE">Active Plan</option>
-            <option value="EXPIRED">No / Expired Plan</option>
-          </select>
-          </label>
+            {/* Subscription Filter */}
+            <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Subscription
+              <select
+                value={filterSubStatus}
+                onChange={(e) => setFilterSubStatus(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+              >
+                <option value="">Subscription (All)</option>
+                <option value="ACTIVE">Active Plan</option>
+                <option value="EXPIRED">No / Expired Plan</option>
+              </select>
+            </label>
 
-          {/* Status Filter */}
-          <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Member Status
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
-          >
-            <option value="">Status (All)</option>
-            <option value="ACTIVE">Active {membersLabel}</option>
-            <option value="INACTIVE">Inactive {membersLabel}</option>
-          </select>
-          </label>
+            {/* Status Filter */}
+            <label className="w-48 shrink-0 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Member Status
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-xs font-medium text-gray-900 dark:text-white"
+              >
+                <option value="">Status (All)</option>
+                <option value="ACTIVE">Active {membersLabel}</option>
+                <option value="INACTIVE">Inactive {membersLabel}</option>
+              </select>
+            </label>
           </div>
         </div>
       </div>
@@ -694,18 +714,17 @@ function Students() {
                   </td>
                   <td className={`px-4 py-3 ${isVisible('programme') ? '' : 'hidden'}`}>
                     <div className="font-medium text-gray-900 dark:text-white">{activeEnc?.programme?.display_name || activeEnc?.programme?.programme_name || '—'}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Grade: {activeEnc?.grade || '—'}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Age: {activeEnc?.grade || '—'}</div>
                   </td>
 
                   {/* Library Access Toggle Button */}
                   <td className={`px-4 py-3 text-center ${isVisible('library') ? '' : 'hidden'}`}>
                     <button
                       onClick={() => toggleLibraryAccess(s)}
-                      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all shadow-xs ${
-                        s.library_access
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-200'
-                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 hover:bg-rose-200'
-                      }`}
+                      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all shadow-xs ${s.library_access
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-200'
+                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 hover:bg-rose-200'
+                        }`}
                       title="Click to toggle library access"
                     >
                       {s.library_access ? (
@@ -852,96 +871,297 @@ function Students() {
         </div>
       )}
 
-      {/* EXCEL IMPORT MODAL DIALOG */}
-      {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-lg w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                  <FileSpreadsheet className="h-5 w-5 text-violet-600" aria-hidden="true" /> Import {membersLabel} from Excel / CSV
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload .xlsx or .csv data exported from Google Forms or spreadsheets.</p>
-                <p className="text-[11px] text-gray-400 mt-1">Existing members are matched only by child name and birthdate. Shared parent details will not merge siblings or twins.</p>
-                <p className="text-[11px] text-gray-400 mt-1">Existing members are matched by child name and birthdate.</p>
-              </div>
-              <IconButton
-                icon={X}
-                label="Close"
-                variant="ghost"
-                onClick={() => {
-                  setShowImport(false)
-                  setStudentExcelFile(null)
-                  setError('')
-                }}
-              />
-            </div>
+      {/* EXCEL IMPORT MODAL */}
+      <Modal
+        isOpen={showImport}
+        onClose={() => {
+          setShowImport(false)
+          setStudentExcelFile(null)
+          setError('')
+        }}
+        title={`Import ${membersLabel} from Excel / CSV`}
+        description="Upload .xlsx or .csv data exported from Google Forms or spreadsheets. Existing members are matched by child name and birthdate."
+        size="xl"
+      >
+        <form onSubmit={importStudentSpreadsheet} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+              Target Academic Year *
+            </label>
+            <select
+              required
+              value={importYear}
+              onChange={(e) => setImportYear(e.target.value)}
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-violet-500 focus:outline-none"
+            >
+              <option value="">Select Target Academic Year</option>
+              {academicYears.map((y) => (
+                <option key={y.academic_year_id} value={y.academic_year_id}>
+                  {y.year_code} {y.is_current ? '(Current Active Year)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {error && (
-              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-                <span>{error}</span>
-              </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+              Fallback Default Programme (Optional)
+            </label>
+            <select
+              value={importProgramme}
+              onChange={(e) => setImportProgramme(e.target.value)}
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-violet-500 focus:outline-none"
+            >
+              <option value="">Auto-detect from Excel / Auto-create missing</option>
+              {programmes.map((p) => (
+                <option key={p.programme_id} value={p.programme_id}>
+                  {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">If the spreadsheet does not specify a programme for a student, this fallback programme will be assigned.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+              Select Excel (.xlsx) or CSV (.csv) File *
+            </label>
+            <input
+              required
+              type="file"
+              accept=".xlsx, .xls, .csv"
+              onChange={(e) => setStudentExcelFile(e.target.files[0] || null)}
+              className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-gray-900 dark:text-white file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700 cursor-pointer"
+            />
+            {studentExcelFile && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
+                Selected file: {studentExcelFile.name} ({(studentExcelFile.size / 1024).toFixed(1)} KB)
+              </p>
             )}
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+              Supported columns: <strong>Child's Name</strong>, <strong>Birthdate / Age</strong>, <strong>Grade / Programme</strong>, <strong>Mother's / Father's Mobile & Name</strong>, <strong>Email</strong>, <strong>School</strong>, <strong>Library Subscription</strong>.
+            </p>
+          </div>
 
-            <form onSubmit={importStudentSpreadsheet} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Target Academic Year *
-                </label>
-                <select
-                  required
-                  value={importYear}
-                  onChange={(e) => setImportYear(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-violet-500 focus:outline-none"
-                >
-                  <option value="">Select Target Academic Year</option>
-                  {academicYears.map((y) => (
-                    <option key={y.academic_year_id} value={y.academic_year_id}>
-                      {y.year_code} {y.is_current ? '(Current Active Year)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowImport(false)
+                setStudentExcelFile(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="secondary"
+              className="!bg-violet-600 hover:!bg-violet-700 !text-white"
+              loading={importing}
+              disabled={!studentExcelFile || !importYear}
+            >
+              {importing ? 'Processing & Importing Data…' : 'Start Bulk Import'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Fallback Default Programme (Optional)
-                </label>
-                <select
-                  value={importProgramme}
-                  onChange={(e) => setImportProgramme(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-violet-500 focus:outline-none"
-                >
-                  <option value="">Auto-detect from Excel / Auto-create missing</option>
-                  {programmes.map((p) => (
-                    <option key={p.programme_id} value={p.programme_id}>
-                      {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-gray-400 mt-1">If the spreadsheet does not specify a programme for a student, this fallback programme will be assigned.</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Select Excel (.xlsx) or CSV (.csv) File *
-                </label>
+      {/* EXISTING / OLD STUDENT RE-ENROLLMENT MODAL */}
+      <Modal
+        isOpen={showEnrollmentDialog}
+        onClose={() => {
+          setShowEnrollmentDialog(false)
+          setReEnrollStudent(null)
+          setExistingMatches([])
+          setExistingSearch('')
+        }}
+        title={`Re-Enroll Existing / Old ${memberLabel}`}
+        description={`Search for an existing ${memberLabel.toLowerCase()} record to enroll them into a new academic year.`}
+        size="4xl"
+      >
+        <div className="space-y-5">
+          {!reEnrollStudent ? (
+            /* SEARCH STEP */
+            <div className="space-y-4">
+              <div className="flex gap-2">
                 <input
-                  required
-                  type="file"
-                  accept=".xlsx, .xls, .csv"
-                  onChange={(e) => setStudentExcelFile(e.target.files[0] || null)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#10101d] text-gray-900 dark:text-white file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700 cursor-pointer"
+                  type="text"
+                  value={existingSearch}
+                  onChange={(e) => setExistingSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchExistingStudents())}
+                  placeholder={`Enter ${memberLabel} Name, ${memberPrefix} ID, or Phone Number...`}
+                  className="flex-1 px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
-                {studentExcelFile && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
-                    Selected file: {studentExcelFile.name} ({(studentExcelFile.size / 1024).toFixed(1)} KB)
-                  </p>
-                )}
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                  Supported columns: <strong>Child's Name</strong>, <strong>Birthdate / Age</strong>, <strong>Grade / Programme</strong>, <strong>Mother's / Father's Mobile & Name</strong>, <strong>Email</strong>, <strong>School</strong>, <strong>Library Subscription</strong>.
-                </p>
+                <Button type="button" variant="success" icon={Search} onClick={searchExistingStudents}>
+                  Search
+                </Button>
+              </div>
+
+              {existingMatches.length > 0 && (
+                <div className="space-y-2 border border-gray-200 dark:border-gray-800 rounded-xl p-3 max-h-60 overflow-y-auto bg-gray-50 dark:bg-[#10101d]">
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Matching {membersLabel} ({existingMatches.length}):</div>
+                  {existingMatches.map((st) => (
+                    <div
+                      key={st.student_id}
+                      onClick={() => selectExistingStudent(st)}
+                      className="p-3 bg-white dark:bg-[#17172a] hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-gray-200 dark:border-gray-800 rounded-xl cursor-pointer transition-all flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-bold text-sm text-gray-900 dark:text-white">{st.student_name} <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">({st.student_uid})</span></div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          DOB: {st.date_of_birth || 'N/A'} | Mother: {st.mother_name || 'N/A'} ({st.mother_phone || '—'})
+                        </div>
+                      </div>
+                      <Button type="button" variant="success" size="sm">
+                        Select
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {existingSearch && existingMatches.length === 0 && (
+                <EmptyState
+                  icon={UserSearch}
+                  title={`No matching ${memberLabel.toLowerCase()} found`}
+                  description="Double-check the search or create a new record instead."
+                />
+              )}
+            </div>
+          ) : (
+            /* ENROLLMENT FORM STEP */
+            <form onSubmit={handleReEnroll} className="space-y-4">
+              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex justify-between items-center">
+                <div>
+                  <div className="font-bold text-sm text-emerald-900 dark:text-emerald-200">
+                    Selected: {reEnrollStudent.student_name}
+                  </div>
+                  <div className="text-xs text-emerald-700 dark:text-emerald-400 font-mono">
+                    ID: {reEnrollStudent.student_uid} | DOB: {reEnrollStudent.date_of_birth || 'N/A'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReEnrollStudent(null)}
+                  className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+                >
+                  Change {memberLabel}
+                </button>
+              </div>
+
+              <div>
+                <h4 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Member Profile — review and update</h4>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  {[
+                    ['student_name', `${memberLabel} Name`, 'text', true], ['date_of_birth', 'Date of Birth', 'date', true],
+                    ['school_name', 'School Name'], ['student_email', 'Member / Contact Email', 'email'],
+                    ['mother_name', "Mother's Name"], ['mother_phone', "Mother's Phone", 'tel'], ['mother_email', "Mother's Email", 'email'],
+                    ['father_name', "Father's Name"], ['father_phone', "Father's Phone", 'tel'], ['father_email', "Father's Email", 'email'],
+                    ['emergency_contact_name', 'Emergency Contact Name'], ['emergency_contact_phone', 'Emergency Contact Phone', 'tel']
+                  ].map(([key, label, type = 'text', required = false]) => (
+                    <label key={key} className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">{label}{required ? ' *' : ''}
+                      <input required={required} type={type} value={reEnrollForm[key]} onChange={(e) => setReEnrollForm((form) => ({ ...form, [key]: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white" />
+                    </label>
+                  ))}
+                  <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Gender
+                    <select value={reEnrollForm.gender} onChange={(e) => setReEnrollForm((form) => ({ ...form, gender: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
+                  </label>
+                  <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Library Subscription for Next Course
+                    <select value={reEnrollForm.library_access ? 'YES' : 'NO'} onChange={(e) => setReEnrollForm((form) => ({ ...form, library_access: e.target.value === 'YES' }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white">
+                      <option value="YES">Yes — carry deposit and plan forward</option>
+                      <option value="NO">No — deposit refund required</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
+                    Address
+                    <textarea
+                      rows="3"
+                      value={reEnrollForm.address}
+                      onChange={(e) => setReEnrollForm((form) => ({ ...form, address: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+                    />
+                  </label>
+                  <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
+                    Medical Notes
+                    <textarea
+                      rows="3"
+                      value={reEnrollForm.medical_notes}
+                      onChange={(e) => setReEnrollForm((form) => ({ ...form, medical_notes: e.target.value }))}
+                      className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <h4 className="border-t border-gray-200 pt-4 text-sm font-bold text-gray-900 dark:border-gray-800 dark:text-white">New Academic-Year Enrollment</h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                    Academic Year *
+                  </label>
+                  <select
+                    required
+                    value={reEnrollForm.academic_year_id}
+                    onChange={(e) => setReEnrollForm((f) => ({ ...f, academic_year_id: e.target.value }))}
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    <option value="">Select Academic Year</option>
+                    {academicYears.map((y) => (
+                      <option key={y.academic_year_id} value={y.academic_year_id}>
+                        {y.year_code} {y.is_current ? '(Current Active Year)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                    Programme *
+                  </label>
+                  <select
+                    required
+                    value={reEnrollForm.programme_id}
+                    onChange={(e) => setReEnrollForm((f) => ({ ...f, programme_id: e.target.value }))}
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    <option value="">Select Programme</option>
+                    {programmes.map((p) => (
+                      <option key={p.programme_id} value={p.programme_id}>
+                        {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                    Grade / Class
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Nursery, LKG, Grade 1"
+                    value={reEnrollForm.grade}
+                    onChange={(e) => setReEnrollForm((f) => ({ ...f, grade: e.target.value }))}
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                    Section
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. A, B, Main"
+                    value={reEnrollForm.section}
+                    onChange={(e) => setReEnrollForm((f) => ({ ...f, section: e.target.value }))}
+                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
@@ -949,255 +1169,21 @@ function Students() {
                   type="button"
                   variant="secondary"
                   onClick={() => {
-                    setShowImport(false)
-                    setStudentExcelFile(null)
+                    setShowEnrollmentDialog(false)
+                    setReEnrollStudent(null)
+                    setExistingMatches([])
                   }}
                 >
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  className="!bg-violet-600 hover:!bg-violet-700 !text-white"
-                  loading={importing}
-                  disabled={!studentExcelFile || !importYear}
-                >
-                  {importing ? 'Processing & Importing Data…' : 'Start Bulk Import'}
+                <Button type="submit" variant="success">
+                  Complete Re-Enrollment
                 </Button>
               </div>
             </form>
-          </div>
+          )}
         </div>
-      )}
-
-      {/* EXISTING / OLD STUDENT RE-ENROLLMENT MODAL DIALOG */}
-      {showEnrollmentDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-[#17172a] rounded-2xl max-w-5xl w-full p-6 border border-gray-200 dark:border-[#292944] shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                  <GraduationCap className="h-5 w-5 text-emerald-600" aria-hidden="true" /> Re-Enroll Existing / Old {memberLabel}
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Search for an existing {memberLabel.toLowerCase()} record to enroll them into a new academic year.</p>
-              </div>
-              <IconButton
-                icon={X}
-                label="Close"
-                variant="ghost"
-                onClick={() => {
-                  setShowEnrollmentDialog(false)
-                  setReEnrollStudent(null)
-                  setExistingMatches([])
-                  setExistingSearch('')
-                }}
-              />
-            </div>
-
-            {!reEnrollStudent ? (
-              /* SEARCH STEP */
-              <div className="space-y-4">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={existingSearch}
-                    onChange={(e) => setExistingSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchExistingStudents())}
-                    placeholder={`Enter ${memberLabel} Name, ${memberPrefix} ID, or Phone Number...`}
-                    className="flex-1 px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                  <Button type="button" variant="success" icon={Search} onClick={searchExistingStudents}>
-                    Search
-                  </Button>
-                </div>
-
-                {existingMatches.length > 0 && (
-                  <div className="space-y-2 border border-gray-200 dark:border-gray-800 rounded-xl p-3 max-h-60 overflow-y-auto bg-gray-50 dark:bg-[#10101d]">
-                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Matching {membersLabel} ({existingMatches.length}):</div>
-                    {existingMatches.map((st) => (
-                      <div
-                        key={st.student_id}
-                        onClick={() => selectExistingStudent(st)}
-                        className="p-3 bg-white dark:bg-[#17172a] hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-gray-200 dark:border-gray-800 rounded-xl cursor-pointer transition-all flex items-center justify-between"
-                      >
-                        <div>
-                          <div className="font-bold text-sm text-gray-900 dark:text-white">{st.student_name} <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">({st.student_uid})</span></div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            DOB: {st.date_of_birth || 'N/A'} | Mother: {st.mother_name || 'N/A'} ({st.mother_phone || '—'})
-                          </div>
-                        </div>
-                        <Button type="button" variant="success" size="sm">
-                          Select
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {existingSearch && existingMatches.length === 0 && (
-                  <EmptyState
-                    icon={UserSearch}
-                    title={`No matching ${memberLabel.toLowerCase()} found`}
-                    description="Double-check the search or create a new record instead."
-                  />
-                )}
-              </div>
-            ) : (
-              /* ENROLLMENT FORM STEP */
-              <form onSubmit={handleReEnroll} className="space-y-4">
-                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex justify-between items-center">
-                  <div>
-                    <div className="font-bold text-sm text-emerald-900 dark:text-emerald-200">
-                      Selected: {reEnrollStudent.student_name}
-                    </div>
-                    <div className="text-xs text-emerald-700 dark:text-emerald-400 font-mono">
-                      ID: {reEnrollStudent.student_uid} | DOB: {reEnrollStudent.date_of_birth || 'N/A'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setReEnrollStudent(null)}
-                    className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
-                  >
-                    Change {memberLabel}
-                  </button>
-                </div>
-
-                <div>
-                  <h4 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Member Profile — review and update</h4>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                    {[
-                      ['student_name', `${memberLabel} Name`, 'text', true], ['date_of_birth', 'Date of Birth', 'date', true],
-                      ['school_name', 'School Name'], ['student_email', 'Member / Contact Email', 'email'],
-                      ['mother_name', "Mother's Name"], ['mother_phone', "Mother's Phone", 'tel'], ['mother_email', "Mother's Email", 'email'],
-                      ['father_name', "Father's Name"], ['father_phone', "Father's Phone", 'tel'], ['father_email', "Father's Email", 'email'],
-                      ['emergency_contact_name', 'Emergency Contact Name'], ['emergency_contact_phone', 'Emergency Contact Phone', 'tel']
-                    ].map(([key, label, type = 'text', required = false]) => (
-                      <label key={key} className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">{label}{required ? ' *' : ''}
-                        <input required={required} type={type} value={reEnrollForm[key]} onChange={(e) => setReEnrollForm((form) => ({ ...form, [key]: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white" />
-                      </label>
-                    ))}
-                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Gender
-                      <select value={reEnrollForm.gender} onChange={(e) => setReEnrollForm((form) => ({ ...form, gender: e.target.value }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
-                    </label>
-                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">Library Subscription for Next Course
-                      <select value={reEnrollForm.library_access ? 'YES' : 'NO'} onChange={(e) => setReEnrollForm((form) => ({ ...form, library_access: e.target.value === 'YES' }))} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white">
-                        <option value="YES">Yes — carry deposit and plan forward</option>
-                        <option value="NO">No — deposit refund required</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
-                      Address
-                      <textarea
-                        rows="3"
-                        value={reEnrollForm.address}
-                        onChange={(e) => setReEnrollForm((form) => ({ ...form, address: e.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                      />
-                    </label>
-                    <label className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">
-                      Medical Notes
-                      <textarea
-                        rows="3"
-                        value={reEnrollForm.medical_notes}
-                        onChange={(e) => setReEnrollForm((form) => ({ ...form, medical_notes: e.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm normal-case dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <h4 className="border-t border-gray-200 pt-4 text-sm font-bold text-gray-900 dark:border-gray-800 dark:text-white">New Academic-Year Enrollment</h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                      Academic Year *
-                    </label>
-                    <select
-                      required
-                      value={reEnrollForm.academic_year_id}
-                      onChange={(e) => setReEnrollForm((f) => ({ ...f, academic_year_id: e.target.value }))}
-                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    >
-                      <option value="">Select Academic Year</option>
-                      {academicYears.map((y) => (
-                        <option key={y.academic_year_id} value={y.academic_year_id}>
-                          {y.year_code} {y.is_current ? '(Current Active Year)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                      Programme *
-                    </label>
-                    <select
-                      required
-                      value={reEnrollForm.programme_id}
-                      onChange={(e) => setReEnrollForm((f) => ({ ...f, programme_id: e.target.value }))}
-                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    >
-                      <option value="">Select Programme</option>
-                      {programmes.map((p) => (
-                        <option key={p.programme_id} value={p.programme_id}>
-                          {p.programme_code || p.programme_name} - {p.display_name || p.programme_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                      Grade / Class
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Nursery, LKG, Grade 1"
-                      value={reEnrollForm.grade}
-                      onChange={(e) => setReEnrollForm((f) => ({ ...f, grade: e.target.value }))}
-                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                      Section
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. A, B, Main"
-                      value={reEnrollForm.section}
-                      onChange={(e) => setReEnrollForm((f) => ({ ...f, section: e.target.value }))}
-                      className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#10101d] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      setShowEnrollmentDialog(false)
-                      setReEnrollStudent(null)
-                      setExistingMatches([])
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="success">
-                    Complete Re-Enrollment
-                  </Button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   )
 }

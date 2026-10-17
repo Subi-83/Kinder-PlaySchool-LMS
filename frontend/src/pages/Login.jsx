@@ -5,12 +5,10 @@ import { useAuth } from '../context/AuthContext'
 import { Loader2, User, Lock, Eye, EyeOff, LogIn, BookOpen } from 'lucide-react'
 import ThemeToggle from '../components/common/ThemeToggle'
 import loginHero from '../assets/login-hero.jpg'
+import logoImg from '../assets/logo.png'
 
 function Login() {
   const { schoolName } = useAppSettings()
-  const schoolInitials = (schoolName || 'School')
-    .trim().split(/\s+/).filter(Boolean).slice(0, 2)
-    .map((word) => word[0]).join('').toUpperCase()
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123')
   const [showPassword, setShowPassword] = useState(false)
@@ -63,8 +61,8 @@ function Login() {
         <div className="w-full max-w-md">
           <div className="relative">
             {/* Brand badge, floating over the card's top edge */}
-            <div className="absolute left-1/2 -top-8 -translate-x-1/2 z-10 flex h-16 w-16 items-center justify-center rounded-full bg-primary-main text-xl font-bold text-white shadow-lg ring-4 ring-white dark:ring-[#1a1a2e]">
-              {schoolInitials}
+            <div className="absolute left-1/2 -top-10 -translate-x-1/2 z-10 flex h-20 w-20 items-center justify-center rounded-2xl bg-white p-2 shadow-xl ring-4 ring-white dark:ring-[#1a1a2e] dark:bg-[#1a1a2e] overflow-hidden">
+              <img src={logoImg} alt={schoolName || 'Logo'} className="h-full w-full object-contain" />
             </div>
 
             <div className="rounded-3xl bg-white dark:bg-[#1a1a2e] px-7 pb-8 pt-12 shadow-2xl sm:px-9">

@@ -17,16 +17,30 @@ reports_bp = Blueprint('reports', __name__, url_prefix='/api/reports')
 @jwt_required()
 @permission_required('report.stock')
 def stock_report():
-    """Get book stock report"""
-    total_books = BookCopy.query.count()
-    available = BookCopy.query.filter_by(status='AVAILABLE').count()
-    issued = BookCopy.query.filter_by(status='ISSUED').count()
-    damaged = BookCopy.query.filter_by(status='DAMAGED').count()
-    lost = BookCopy.query.filter_by(status='LOST').count()
-    reserved = BookCopy.query.filter_by(status='RESERVED').count()
+    """Get book stock report based on actual active book records"""
+    total_books = db.session.query(db.func.count(BookTitle.book_title_id)).scalar() or 0
+    total_titles = total_books
+    total_copies = db.session.query(db.func.count(BookCopy.book_copy_id)).scalar() or 0
+    available = db.session.query(db.func.count(BookTitle.book_title_id)).filter(
+        BookTitle.copies.any(BookCopy.status == 'AVAILABLE')
+    ).scalar() or 0
+    issued = db.session.query(db.func.count(BookTitle.book_title_id)).filter(
+        BookTitle.copies.any(BookCopy.status == 'ISSUED')
+    ).scalar() or 0
+    damaged = db.session.query(db.func.count(BookTitle.book_title_id)).filter(
+        BookTitle.copies.any(BookCopy.status == 'DAMAGED')
+    ).scalar() or 0
+    lost = db.session.query(db.func.count(BookTitle.book_title_id)).filter(
+        BookTitle.copies.any(BookCopy.status == 'LOST')
+    ).scalar() or 0
+    reserved = db.session.query(db.func.count(BookTitle.book_title_id)).filter(
+        BookTitle.copies.any(BookCopy.status == 'RESERVED')
+    ).scalar() or 0
     
     return jsonify({
         'total_books': total_books,
+        'total_titles': total_titles,
+        'total_copies': total_copies,
         'available': available,
         'issued': issued,
         'damaged': damaged,
@@ -40,13 +54,24 @@ def stock_report():
 @permission_required('report.member')
 def member_report():
     """Get member report"""
-    total_students = Student.query.count()
-    active_members = StudentSubscription.query.filter_by(status='ACTIVE').count()
-    expired_members = StudentSubscription.query.filter_by(status='EXPIRED').count()
+    total_students = db.session.query(db.func.count(Student.student_id)).filter(Student.is_active == True).scalar() or 0
+    active_members = db.session.query(db.func.count(StudentSubscription.subscription_id)).filter(
+        StudentSubscription.status == 'ACTIVE'
+    ).join(Student, Student.student_id == StudentSubscription.student_id).filter(
+        Student.is_active == True
+    ).scalar() or 0
+    expired_members = db.session.query(db.func.count(StudentSubscription.subscription_id)).filter(
+        StudentSubscription.status == 'EXPIRED'
+    ).join(Student, Student.student_id == StudentSubscription.student_id).filter(
+        Student.is_active == True
+    ).scalar() or 0
     
     # Students with no subscription
     sub_query = db.select(StudentSubscription.student_id).distinct()
-    no_subscription = Student.query.filter(~Student.student_id.in_(sub_query)).count()
+    no_subscription = db.session.query(db.func.count(Student.student_id)).filter(
+        Student.is_active == True,
+        ~Student.student_id.in_(sub_query)
+    ).scalar() or 0
     
     return jsonify({
         'total_students': total_students,

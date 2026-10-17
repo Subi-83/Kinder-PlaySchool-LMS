@@ -4,7 +4,7 @@ import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { showAlert } from '../components/common/Alert'
 import { useAuth } from '../context/AuthContext'
-import { PageHeader, Button, IconButton, EmptyState, LoadingState, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, IconButton, EmptyState, LoadingState, SortableTh, useSortableData, Modal } from '../components/ui'
 
 const emptyForm = () => ({
   title: '',
@@ -244,148 +244,162 @@ function EBooks() {
         </div>
       </div>
 
-      {showForm && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
-          <form onSubmit={submit} className="w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#292944] dark:bg-[#17172a]">
-            <h3 className="text-lg font-bold dark:text-white">{editing ? 'Edit E-book Record' : 'Add E-book Record'}</h3>
-            
-            {/* Exact field order required */}
-            <div className="grid gap-4 md:grid-cols-2">
-              {/* Title * */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Title *
-                </label>
-                <input
-                  required
-                  type="text"
-                  placeholder="e.g. The Very Hungry Caterpillar"
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                />
-              </div>
-
-              {/* Author * */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Author *
-                </label>
-                <input
-                  required
-                  type="text"
-                  placeholder="e.g. Eric Carle"
-                  value={form.author}
-                  onChange={(e) => setForm({ ...form, author: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                />
-              </div>
-
-              {/* Book Reading Level * */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Book Reading Level *
-                </label>
-                <select
-                  required
-                  value={form.level_id}
-                  onChange={(e) => handleLevelChange(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                >
-                  <option value="">Select Level</option>
-                  {levels.filter((l) => l.is_active !== false).map((l) => (
-                    <option key={l.level_id} value={l.level_id}>
-                      {l.level_code ? `${l.level_code} - ${l.level_name}` : l.level_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Category */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Category
-                </label>
-                <select
-                  value={form.category_id}
-                  onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                >
-                  <option value="">Select Category</option>
-                  {categories.filter((c) => c.is_active !== false).map((c) => (
-                    <option key={c.category_id} value={c.category_id}>
-                      {c.category_code ? `${c.category_code} - ${c.category_name}` : c.category_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 6. Publish Year */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Publish Year
-                </label>
-                <input
-                  type="text"
-                  maxLength="4"
-                  placeholder="e.g. 2021"
-                  value={form.publication_year}
-                  onChange={(e) => setForm({ ...form, publication_year: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                />
-              </div>
-
-              {/* 7. Publisher (Optional) */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Publisher (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Example Publisher"
-                  value={form.publisher}
-                  onChange={(e) => setForm({ ...form, publisher: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                />
-              </div>
-
-              {/* 8. Purchase Year (Optional) */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  Purchase Year (Optional)
-                </label>
-                <input
-                  type="text"
-                  maxLength="4"
-                  placeholder="e.g. 2024"
-                  value={form.purchase_year}
-                  onChange={(e) => setForm({ ...form, purchase_year: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                />
-              </div>
-
-              {/* 9. ISBN */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                  ISBN
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 9780399226908"
-                  value={form.isbn}
-                  onChange={(e) => setForm({ ...form, isbn: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
-                />
-              </div>
+      {/* CREATE / EDIT E-BOOK MODAL */}
+      <Modal
+        isOpen={showForm}
+        onClose={() => {
+          setShowForm(false)
+          setEditing(null)
+        }}
+        title={editing ? 'Edit E-book Record' : 'Add E-book Record'}
+        description="Information-only catalog entry for e-book library resources."
+        size="2xl"
+      >
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Title * */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Title *
+              </label>
+              <input
+                required
+                type="text"
+                placeholder="e.g. The Very Hungry Caterpillar"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-              <Button type="submit" loading={saving}>{saving ? 'Saving E-Book...' : 'Save E-Book'}</Button>
+            {/* Author * */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Author *
+              </label>
+              <input
+                required
+                type="text"
+                placeholder="e.g. Eric Carle"
+                value={form.author}
+                onChange={(e) => setForm({ ...form, author: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              />
             </div>
-          </form>
-        </div>
-      )}
+
+            {/* Book Reading Level * */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Book Reading Level *
+              </label>
+              <select
+                required
+                value={form.level_id}
+                onChange={(e) => handleLevelChange(e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              >
+                <option value="">Select Level</option>
+                {levels.filter((l) => l.is_active !== false).map((l) => (
+                  <option key={l.level_id} value={l.level_id}>
+                    {l.level_code ? `${l.level_code} - ${l.level_name}` : l.level_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Category */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Category
+              </label>
+              <select
+                value={form.category_id}
+                onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              >
+                <option value="">Select Category</option>
+                {categories.filter((c) => c.is_active !== false).map((c) => (
+                  <option key={c.category_id} value={c.category_id}>
+                    {c.category_code ? `${c.category_code} - ${c.category_name}` : c.category_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 6. Publish Year */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Publish Year
+              </label>
+              <input
+                type="text"
+                maxLength="4"
+                placeholder="e.g. 2021"
+                value={form.publication_year}
+                onChange={(e) => setForm({ ...form, publication_year: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              />
+            </div>
+
+            {/* 7. Publisher (Optional) */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Publisher (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Example Publisher"
+                value={form.publisher}
+                onChange={(e) => setForm({ ...form, publisher: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              />
+            </div>
+
+            {/* 8. Purchase Year (Optional) */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                Purchase Year (Optional)
+              </label>
+              <input
+                type="text"
+                maxLength="4"
+                placeholder="e.g. 2024"
+                value={form.purchase_year}
+                onChange={(e) => setForm({ ...form, purchase_year: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              />
+            </div>
+
+            {/* 9. ISBN */}
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
+                ISBN
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 9780399226908"
+                value={form.isbn}
+                onChange={(e) => setForm({ ...form, isbn: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d] dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowForm(false)
+                setEditing(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>{saving ? 'Saving E-Book...' : 'Save E-Book'}</Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* E-Book Listing Table */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-[#292944] dark:bg-[#17172a]">

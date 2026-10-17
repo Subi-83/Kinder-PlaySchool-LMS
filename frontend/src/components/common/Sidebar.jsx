@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext'
 import { useAppSettings } from '../../context/AppSettingsContext'
 import api from '../../services/api'
+import logoImg from '../../assets/logo.png'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard, permissions: [] },
@@ -31,9 +32,6 @@ const navItems = [
 function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, notificationCount = 0 }) {
   const { user, hasAnyPermission, hasPermission } = useAuth()
   const { schoolName, membersLabel } = useAppSettings()
-  const schoolInitials = (schoolName || 'School')
-    .trim().split(/\s+/).filter(Boolean).slice(0, 2)
-    .map((word) => word[0]).join('').toUpperCase()
   const canViewSettings = user?.role === 'ADMIN' || hasPermission('settings.view')
   const [memberGroups, setMemberGroups] = useState([])
 
@@ -57,8 +55,8 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, notificationC
       <div className={`flex-shrink-0 flex items-center ${effectiveCollapsed ? 'justify-between px-2 py-3' : 'justify-between p-4'} border-b border-gray-200 dark:border-[#2a2a4a]`}>
         {!effectiveCollapsed && (
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center shadow-md">
-              <span className="text-sm font-black tracking-tight">{schoolInitials}</span>
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-white dark:bg-[#1a1a2e] border border-gray-100 dark:border-[#2a2a4a] p-1 flex items-center justify-center shadow-md overflow-hidden">
+              <img src={logoImg} alt={schoolName || 'Logo'} className="h-full w-full object-contain" />
             </div>
             <div className="min-w-0">
               <h1 className="text-base font-bold text-primary-main dark:text-blue-400 leading-tight truncate max-w-36">{schoolName}</h1>
@@ -67,8 +65,8 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, notificationC
           </div>
         )}
         {effectiveCollapsed && (
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-md" title={schoolName}>
-            <span className="text-sm font-black tracking-tight">{schoolInitials}</span>
+          <div className="w-10 h-10 rounded-xl bg-white dark:bg-[#1a1a2e] border border-gray-100 dark:border-[#2a2a4a] p-1 flex items-center justify-center shadow-md overflow-hidden" title={schoolName}>
+            <img src={logoImg} alt={schoolName || 'Logo'} className="h-full w-full object-contain" />
           </div>
         )}
         {/* Desktop collapse toggle */}

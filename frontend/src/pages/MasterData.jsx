@@ -7,7 +7,7 @@ import {
   Palmtree as TreePalm, DatabaseBackup, Layers, Ticket, AlertCircle,
   RefreshCw, Info,
 } from 'lucide-react'
-import { Button, Badge, EmptyState, LoadingState, PageHeader, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { Button, Badge, EmptyState, LoadingState, PageHeader, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 
 const TABS = {
   levels: {
@@ -668,12 +668,14 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
         )}
       </div>
 
-      {showModal && canEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-        <form onSubmit={handleSubmit} className="max-h-[90vh] w-full max-w-3xl overflow-y-auto bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-xl">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-            {editingId ? `Edit ${itemName}` : `Add ${itemName}`}
-          </h3>
+      <Modal
+        isOpen={showModal && canEdit}
+        onClose={resetForm}
+        title={editingId ? `Edit ${itemName}` : `Add ${itemName}`}
+        description={editingId ? `Update ${itemName.toLowerCase()} configuration attributes.` : `Configure a new ${itemName.toLowerCase()} record.`}
+        size="3xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {config.fields.map((f) => (
               <div key={f.key} className={f.type === 'bool' ? 'flex items-end' : ''}>
@@ -706,15 +708,14 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
               </div>
             ))}
           </div>
-          <div className="flex gap-2 mt-4">
+          <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <Button type="button" variant="secondary" onClick={resetForm}>Cancel</Button>
             <Button loading={saving} type="submit">
               {editingId ? 'Update' : 'Add'}
             </Button>
-            <Button type="button" variant="secondary" onClick={resetForm}>Cancel</Button>
           </div>
         </form>
-        </div>
-      )}
+      </Modal>
 
       <div className="bg-white dark:bg-[#17172a] rounded-2xl border border-gray-200 dark:border-[#292944] shadow-sm overflow-x-auto">
         {loading ? <LoadingState label={`Loading ${config.label}…`} /> : <>
@@ -1184,162 +1185,164 @@ function LibraryLocationsPanel({ canEdit }) {
       )}
 
       {/* Cupboard Modal */}
-      {showCupboardModal && canEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-          <form
-            onSubmit={handleSaveCupboard}
-            className="w-full max-w-md overflow-hidden bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-xl space-y-4"
-          >
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-              {editingCupboard ? 'Edit Cupboard' : 'Add New Cupboard'}
-            </h3>
-            <div className="space-y-3 text-left">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Cupboard Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Cupboard 1, Fiction Bookcase"
-                  value={cupboardForm.cupboard_name}
-                  onChange={(e) => setCupboardForm({ ...cupboardForm, cupboard_name: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Cupboard Code / Identifier
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. CUP-01 (leave blank to auto-generate)"
-                  value={cupboardForm.cupboard_code}
-                  onChange={(e) => setCupboardForm({ ...cupboardForm, cupboard_code: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Description
-                </label>
-                <textarea
-                  rows="2"
-                  placeholder="e.g. Next to reference section, south wall"
-                  value={cupboardForm.description}
-                  onChange={(e) => setCupboardForm({ ...cupboardForm, description: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div className="pt-1">
-                <Checkbox
-                  checked={cupboardForm.is_active}
-                  onChange={(e) => setCupboardForm({ ...cupboardForm, is_active: e.target.checked })}
-                  label="Active"
-                  className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300"
-                />
-              </div>
+      <Modal
+        isOpen={showCupboardModal && canEdit}
+        onClose={() => setShowCupboardModal(false)}
+        title={editingCupboard ? 'Edit Cupboard' : 'Add New Cupboard'}
+        description={editingCupboard ? 'Update cupboard label, identifier code, and physical placement notes.' : 'Configure a new cupboard for book storage.'}
+        size="md"
+      >
+        <form
+          onSubmit={handleSaveCupboard}
+          className="space-y-4"
+        >
+          <div className="space-y-3 text-left">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Cupboard Name *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Cupboard 1, Fiction Bookcase"
+                value={cupboardForm.cupboard_name}
+                onChange={(e) => setCupboardForm({ ...cupboardForm, cupboard_name: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Cupboard Code / Identifier
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. CUP-01 (leave blank to auto-generate)"
+                value={cupboardForm.cupboard_code}
+                onChange={(e) => setCupboardForm({ ...cupboardForm, cupboard_code: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Description
+              </label>
+              <textarea
+                rows="2"
+                placeholder="e.g. Next to reference section, south wall"
+                value={cupboardForm.description}
+                onChange={(e) => setCupboardForm({ ...cupboardForm, description: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="pt-1">
+              <Checkbox
+                checked={cupboardForm.is_active}
+                onChange={(e) => setCupboardForm({ ...cupboardForm, is_active: e.target.checked })}
+                label="Active"
+                className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300"
+              />
+            </div>
+          </div>
 
-            <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-              <Button type="button" variant="secondary" onClick={() => setShowCupboardModal(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : editingCupboard ? 'Update Cupboard' : 'Save Cupboard'}
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
+          <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <Button type="button" variant="secondary" onClick={() => setShowCupboardModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving...' : editingCupboard ? 'Update Cupboard' : 'Save Cupboard'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Shelf Modal */}
-      {showShelfModal && canEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-          <form
-            onSubmit={handleSaveShelf}
-            className="w-full max-w-md overflow-hidden bg-white dark:bg-[#17172a] rounded-2xl p-6 border border-gray-200 dark:border-[#292944] shadow-xl space-y-4"
-          >
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-              {editingShelf ? 'Edit Shelf' : 'Add New Shelf'}
-            </h3>
-            <div className="space-y-3 text-left">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Belongs to Cupboard *
-                </label>
-                <select
-                  required
-                  value={shelfForm.cupboard_id}
-                  onChange={(e) => setShelfForm({ ...shelfForm, cupboard_id: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="">-- Select Cupboard --</option>
-                  {cupboards.map((c) => (
-                    <option key={c.cupboard_id} value={c.cupboard_id}>
-                      {c.cupboard_name} ({c.cupboard_code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Shelf Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Shelf 1, Top Shelf"
-                  value={shelfForm.shelf_name}
-                  onChange={(e) => setShelfForm({ ...shelfForm, shelf_name: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Shelf Code / Identifier
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. SH-01 (leave blank to auto-generate)"
-                  value={shelfForm.shelf_code}
-                  onChange={(e) => setShelfForm({ ...shelfForm, shelf_code: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
-                  Description
-                </label>
-                <textarea
-                  rows="2"
-                  placeholder="e.g. For beginner reading books"
-                  value={shelfForm.description}
-                  onChange={(e) => setShelfForm({ ...shelfForm, description: e.target.value })}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div className="pt-1">
-                <Checkbox
-                  checked={shelfForm.is_active}
-                  onChange={(e) => setShelfForm({ ...shelfForm, is_active: e.target.checked })}
-                  label="Active"
-                  className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300"
-                />
-              </div>
+      <Modal
+        isOpen={showShelfModal && canEdit}
+        onClose={() => setShowShelfModal(false)}
+        title={editingShelf ? 'Edit Shelf' : 'Add New Shelf'}
+        description={editingShelf ? 'Update shelf configuration and parent cupboard.' : 'Add a shelf to an existing cupboard for organized book shelving.'}
+        size="md"
+      >
+        <form
+          onSubmit={handleSaveShelf}
+          className="space-y-4"
+        >
+          <div className="space-y-3 text-left">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Belongs to Cupboard *
+              </label>
+              <select
+                required
+                value={shelfForm.cupboard_id}
+                onChange={(e) => setShelfForm({ ...shelfForm, cupboard_id: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="">-- Select Cupboard --</option>
+                {cupboards.map((c) => (
+                  <option key={c.cupboard_id} value={c.cupboard_id}>
+                    {c.cupboard_name} ({c.cupboard_code})
+                  </option>
+                ))}
+              </select>
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Shelf Name *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Shelf 1, Top Shelf"
+                value={shelfForm.shelf_name}
+                onChange={(e) => setShelfForm({ ...shelfForm, shelf_name: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Shelf Code / Identifier
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. SH-01 (leave blank to auto-generate)"
+                value={shelfForm.shelf_code}
+                onChange={(e) => setShelfForm({ ...shelfForm, shelf_code: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                Description
+              </label>
+              <textarea
+                rows="2"
+                placeholder="e.g. For beginner reading books"
+                value={shelfForm.description}
+                onChange={(e) => setShelfForm({ ...shelfForm, description: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-[#10101d] dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="pt-1">
+              <Checkbox
+                checked={shelfForm.is_active}
+                onChange={(e) => setShelfForm({ ...shelfForm, is_active: e.target.checked })}
+                label="Active"
+                className="text-xs font-bold uppercase text-gray-700 dark:text-gray-300"
+              />
+            </div>
+          </div>
 
-            <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-              <Button type="button" variant="secondary" onClick={() => setShowShelfModal(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : editingShelf ? 'Update Shelf' : 'Save Shelf'}
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
+          <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <Button type="button" variant="secondary" onClick={() => setShowShelfModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving...' : editingShelf ? 'Update Shelf' : 'Save Shelf'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
@@ -1629,189 +1632,177 @@ function SubscriptionPlansPanel({ canEdit }) {
       )}
 
       {/* Add / Edit Subscription Plan Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-[#1a1a2e] border border-gray-200 dark:border-[#2a2a4a] max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-[#2a2a4a]">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Ticket className="h-5 w-5 text-blue-500" />
-                {editingPlan ? 'Edit Subscription Plan' : 'Create Subscription Plan'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-[#2a2a4a] text-gray-600 dark:text-gray-300"
-              >
-                <XCircle className="h-5 w-5" />
-              </button>
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingPlan ? 'Edit Subscription Plan' : 'Create Subscription Plan'}
+        description={editingPlan ? 'Update plan attributes, book allowance, fees, and deposit.' : 'Configure a new subscription plan with separated fee and deposit values.'}
+        size="lg"
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                Plan Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.plan_name}
+                onChange={(e) => setFormData({ ...formData, plan_name: e.target.value })}
+                placeholder="e.g. Caterpillar"
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                Plan Code
+              </label>
+              <input
+                type="text"
+                value={formData.plan_code}
+                onChange={(e) => setFormData({ ...formData, plan_code: e.target.value })}
+                placeholder="e.g. CAT"
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                Max Books *
+              </label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={formData.max_books}
+                onChange={(e) => setFormData({ ...formData, max_books: e.target.value })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                Duration (months) *
+              </label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={formData.duration_months}
+                onChange={(e) => setFormData({ ...formData, duration_months: e.target.value })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Financial Breakdown Inputs */}
+          <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+              <Info className="h-4 w-4" /> Financial Configuration
             </div>
 
-            <form onSubmit={handleSave} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Plan Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.plan_name}
-                    onChange={(e) => setFormData({ ...formData, plan_name: e.target.value })}
-                    placeholder="e.g. Caterpillar"
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Plan Code
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.plan_code}
-                    onChange={(e) => setFormData({ ...formData, plan_code: e.target.value })}
-                    placeholder="e.g. CAT"
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Max Books *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formData.max_books}
-                    onChange={(e) => setFormData({ ...formData, max_books: e.target.value })}
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Duration (months) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formData.duration_months}
-                    onChange={(e) => setFormData({ ...formData, duration_months: e.target.value })}
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Financial Breakdown Inputs */}
-              <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
-                  <Info className="h-4 w-4" /> Financial Configuration
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                      Subscription Fee (₹) *
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      required
-                      value={formData.subscription_fee}
-                      onChange={(e) => handleFeeOrDepositChange('subscription_fee', e.target.value)}
-                      placeholder="0.00"
-                      className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm font-semibold focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-[10px] text-gray-500">School revenue</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                      Fixed Deposit (₹) *
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      required
-                      value={formData.fixed_deposit}
-                      onChange={(e) => handleFeeOrDepositChange('fixed_deposit', e.target.value)}
-                      placeholder="0.00"
-                      className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm font-semibold focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-[10px] text-gray-500">Refundable balance</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                      Total Amount (₹) *
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      required
-                      value={formData.total_amount}
-                      onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
-                      placeholder="0.00"
-                      className={`w-full px-3 py-2 rounded-xl border ${isSumValid ? 'border-gray-300 dark:border-[#2a2a4a]' : 'border-rose-500 ring-1 ring-rose-500'} bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm font-bold focus:ring-2 focus:ring-blue-500`}
-                    />
-                    <span className="text-[10px] text-gray-500">Fee + Deposit</span>
-                  </div>
-                </div>
-
-                {/* Validation Banner */}
-                {isSumValid ? (
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/40 p-2 rounded-lg">
-                    <CheckCircle2 className="h-4 w-4 shrink-0" />
-                    <span>Equation verified: Total ₹{totAmtNum.toFixed(2)} = Fee ₹{subFeeNum.toFixed(2)} + Deposit ₹{fixDepNum.toFixed(2)}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-100/70 dark:bg-rose-950/40 p-2 rounded-lg">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>Total Amount must equal ₹{(subFeeNum + fixDepNum).toFixed(2)} (Fee ₹{subFeeNum.toFixed(2)} + Deposit ₹{fixDepNum.toFixed(2)})</span>
-                  </div>
-                )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                  Subscription Fee (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  value={formData.subscription_fee}
+                  onChange={(e) => handleFeeOrDepositChange('subscription_fee', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm font-semibold focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-[10px] text-gray-500">School revenue</span>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                  Description
+                  Fixed Deposit (₹) *
                 </label>
-                <textarea
-                  rows="2"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Optional plan description..."
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input
-                  type="checkbox"
-                  checked={formData.is_active}
-                  onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                  className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  value={formData.fixed_deposit}
+                  onChange={(e) => handleFeeOrDepositChange('fixed_deposit', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm font-semibold focus:ring-2 focus:ring-blue-500"
                 />
-                <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Active (Available for subscription)</span>
-              </label>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
-                <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={saving || !isSumValid}>
-                  {saving ? 'Saving...' : editingPlan ? 'Update Plan' : 'Create Plan'}
-                </Button>
+                <span className="text-[10px] text-gray-500">Refundable balance</span>
               </div>
-            </form>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                  Total Amount (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  value={formData.total_amount}
+                  onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
+                  placeholder="0.00"
+                  className={`w-full px-3 py-2 rounded-xl border ${isSumValid ? 'border-gray-300 dark:border-[#2a2a4a]' : 'border-rose-500 ring-1 ring-rose-500'} bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm font-bold focus:ring-2 focus:ring-blue-500`}
+                />
+                <span className="text-[10px] text-gray-500">Fee + Deposit</span>
+              </div>
+            </div>
+
+            {/* Validation Banner */}
+            {isSumValid ? (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/40 p-2 rounded-lg">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>Equation verified: Total ₹{totAmtNum.toFixed(2)} = Fee ₹{subFeeNum.toFixed(2)} + Deposit ₹{fixDepNum.toFixed(2)}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-100/70 dark:bg-rose-950/40 p-2 rounded-lg">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>Total Amount must equal ₹{(subFeeNum + fixDepNum).toFixed(2)} (Fee ₹{subFeeNum.toFixed(2)} + Deposit ₹{fixDepNum.toFixed(2)})</span>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+              Description
+            </label>
+            <textarea
+              rows="2"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Optional plan description..."
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={formData.is_active}
+              onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+              className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Active (Available for subscription)</span>
+          </label>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={saving || !isSumValid}>
+              {saving ? 'Saving...' : editingPlan ? 'Update Plan' : 'Create Plan'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

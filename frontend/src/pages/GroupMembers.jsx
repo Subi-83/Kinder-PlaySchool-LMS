@@ -4,7 +4,7 @@ import { Plus, Search, Pencil, Trash2 } from 'lucide-react'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import Pagination from '../components/common/Pagination'
-import { PageHeader, Button, IconButton, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, IconButton, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 
 const GROUP_MEMBER_COLUMNS = [
   { key: 'id', label: 'ID', locked: true },
@@ -135,81 +135,85 @@ export default function GroupMembers() {
         />
       </div>
 
-      {showForm && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4">
-          <form
-            onSubmit={save}
-            className="my-6 w-full max-w-3xl space-y-4 rounded-2xl bg-white p-6 dark:bg-[#17172a] max-h-[90vh] overflow-y-auto"
-          >
-            <h3 className="text-lg font-bold">{editing ? 'Edit' : 'Add'} {group?.singular_label}</h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              {[
-                ['student_name', 'Student Name', 'text', true],
-                ['date_of_birth', 'Date of Birth', 'date', true],
-                ['gender', 'Gender'],
-                ['school_name', 'School'],
-                ['student_email', 'Email', 'email'],
-                ['mother_name', "Mother's Name"],
-                ['mother_phone', "Mother's Phone", 'tel'],
-                ['mother_email', "Mother's Email", 'email'],
-                ['father_name', "Father's Name"],
-                ['father_phone', "Father's Phone", 'tel'],
-                ['father_email', "Father's Email", 'email'],
-                ['emergency_contact_name', 'Emergency Contact'],
-                ['emergency_contact_phone', 'Emergency Phone', 'tel']
-              ].map(([key, label, type = 'text', required = false]) => (
-                key === 'gender' ? (
-                  <label key={key} className="text-xs font-bold uppercase">
-                    {label}
-                    <select
-                      value={form.gender}
-                      onChange={(e) => setForm({ ...form, gender: e.target.value })}
-                      className="mt-1 w-full rounded-xl border px-3 py-2 dark:bg-[#10101d]"
-                    >
-                      <option>MALE</option>
-                      <option>FEMALE</option>
-                      <option>OTHER</option>
-                    </select>
-                  </label>
-                ) : (
-                  <label key={key} className="text-xs font-bold uppercase">
-                    {label}{required && ' *'}
-                    <input
-                      required={required}
-                      type={type}
-                      value={form[key]}
-                      onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                      className="mt-1 w-full rounded-xl border px-3 py-2 normal-case dark:bg-[#10101d]"
-                    />
-                  </label>
-                )
-              ))}
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <textarea
-                value={form.address}
-                onChange={(e) => setForm({ ...form, address: e.target.value })}
-                placeholder="Address"
-                className="rounded-xl border p-3 dark:bg-[#10101d]"
-              />
-              <textarea
-                value={form.medical_notes}
-                onChange={(e) => setForm({ ...form, medical_notes: e.target.value })}
-                placeholder="Medical notes"
-                className="rounded-xl border p-3 dark:bg-[#10101d]"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                Save
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
+      <Modal
+        isOpen={showForm}
+        onClose={() => {
+          setShowForm(false)
+          setEditing(null)
+        }}
+        title={`${editing ? 'Edit' : 'Add'} ${group?.singular_label || 'Student'}`}
+        size="3xl"
+      >
+        <form onSubmit={save} className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              ['student_name', 'Student Name', 'text', true],
+              ['date_of_birth', 'Date of Birth', 'date', true],
+              ['gender', 'Gender'],
+              ['school_name', 'School'],
+              ['student_email', 'Email', 'email'],
+              ['mother_name', "Mother's Name"],
+              ['mother_phone', "Mother's Phone", 'tel'],
+              ['mother_email', "Mother's Email", 'email'],
+              ['father_name', "Father's Name"],
+              ['father_phone', "Father's Phone", 'tel'],
+              ['father_email', "Father's Email", 'email'],
+              ['emergency_contact_name', 'Emergency Contact'],
+              ['emergency_contact_phone', 'Emergency Phone', 'tel']
+            ].map(([key, label, type = 'text', required = false]) => (
+              key === 'gender' ? (
+                <label key={key} className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                  {label}
+                  <select
+                    value={form.gender}
+                    onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option>MALE</option>
+                    <option>FEMALE</option>
+                    <option>OTHER</option>
+                  </select>
+                </label>
+              ) : (
+                <label key={key} className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                  {label}{required && ' *'}
+                  <input
+                    required={required}
+                    type={type}
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3 py-2 text-sm text-gray-900 dark:text-white normal-case focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </label>
+              )
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <textarea
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              placeholder="Address"
+              rows="3"
+              className="rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] p-3 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+            <textarea
+              value={form.medical_notes}
+              onChange={(e) => setForm({ ...form, medical_notes: e.target.value })}
+              placeholder="Medical notes"
+              rows="3"
+              className="rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] p-3 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+            <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditing(null); }}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Save
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <div className="overflow-hidden rounded-2xl border bg-white dark:border-[#292944] dark:bg-[#17172a]">
         <div className="overflow-x-auto">

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { useAuth } from '../context/AuthContext'
-import { PageHeader, Button, IconButton, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, IconButton, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 import { Info, Pencil, Wallet } from 'lucide-react'
 
 const COLUMNS = [
@@ -150,21 +150,62 @@ function SubscriptionPayments() {
         )}
       </div>
 
-      {editing && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
-          <form onSubmit={save} className="w-full max-w-lg max-h-[90vh] overflow-y-auto space-y-3 rounded-2xl bg-white p-6 dark:bg-[#17172a]">
-            <h3 className="text-lg font-bold">Edit Subscription Payment</h3>
-            <input required type="number" min="0" step="0.01" value={form.amount_paid} onChange={(e) => setForm({ ...form, amount_paid: e.target.value })} placeholder="Amount paid" className="w-full rounded-xl border px-3 py-2 dark:bg-[#10101d]" />
-            <input type="date" value={form.payment_date} onChange={(e) => setForm({ ...form, payment_date: e.target.value })} className="w-full rounded-xl border px-3 py-2 dark:bg-[#10101d]" />
-            <input value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })} placeholder="Payment method" className="w-full rounded-xl border px-3 py-2 dark:bg-[#10101d]" />
-            <input value={form.payment_proof_url} onChange={(e) => setForm({ ...form, payment_proof_url: e.target.value })} placeholder="Payment proof reference (optional)" className="w-full rounded-xl border px-3 py-2 dark:bg-[#10101d]" />
-            <div className="flex gap-2">
-              <Button type="submit" variant="primary">Save</Button>
-              <Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
+      <Modal
+        isOpen={!!editing}
+        onClose={() => setEditing(null)}
+        title="Edit Subscription Payment"
+        description={editing ? `${editing.student_name} (${editing.student_uid}) · Plan: ${editing.plan?.plan_name || 'N/A'}` : ''}
+        size="md"
+      >
+        {editing && (
+          <form onSubmit={save} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Amount Paid (₹) *</label>
+              <input
+                required
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.amount_paid}
+                onChange={(e) => setForm({ ...form, amount_paid: e.target.value })}
+                placeholder="Amount paid"
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Payment Date</label>
+              <input
+                type="date"
+                value={form.payment_date}
+                onChange={(e) => setForm({ ...form, payment_date: e.target.value })}
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Payment Method</label>
+              <input
+                value={form.payment_method}
+                onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
+                placeholder="e.g. Cash, UPI, Bank Transfer"
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Payment Proof Reference (Optional)</label>
+              <input
+                value={form.payment_proof_url}
+                onChange={(e) => setForm({ ...form, payment_proof_url: e.target.value })}
+                placeholder="Transaction ID, Receipt Ref..."
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+              <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+              <Button type="submit" variant="primary">Save Payment</Button>
             </div>
           </form>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   )
 }

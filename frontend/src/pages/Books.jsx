@@ -6,7 +6,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import api, { booksAPI } from '../services/api'
 import Pagination from '../components/common/Pagination'
-import { PageHeader, Button, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 
 const BOOKS_COLUMNS = [
   { key: 'book_id', label: 'Book ID', locked: true },
@@ -556,14 +556,15 @@ function Books() {
         </div>
       </div>
 
-      {showForm && (
-        <div className="bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm space-y-4">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-            {editing ? 'Edit Book Master Record' : 'Add New Book'}
-          </h3>
-
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditing(null) }}
+        title={editing ? 'Edit Book Master Record' : 'Add New Book'}
+        size="3xl"
+      >
+        <div className="space-y-4">
           {!editing && (
-            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
               <div className="flex gap-3">
                 <input
                   ref={scannerInputRef}
@@ -702,7 +703,6 @@ function Books() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   MRP (₹)
                 </label>
-
                 <input
                   type="number"
                   step="0.01"
@@ -777,10 +777,7 @@ function Books() {
               )}
             </div>
 
-            <div className="flex gap-3 pt-2">
-              <Button type="submit">
-                {editing ? 'Update Book' : 'Save Book'}
-              </Button>
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-[#252542]">
               <Button
                 type="button"
                 variant="secondary"
@@ -788,26 +785,24 @@ function Books() {
               >
                 Cancel
               </Button>
+              <Button type="submit">
+                {editing ? 'Update Book' : 'Save Book'}
+              </Button>
             </div>
           </form>
         </div>
-      )}
+      </Modal>
 
       {/* Modal for adding a copy to an existing title */}
-      {addCopyBook && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <form onSubmit={handleAddCopySubmit} className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-xl space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-bold text-gray-900 dark:text-white text-lg">Add Physical Copy</h3>
-              <button type="button" onClick={() => setAddCopyBook(null)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" aria-label="Close" title="Close">
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
-            </div>
-
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Adding a new copy for: <strong className="text-gray-900 dark:text-white">{addCopyBook.title}</strong>
-            </p>
-
+      <Modal
+        isOpen={!!addCopyBook}
+        onClose={() => setAddCopyBook(null)}
+        title="Add Physical Copy"
+        description={addCopyBook ? `Adding a new copy for: ${addCopyBook.title}` : undefined}
+        size="md"
+      >
+        {addCopyBook && (
+          <form onSubmit={handleAddCopySubmit} className="space-y-4">
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -878,7 +873,7 @@ function Books() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 dark:border-[#252542]">
               <Button type="button" variant="secondary" onClick={() => setAddCopyBook(null)}>
                 Cancel
               </Button>
@@ -887,8 +882,8 @@ function Books() {
               </Button>
             </div>
           </form>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Main Books Table */}
       <div className="bg-white dark:bg-[#1a1a2e] rounded-xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">

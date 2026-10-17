@@ -4,7 +4,7 @@ import api from '../services/api'
 import StudentSearchInput from '../components/StudentSearchInput'
 import Pagination from '../components/common/Pagination'
 import { useAppSettings } from '../context/AppSettingsContext'
-import { PageHeader, Button, Badge, StatCard, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, Badge, StatCard, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 import {
   CheckCircle2, XCircle, AlertTriangle, ChevronDown, Users, PiggyBank, ReceiptText,
   ShieldAlert, Undo2, Wallet, ClipboardList, BadgeIndianRupee, Pencil, Lock, Eye, Search
@@ -246,37 +246,41 @@ function Deposits() {
 
   return (
     <div className="space-y-6">
-      {correction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-          <form onSubmit={submitCorrection} className="w-full max-w-lg max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl bg-white p-6 shadow-xl dark:bg-[#17172a]">
-            <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Correct Mistaken Deposit</h3>
-              <p className="text-sm text-gray-500">{correction.student_name} ({correction.student_uid}) · Current balance ₹{Number(correction.current_balance).toFixed(2)}</p>
-            </div>
-            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Deposit payment
-              <select required value={correctionForm.transaction_id} onChange={(e) => { const item = correctionTransactions.find((t) => String(t.transaction_id) === e.target.value); setCorrectionForm({ ...correctionForm, transaction_id: e.target.value, corrected_amount: item ? String(item.amount) : '' }) }} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d]">
+      <Modal
+        isOpen={!!correction}
+        onClose={() => setCorrection(null)}
+        title="Correct Mistaken Deposit"
+        description={correction ? `${correction.student_name} (${correction.student_uid}) · Current balance ₹${Number(correction.current_balance || 0).toFixed(2)}` : ''}
+        size="md"
+      >
+        {correction && (
+          <form onSubmit={submitCorrection} className="space-y-4">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Deposit payment *
+              <select required value={correctionForm.transaction_id} onChange={(e) => { const item = correctionTransactions.find((t) => String(t.transaction_id) === e.target.value); setCorrectionForm({ ...correctionForm, transaction_id: e.target.value, corrected_amount: item ? String(item.amount) : '' }) }} className="mt-1 w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
                 <option value="">Select mistaken payment</option>
                 {correctionTransactions.map((item) => <option key={item.transaction_id} value={item.transaction_id}>#{item.transaction_id} · ₹{Number(item.amount).toFixed(2)} · {item.created_at}</option>)}
               </select>
             </label>
-            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Correct amount
-              <input required min="0" step="0.01" type="number" value={correctionForm.corrected_amount} onChange={(e) => setCorrectionForm({ ...correctionForm, corrected_amount: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d]" />
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Correct amount *
+              <input required min="0" step="0.01" type="number" value={correctionForm.corrected_amount} onChange={(e) => setCorrectionForm({ ...correctionForm, corrected_amount: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
             </label>
-            <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">Reason for correction
-              <textarea required value={correctionForm.reason} onChange={(e) => setCorrectionForm({ ...correctionForm, reason: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#10101d]" rows="3" />
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Reason for correction *
+              <textarea required value={correctionForm.reason} onChange={(e) => setCorrectionForm({ ...correctionForm, reason: e.target.value })} className="mt-1 w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#10101d] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" rows="3" />
             </label>
             {correctionTransactions.length === 0 && (
               <p className="flex items-center gap-1.5 text-sm text-amber-600">
                 <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" /> No deposit payments are available to correct.
               </p>
             )}
-            <div className="flex gap-2">
-              <button disabled={submittingCorrection || correctionTransactions.length === 0} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50">{submittingCorrection ? 'Submitting...' : 'Request Admin Approval'}</button>
-              <Button type="button" variant="secondary" onClick={() => setCorrection(null)}>Cancel</Button>
+            <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+              <Button type="button" variant="outline" onClick={() => setCorrection(null)}>Cancel</Button>
+              <Button type="submit" variant="primary" loading={submittingCorrection} disabled={submittingCorrection || correctionTransactions.length === 0}>
+                Request Admin Approval
+              </Button>
             </div>
           </form>
-        </div>
-      )}
+        )}
+      </Modal>
       <PageHeader
         title="Library Deposit Management"
         description={`Record deposit payments and monitor balances for actively subscribed ${membersLabel.toLowerCase()}.`}
@@ -678,75 +682,67 @@ function Deposits() {
       )}
 
       {/* Student Specific Ledger Modal */}
-      {studentLedgerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-xl dark:bg-[#17172a] overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#121222]">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  <ReceiptText className="h-5 w-5 text-blue-500" />
-                  Deposit Ledger: {studentLedgerModal.student_name}
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
-                  UID: {studentLedgerModal.student_uid} · Current Deposit Balance: <span className="font-bold text-emerald-600 dark:text-emerald-400">₹{Number(studentLedgerModal.current_balance || 0).toFixed(2)}</span>
-                </p>
-              </div>
-              <Button variant="secondary" size="sm" onClick={() => setStudentLedgerModal(null)}>Close</Button>
-            </div>
-
-            <div className="p-6 overflow-y-auto flex-1">
-              {loadingStudentTransactions ? (
-                <div className="py-8 text-center text-sm text-gray-500">Loading student transactions...</div>
-              ) : studentTransactions.length > 0 ? (
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
-                      <tr>
-                        <th className="px-3 py-2.5">Date</th>
-                        <th className="px-3 py-2.5">Type</th>
-                        <th className="px-3 py-2.5">Amount</th>
-                        <th className="px-3 py-2.5">Balance After</th>
-                        <th className="px-3 py-2.5">Reference / Notes</th>
-                        <th className="px-3 py-2.5">By</th>
+      <Modal
+        isOpen={!!studentLedgerModal}
+        onClose={() => setStudentLedgerModal(null)}
+        title={`Deposit Ledger: ${studentLedgerModal?.student_name || ''}`}
+        description={studentLedgerModal ? `UID: ${studentLedgerModal.student_uid} · Current Deposit Balance: ₹${Number(studentLedgerModal.current_balance || 0).toFixed(2)}` : ''}
+        size="3xl"
+        footer={
+          <Button variant="secondary" size="sm" onClick={() => setStudentLedgerModal(null)}>Close</Button>
+        }
+      >
+        <div>
+          {loadingStudentTransactions ? (
+            <div className="py-8 text-center text-sm text-gray-500">Loading student transactions...</div>
+          ) : studentTransactions.length > 0 ? (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-100 dark:bg-[#22223a] text-gray-700 dark:text-gray-300 font-bold text-xs uppercase">
+                  <tr>
+                    <th className="px-3 py-2.5">Date</th>
+                    <th className="px-3 py-2.5">Type</th>
+                    <th className="px-3 py-2.5">Amount</th>
+                    <th className="px-3 py-2.5">Balance After</th>
+                    <th className="px-3 py-2.5">Reference / Notes</th>
+                    <th className="px-3 py-2.5">By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                  {studentTransactions.map((tx) => {
+                    const badgeInfo = TRANSACTION_TYPE_BADGES[tx.transaction_type] || { tone: 'neutral', label: tx.transaction_type }
+                    const isCredit = ['INITIAL_DEPOSIT', 'TOP_UP', 'CARRY_FORWARD'].includes(tx.transaction_type)
+                    return (
+                      <tr key={tx.transaction_id} className="hover:bg-gray-50 dark:hover:bg-[#121222]">
+                        <td className="px-3 py-2 text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                          {tx.created_at ? new Date(tx.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          <Badge tone={badgeInfo.tone}>{badgeInfo.label}</Badge>
+                        </td>
+                        <td className={`px-3 py-2 font-bold font-mono text-xs whitespace-nowrap ${isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {isCredit ? `+₹${Number(tx.amount || 0).toFixed(2)}` : `-₹${Number(tx.amount || 0).toFixed(2)}`}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                          ₹{Number(tx.balance_after != null ? tx.balance_after : 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                          {tx.notes || tx.payment_method || '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                          {tx.creator_name || 'System'}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                      {studentTransactions.map((tx) => {
-                        const badgeInfo = TRANSACTION_TYPE_BADGES[tx.transaction_type] || { tone: 'neutral', label: tx.transaction_type }
-                        const isCredit = ['INITIAL_DEPOSIT', 'TOP_UP', 'CARRY_FORWARD'].includes(tx.transaction_type)
-                        return (
-                          <tr key={tx.transaction_id} className="hover:bg-gray-50 dark:hover:bg-[#121222]">
-                            <td className="px-3 py-2 text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                              {tx.created_at ? new Date(tx.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-xs whitespace-nowrap">
-                              <Badge tone={badgeInfo.tone}>{badgeInfo.label}</Badge>
-                            </td>
-                            <td className={`px-3 py-2 font-bold font-mono text-xs whitespace-nowrap ${isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                              {isCredit ? `+₹${Number(tx.amount || 0).toFixed(2)}` : `-₹${Number(tx.amount || 0).toFixed(2)}`}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs font-bold text-gray-900 dark:text-white whitespace-nowrap">
-                              ₹{Number(tx.balance_after != null ? tx.balance_after : 0).toFixed(2)}
-                            </td>
-                            <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
-                              {tx.notes || tx.payment_method || '—'}
-                            </td>
-                            <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                              {tx.creator_name || 'System'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <EmptyState icon={ReceiptText} title="No transactions yet" description="No deposit activity recorded for this student." />
-              )}
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
+          ) : (
+            <EmptyState icon={ReceiptText} title="No transactions yet" description="No deposit activity recorded for this student." />
+          )}
         </div>
-      )}
+      </Modal>
     </div>
   )
 }

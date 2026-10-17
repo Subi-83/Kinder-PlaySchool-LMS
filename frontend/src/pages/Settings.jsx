@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Plus, PartyPopper, CalendarDays, Pencil, Trash2, X,
   CheckCircle2, XCircle, RefreshCw, Lightbulb, Search, Save,
 } from 'lucide-react'
-import { Button, IconButton, Badge, EmptyState, LoadingState, PageHeader, Checkbox, SortableTh, useSortableData } from '../components/ui'
+import { Button, IconButton, Badge, EmptyState, LoadingState, PageHeader, Checkbox, SortableTh, useSortableData, Modal } from '../components/ui'
 
 // Category colors for badges
 const CATEGORY_COLORS = {
@@ -458,93 +458,89 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
       </div>
 
       {/* Add / Edit Holiday Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl max-w-md w-full p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-xl animate-scale-in">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                {editingHoliday ? <Pencil className="h-4 w-4" aria-hidden="true" /> : <PartyPopper className="h-4 w-4" aria-hidden="true" />}
-                {editingHoliday ? 'Edit Holiday' : 'Add New Holiday'}
-              </h3>
-              <IconButton icon={X} label="Close" variant="ghost" onClick={() => setShowModal(false)} />
-            </div>
-
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
-                  Holiday Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Independence Day, Annual Sports Day"
-                  value={form.holiday_name}
-                  onChange={e => setForm({ ...form, holiday_name: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
-                  From date *
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={form.start_date}
-                  onChange={e => setForm({ ...form, start_date: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
-                  To date *
-                </label>
-                <input
-                  type="date"
-                  required
-                  min={form.start_date || undefined}
-                  value={form.end_date}
-                  onChange={e => setForm({ ...form, end_date: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Each date in this range is excluded from overdue fines.</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
-                  Description / Notes (Optional)
-                </label>
-                <textarea
-                  rows="2"
-                  placeholder="Additional context or school schedule notes..."
-                  value={form.description}
-                  onChange={e => setForm({ ...form, description: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-[#141424] border border-gray-200 dark:border-[#242442]">
-                <Checkbox
-                  checked={form.is_recurring}
-                  onChange={e => setForm({ ...form, is_recurring: e.target.checked })}
-                  label={<span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Recurring Holiday (Occurs annually on this calendar date)</span>}
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
-                <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" loading={saving}>
-                  {editingHoliday ? 'Update Holiday' : 'Save Holiday'}
-                </Button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false)
+          setEditingHoliday(null)
+        }}
+        title={editingHoliday ? 'Edit Holiday' : 'Add New Holiday'}
+        size="md"
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
+              Holiday Name *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Independence Day, Annual Sports Day"
+              value={form.holiday_name}
+              onChange={e => setForm({ ...form, holiday_name: e.target.value })}
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
           </div>
-        </div>
-      )}
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
+              From date *
+            </label>
+            <input
+              type="date"
+              required
+              value={form.start_date}
+              onChange={e => setForm({ ...form, start_date: e.target.value })}
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
+              To date *
+            </label>
+            <input
+              type="date"
+              required
+              min={form.start_date || undefined}
+              value={form.end_date}
+              onChange={e => setForm({ ...form, end_date: e.target.value })}
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Each date in this range is excluded from overdue fines.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">
+              Description / Notes (Optional)
+            </label>
+            <textarea
+              rows="2"
+              placeholder="Additional context or school schedule notes..."
+              value={form.description}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-[#141424] border border-gray-200 dark:border-[#242442]">
+            <Checkbox
+              checked={form.is_recurring}
+              onChange={e => setForm({ ...form, is_recurring: e.target.checked })}
+              label={<span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Recurring Holiday (Occurs annually on this calendar date)</span>}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+            <Button type="button" variant="outline" onClick={() => { setShowModal(false); setEditingHoliday(null); }}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              {editingHoliday ? 'Update Holiday' : 'Save Holiday'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
@@ -881,11 +877,99 @@ function MemberGroupsSettings({ canEdit }) {
     setForm({ group_name: '', singular_label: 'Student', plural_label: 'Students', library_enabled: false, programmes_enabled: false, subscriptions_enabled: false }); await load()
   }
   const update = async (group, changes) => { await api.put(`/students/member-groups/${group.group_code}`, { ...group, ...changes }); await load() }
-  return <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-[#292944] dark:bg-[#17172a]">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold text-gray-900 dark:text-white">Student / Member Groups</h3><p className="text-xs text-gray-500">Create separate record pages and choose whether each group uses library features.</p></div>{canEdit && <Button size="sm" icon={Plus} onClick={() => setShowAdd(!showAdd)}>Add Group</Button>}</div>
-    {showAdd && <form onSubmit={save} className="mt-4 grid gap-3 rounded-xl border bg-gray-50 p-4 dark:border-[#292944] dark:bg-[#10101d] md:grid-cols-3"><input required value={form.group_name} onChange={(e) => setForm({...form,group_name:e.target.value})} placeholder="Group name" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.singular_label} onChange={(e) => setForm({...form,singular_label:e.target.value})} placeholder="Singular label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><input required value={form.plural_label} onChange={(e) => setForm({...form,plural_label:e.target.value})} placeholder="Plural label" className="rounded-lg border px-3 py-2 dark:bg-[#17172a]"/><Checkbox size="sm" checked={form.library_enabled} onChange={(e) => setForm({...form,library_enabled:e.target.checked})} label="Library access" className="text-xs" /><Checkbox size="sm" checked={form.programmes_enabled} onChange={(e) => setForm({...form,programmes_enabled:e.target.checked})} label="Programmes" className="text-xs" /><Checkbox size="sm" checked={form.subscriptions_enabled} onChange={(e) => setForm({...form,subscriptions_enabled:e.target.checked})} label="Subscriptions" className="text-xs" /><Button type="submit" size="sm" variant="success">Create Group</Button></form>}
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-[#292944] dark:bg-[#17172a]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-gray-900 dark:text-white">Student / Member Groups</h3>
+          <p className="text-xs text-gray-500">Create separate record pages and choose whether each group uses library features.</p>
+        </div>
+        {canEdit && (
+          <Button size="sm" icon={Plus} onClick={() => setShowAdd(true)}>
+            Add Group
+          </Button>
+        )}
+      </div>
+
+      <Modal
+        isOpen={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Add Student / Member Group"
+        description="Create a new member group and specify whether it uses library, programme, or subscription features."
+        size="lg"
+      >
+        <form onSubmit={save} className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Group Name *</label>
+              <input
+                required
+                value={form.group_name}
+                onChange={(e) => setForm({ ...form, group_name: e.target.value })}
+                placeholder="e.g. Daycare, Alumni"
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Singular Label *</label>
+              <input
+                required
+                value={form.singular_label}
+                onChange={(e) => setForm({ ...form, singular_label: e.target.value })}
+                placeholder="e.g. Student, Member"
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Plural Label *</label>
+              <input
+                required
+                value={form.plural_label}
+                onChange={(e) => setForm({ ...form, plural_label: e.target.value })}
+                placeholder="e.g. Students, Members"
+                className="w-full rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 dark:border-[#242442] bg-gray-50 dark:bg-[#141424] p-3.5 space-y-2">
+            <span className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1">Module Access Settings</span>
+            <Checkbox
+              size="sm"
+              checked={form.library_enabled}
+              onChange={(e) => setForm({ ...form, library_enabled: e.target.checked })}
+              label="Library access (Book issues, returns, deposits, and fines)"
+              className="text-xs font-medium"
+            />
+            <Checkbox
+              size="sm"
+              checked={form.programmes_enabled}
+              onChange={(e) => setForm({ ...form, programmes_enabled: e.target.checked })}
+              label="Programmes module"
+              className="text-xs font-medium"
+            />
+            <Checkbox
+              size="sm"
+              checked={form.subscriptions_enabled}
+              onChange={(e) => setForm({ ...form, subscriptions_enabled: e.target.checked })}
+              label="Subscription management & plan assignments"
+              className="text-xs font-medium"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-[#2a2a4a]">
+            <Button type="button" variant="outline" onClick={() => setShowAdd(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Create Group
+            </Button>
+          </div>
+        </form>
+      </Modal>
     <div className="mt-4 grid gap-3 md:grid-cols-2">{groups.map((group) => <div key={group.group_code} className="rounded-xl border p-4 dark:border-[#292944]"><div className="flex items-start justify-between"><div><div className="font-bold">{group.group_name}</div><div className="text-xs text-gray-500">{group.member_count} records · {group.group_code}</div></div><Badge tone={group.is_active ? 'success' : 'neutral'}>{group.is_active ? 'ACTIVE' : 'INACTIVE'}</Badge></div><div className="mt-3 flex flex-wrap gap-2 text-[11px]"><span>Library: {group.library_enabled ? 'Yes' : 'No'}</span><span>Programme: {group.programmes_enabled ? 'Yes' : 'No'}</span><span>Subscription: {group.subscriptions_enabled ? 'Yes' : 'No'}</span></div>{canEdit && group.group_code !== 'JK_MEMBERS' && <button onClick={() => update(group, { is_active: !group.is_active })} className="mt-3 text-xs font-bold text-blue-600">{group.is_active ? 'Deactivate' : 'Activate'}</button>}</div>)}</div>
-  </div>
+    </div>
+  )
 }
 
 function Settings() {

@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
-import { PageHeader, Button, Badge, EmptyState, LoadingState, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, Badge, EmptyState, LoadingState, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 
 const USER_COLUMNS = [
   { key: 'username', label: 'Username', locked: true },
@@ -214,15 +214,15 @@ function Users() {
         description="Manage system users and permissions"
         actions={canCreate && (
           <Button
-            variant={showForm ? 'secondary' : 'primary'}
-            icon={showForm ? X : Plus}
+            variant="primary"
+            icon={Plus}
             onClick={() => {
-              setShowForm(!showForm)
               setEditing(null)
               setFormData({ username: '', email: '', password: '', full_name: '', role: 'STAFF', is_active: true, permissions: [] })
+              setShowForm(true)
             }}
           >
-            {showForm ? 'Cancel' : 'Add User'}
+            Add User
           </Button>
         )}
       />
@@ -242,12 +242,18 @@ function Users() {
         </div>
       )}
 
-      {showForm && (
-        <div className="bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            {editing ? 'Edit User' : 'New User'}
-          </h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
+      {/* CREATE / EDIT USER MODAL */}
+      <Modal
+        isOpen={showForm}
+        onClose={() => {
+          setShowForm(false)
+          setEditing(null)
+        }}
+        title={editing ? 'Edit User' : 'New User'}
+        description={editing ? 'Modify user account details, credentials, and role permissions.' : 'Create a new user account and assign system permissions.'}
+        size="4xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -530,10 +536,7 @@ function Users() {
                 </div>
               </div>
             )}
-            <div className="flex gap-3 pt-2">
-              <Button type="submit" variant="primary">
-                {editing ? 'Update User' : 'Create User'}
-              </Button>
+            <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
               <Button
                 type="button"
                 variant="secondary"
@@ -541,10 +544,12 @@ function Users() {
               >
                 Cancel
               </Button>
+              <Button type="submit" variant="primary">
+                {editing ? 'Update User' : 'Create User'}
+              </Button>
             </div>
           </form>
-        </div>
-      )}
+      </Modal>
 
       <div className="bg-white dark:bg-[#1a1a2e] rounded-xl border border-gray-200 dark:border-[#2a2a4a] shadow-sm overflow-hidden">
         <div className="flex flex-wrap items-center justify-end gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#2a2a4a]">

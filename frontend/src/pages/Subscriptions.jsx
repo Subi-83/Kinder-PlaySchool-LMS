@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Pagination from '../components/common/Pagination'
 import { useAppSettings } from '../context/AppSettingsContext'
-import { PageHeader, Button, IconButton, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData } from '../components/ui'
+import { PageHeader, Button, IconButton, Badge, EmptyState, LoadingState, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 import {
   Plus, X, CheckCircle2, XCircle, Ticket, Settings, PlusCircle, ArrowUpCircle,
   RotateCcw, Pencil, Trash2, ClipboardList, Info
@@ -457,10 +457,15 @@ function Subscriptions() {
             {canCreate && (
               <Button
                 variant="primary"
-                icon={showForm ? X : Plus}
-                onClick={() => { setSubscriptionTab('plans'); setShowForm(!showForm); setEditing(null); setFormData({ plan_name: '', plan_code: '', max_books: 1, duration_months: 3, price: '', description: '' }) }}
+                icon={Plus}
+                onClick={() => {
+                  setSubscriptionTab('plans')
+                  setEditing(null)
+                  setFormData({ plan_name: '', plan_code: '', max_books: 1, duration_months: 3, price: '', subscription_fee: '', fixed_deposit: '', total_amount: '', description: '' })
+                  setShowForm(true)
+                }}
               >
-                {showForm ? 'Cancel' : 'Add Plan'}
+                Add Plan
               </Button>
             )}
           </>
@@ -483,201 +488,205 @@ function Subscriptions() {
         ))}
       </div>
 
-      {subscriptionTab === 'plans' && showForm && (
-        <div className="bg-white dark:bg-[#1a1a2e] rounded-xl p-6 border border-gray-200 dark:border-[#2a2a4a] shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            {editing ? 'Edit Plan' : 'New Subscription Plan'}
-          </h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                  Plan Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.plan_name}
-                  onChange={(e) => setFormData({ ...formData, plan_name: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                  Plan Code
-                </label>
-                <input
-                  type="text"
-                  value={formData.plan_code}
-                  onChange={(e) => setFormData({ ...formData, plan_code: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+      {/* CREATE / EDIT PLAN MODAL */}
+      <Modal
+        isOpen={showForm}
+        onClose={() => {
+          setShowForm(false)
+          setEditing(null)
+        }}
+        title={editing ? 'Update Subscription Plan' : 'Create Subscription Plan'}
+        description={editing ? 'Update plan properties, fee, deposit, and duration.' : 'Configure pricing, fee, deposit, duration, and book allowance for this plan.'}
+        size="3xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                Plan Name *
+              </label>
+              <input
+                type="text"
+                value={formData.plan_name}
+                onChange={(e) => setFormData({ ...formData, plan_name: e.target.value })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                required
+              />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                Plan Code
+              </label>
+              <input
+                type="text"
+                value={formData.plan_code}
+                onChange={(e) => setFormData({ ...formData, plan_code: e.target.value })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                Max Books Allowed *
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={formData.max_books}
+                onChange={(e) => setFormData({ ...formData, max_books: parseInt(e.target.value) })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                Duration (months) *
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={formData.duration_months}
+                onChange={(e) => setFormData({ ...formData, duration_months: parseInt(e.target.value) })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                Price (₹) *
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Fee, Deposit, and Total Amount */}
+          <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                  Max Books Allowed *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={formData.max_books}
-                  onChange={(e) => setFormData({ ...formData, max_books: parseInt(e.target.value) })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                  Duration (months) *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={formData.duration_months}
-                  onChange={(e) => setFormData({ ...formData, duration_months: parseInt(e.target.value) })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                  Price (₹) *
+                  Subscription Fee (₹) *
                 </label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  value={formData.subscription_fee}
+                  onChange={(e) => {
+                    const fee = parseFloat(e.target.value) || 0
+                    const dep = parseFloat(formData.fixed_deposit) || 0
+                    setFormData({ ...formData, subscription_fee: e.target.value, total_amount: (fee + dep).toFixed(2) })
+                  }}
+                  placeholder="0.00"
+                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-semibold"
                   required
                 />
+                <span className="text-[10px] text-gray-500">School revenue</span>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  Fixed Deposit (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.fixed_deposit}
+                  onChange={(e) => {
+                    const dep = parseFloat(e.target.value) || 0
+                    const fee = parseFloat(formData.subscription_fee) || 0
+                    setFormData({ ...formData, fixed_deposit: e.target.value, total_amount: (fee + dep).toFixed(2) })
+                  }}
+                  placeholder="0.00"
+                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-semibold"
+                  required
+                />
+                <span className="text-[10px] text-gray-500">Refundable balance</span>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  Total Amount (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.total_amount}
+                  onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-bold"
+                  required
+                />
+                <span className="text-[10px] text-gray-500">Fee + Deposit</span>
               </div>
             </div>
+          </div>
 
-            {/* Fee, Deposit, and Total Amount */}
-            <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                    Subscription Fee (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.subscription_fee}
-                    onChange={(e) => {
-                      const fee = parseFloat(e.target.value) || 0
-                      const dep = parseFloat(formData.fixed_deposit) || 0
-                      setFormData({ ...formData, subscription_fee: e.target.value, total_amount: (fee + dep).toFixed(2) })
-                    }}
-                    placeholder="0.00"
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-semibold"
-                    required
-                  />
-                  <span className="text-[10px] text-gray-500">School revenue</span>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                    Fixed Deposit (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.fixed_deposit}
-                    onChange={(e) => {
-                      const dep = parseFloat(e.target.value) || 0
-                      const fee = parseFloat(formData.subscription_fee) || 0
-                      setFormData({ ...formData, fixed_deposit: e.target.value, total_amount: (fee + dep).toFixed(2) })
-                    }}
-                    placeholder="0.00"
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-semibold"
-                    required
-                  />
-                  <span className="text-[10px] text-gray-500">Refundable balance</span>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
-                    Total Amount (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.total_amount}
-                    onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
-                    placeholder="0.00"
-                    className="w-full px-3.5 py-2 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-bold"
-                    required
-                  />
-                  <span className="text-[10px] text-gray-500">Fee + Deposit</span>
-                </div>
-              </div>
-            </div>
+          <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <Button type="button" variant="secondary" onClick={() => { setShowForm(false); setEditing(null) }}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              {editing ? 'Update Plan' : 'Create Plan'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
-            <div className="flex gap-3">
-              <Button type="submit" variant="primary">
-                {editing ? 'Update Plan' : 'Create Plan'}
-              </Button>
-              <Button type="button" variant="secondary" onClick={() => { setShowForm(false); setEditing(null) }}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {subscriptionTab === 'records' && upgradingSubscription && (
-        <div className="bg-white dark:bg-[#1a1a2e] rounded-2xl p-6 border border-blue-200 dark:border-blue-900/60 shadow-sm">
-          <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
-            <ArrowUpCircle className="h-5 w-5 text-blue-500" aria-hidden="true" /> Upgrade Subscription
-          </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Upgrade <span className="font-semibold text-gray-900 dark:text-white">{upgradingSubscription.student_name}</span> from <span className="font-semibold">{upgradingSubscription.plan?.plan_name}</span>. The selected plan starts today and uses its full duration and price.
-          </p>
-          <div className="mt-4 flex flex-col sm:flex-row gap-3">
+      {/* UPGRADE SUBSCRIPTION MODAL */}
+      <Modal
+        isOpen={subscriptionTab === 'records' && !!upgradingSubscription}
+        onClose={() => {
+          setUpgradingSubscription(null)
+          setUpgradePlanId('')
+        }}
+        title="Upgrade Subscription"
+        description={upgradingSubscription ? `Upgrade ${upgradingSubscription.student_name} from ${upgradingSubscription.plan?.plan_name}. The selected plan starts today and uses its full duration and price.` : ''}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase text-gray-700 dark:text-gray-300 mb-1">Select New Plan</label>
             <select
               value={upgradePlanId}
               onChange={(e) => setUpgradePlanId(e.target.value)}
-              className="flex-1 px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm font-medium"
             >
               <option value="">-- Choose Upgrade Plan --</option>
-              {plans.filter((plan) => plan.is_active && plan.subscription_plan_id !== upgradingSubscription.plan?.subscription_plan_id).map((plan) => (
+              {plans.filter((plan) => plan.is_active && plan.subscription_plan_id !== upgradingSubscription?.plan?.subscription_plan_id).map((plan) => (
                 <option key={plan.subscription_plan_id} value={plan.subscription_plan_id}>
                   {plan.plan_name} — ₹{plan.price} ({plan.duration_months} months, max {plan.max_books} books)
                 </option>
               ))}
             </select>
-            <Button variant="primary" onClick={handleUpgrade}>Confirm Upgrade</Button>
+          </div>
+          <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
             <Button variant="secondary" onClick={() => { setUpgradingSubscription(null); setUpgradePlanId('') }}>Cancel</Button>
+            <Button variant="primary" onClick={handleUpgrade} disabled={!upgradePlanId}>Confirm Upgrade</Button>
           </div>
         </div>
-      )}
+      </Modal>
 
-      {subscriptionTab === 'records' && renewingSubscription && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
-          <form onSubmit={handleRenew} className="w-full max-w-lg max-h-[90vh] overflow-y-auto space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-[#2a2a4a] dark:bg-[#17172a]">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-[#2a2a4a]">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  <RotateCcw className="h-5 w-5 text-blue-500" /> Renew Subscription
-                </h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  {renewingSubscription.student_name} ({renewingSubscription.student_uid})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setRenewingSubscription(null); setRenewBreakdown(null) }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      {/* RENEW SUBSCRIPTION MODAL */}
+      <Modal
+        isOpen={subscriptionTab === 'records' && !!renewingSubscription}
+        onClose={() => {
+          setRenewingSubscription(null)
+          setRenewBreakdown(null)
+        }}
+        title="Renew Subscription"
+        description={renewingSubscription ? `${renewingSubscription.student_name} (${renewingSubscription.student_uid})` : ''}
+        size="xl"
+      >
+        <form onSubmit={handleRenew} className="space-y-4">
 
             <label className="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300">
               Subscription Plan
@@ -827,8 +836,7 @@ function Subscriptions() {
               <Button type="submit" variant="success" disabled={renewBreakdownLoading || !renewData.plan_id}>Confirm Renewal</Button>
             </div>
           </form>
-        </div>
-      )}
+      </Modal>
 
       {/* Assign Subscription Section */}
       {subscriptionTab === 'assign' && canAssign && (
