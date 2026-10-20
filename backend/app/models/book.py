@@ -110,18 +110,11 @@ class BookTitle(db.Model):  # type: ignore
     def __repr__(self):
         return f'<BookTitle {self.title}>'
     
-    def to_dict(self):
+    def to_dict(self, include_summary=True):
         """Convert to dictionary with inventory summary"""
-        total_copies = self.copies.count()
-        available_copies = self.copies.filter_by(status='AVAILABLE').count()
-        issued_copies = self.copies.filter_by(status='ISSUED').count()
-        damaged_copies = self.copies.filter_by(status='DAMAGED').count()
-        lost_copies = self.copies.filter_by(status='LOST').count()
-        
-        all_copies = [c.to_dict() for c in self.copies.order_by(BookCopy.copy_number).all()] # type: ignore
         level_obj = getattr(self, 'level_ref', None)
         category_obj = getattr(self, 'category_ref', None)
-        return {
+        data = {
             'book_title_id': self.book_title_id,
             'e_book_id': self.e_book_id,
             'title': self.title,
@@ -129,13 +122,13 @@ class BookTitle(db.Model):  # type: ignore
             'isbn': self.isbn,
             'level_id': self.level_id,
             'category_id': self.category_id,
-            'level': level_obj.to_dict() if level_obj else None,
+            'level': level_obj.to_dict() if (level_obj and include_summary) else None,
             'reading_level': level_obj.level_name if level_obj else None,
             'level_name': level_obj.level_name if level_obj else None,
             'level_code': level_obj.level_code if level_obj else None,
             'mrp': float(self.mrp) if self.mrp is not None else None,
             'ebook_count': int(self.ebook_count or 0),
-            'category': category_obj.to_dict() if category_obj else None,
+            'category': category_obj.to_dict() if (category_obj and include_summary) else None,
             'category_name': category_obj.category_name if category_obj else None,
             'publication_year': self.publication_year,
             'publish_year': self.publication_year,
@@ -143,17 +136,25 @@ class BookTitle(db.Model):  # type: ignore
             'purchase_year': self.purchase_year,
             'description': self.description,
             'cover_image': self.cover_image,
-            'copies': all_copies,
-            'inventory': {
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M') if self.updated_at else None
+        }
+        if include_summary:
+            total_copies = self.copies.count()
+            available_copies = self.copies.filter_by(status='AVAILABLE').count()
+            issued_copies = self.copies.filter_by(status='ISSUED').count()
+            damaged_copies = self.copies.filter_by(status='DAMAGED').count()
+            lost_copies = self.copies.filter_by(status='LOST').count()
+            all_copies = [c.to_dict() for c in self.copies.order_by(BookCopy.copy_number).all()] # type: ignore
+            data['copies'] = all_copies
+            data['inventory'] = {
                 'total_copies': total_copies,
                 'available': available_copies,
                 'issued': issued_copies,
                 'damaged': damaged_copies,
                 'lost': lost_copies
-            },
-            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
-            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M') if self.updated_at else None
-        }
+            }
+        return data
     
     def to_dict_brief(self):
         return {
@@ -277,7 +278,27 @@ class BookCopy(db.Model):  # type: ignore
     def __repr__(self):
         return f'<BookCopy {self.barcode}>'
     
-    def to_dict(self):
+    def to_dict(self, include_relations=True):
+        if not include_relations:
+            return {
+                'book_copy_id': self.book_copy_id,
+                'book_title_id': self.book_title_id,
+                'copy_number': self.copy_number,
+                'barcode': self.barcode,
+                'accession_number': self.accession_number,
+                'purchase_year': self.purchase_year,
+                'purchase_price': float(self.purchase_price) if self.purchase_price else None,
+                'condition': self.condition,
+                'current_condition': self.current_condition or 'Good',
+                'status': self.status,
+                'cupboard_id': self.cupboard_id,
+                'shelf_id': self.shelf_id,
+                'location': self.location or 'Main Shelf',
+                'notes': self.notes,
+                'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
+                'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M') if self.updated_at else None
+            }
+
         title_obj = getattr(self, 'title_ref', None)
         level_obj = getattr(title_obj, 'level_ref', None) if title_obj else None
         cupboard_obj = getattr(self, 'cupboard_ref', None)

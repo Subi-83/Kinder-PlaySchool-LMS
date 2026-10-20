@@ -4,9 +4,17 @@ Application Entry Point - Runs the Flask application
 """
 import os
 import sys
+import tempfile
 
 # Add the project directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Ensure temp directory uses D: drive with ample space
+temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp')
+os.makedirs(temp_dir, exist_ok=True)
+tempfile.tempdir = temp_dir
+os.environ['TEMP'] = temp_dir
+os.environ['TMP'] = temp_dir
 
 from app import create_app
 from app.config import get_config

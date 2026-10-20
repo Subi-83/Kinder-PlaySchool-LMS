@@ -4,7 +4,7 @@ from sqlalchemy import text
 from app import db
 from app.models.student import Student, MemberGroup
 from app.models.academic import AcademicYear, Programme, StudentEnrollment, GradeLevel
-from app.models.deposit import DepositAccount
+from app.models.deposit import DepositAccount, DepositTransaction
 from app.models.library import BookIssue
 from app.models.subscription import StudentSubscription
 from app.models.audit import AuditLog
@@ -684,6 +684,40 @@ def update_student(student_id):
             student.medical_notes = data['medical_notes']
         if 'library_access' in data:
             new_access = bool(data['library_access'])
+            if not new_access and student.library_access:
+                # 1. Prevent removing library access if student currently has active or overdue issued books
+                active_issues = BookIssue.query.filter(
+                    BookIssue.student_id == student.student_id,
+                    BookIssue.status.in_(['ACTIVE', 'OVERDUE'])
+                ).count()
+                if active_issues > 0:
+                    return jsonify({'error': f'Cannot remove library access: {student.student_name} currently has {active_issues} issued book(s). Return all books before removing library access.'}), 400
+
+                # 2. Cancel/clear active and pending subscriptions
+                active_subs = StudentSubscription.query.filter(
+                    StudentSubscription.student_id == student.student_id,
+                    StudentSubscription.status.in_(['ACTIVE', 'PENDING'])
+                ).all()
+                for sub in active_subs:
+                    sub.status = 'CANCELLED'
+
+                # 3. Clear/refund deposit balance
+                dep_acc = DepositAccount.query.filter_by(student_id=student.student_id).first()
+                if dep_acc and float(dep_acc.current_balance or 0.0) > 0:
+                    refund_amount = float(dep_acc.current_balance)
+                    current_user = get_current_user()
+                    tx = DepositTransaction(
+                        deposit_account_id=dep_acc.deposit_account_id,
+                        transaction_type='REFUND',
+                        amount=-refund_amount,
+                        balance_after=0.00,
+                        description='Deposit cleared due to library access removal',
+                        created_by=current_user.user_id if current_user else None
+                    )
+                    db.session.add(tx)
+                    dep_acc.current_balance = 0.00
+                    dep_acc.last_transaction_date = datetime.now()
+
             student.library_access = new_access
             for enr in student.enrollments:
                 if enr.status == 'ACTIVE':
@@ -1007,6 +1041,10 @@ def import_membership_spreadsheet():
             
             if wants_subscription and plan and not StudentSubscription.query.filter_by(student_id=student.student_id, subscription_plan_id=plan.subscription_plan_id, academic_year_id=academic_year.academic_year_id, status='ACTIVE').first():
                 StudentSubscription.query.filter_by(student_id=student.student_id, status='ACTIVE').update({'status': 'EXPIRED'})
+                sub_fee = float(plan.subscription_fee or 0.0)
+                dep_amt = float(plan.fixed_deposit or 0.0)
+                tot_amt = float(plan.price or (sub_fee + dep_amt))
+
                 db.session.add(StudentSubscription(
                     student_id=student.student_id,
                     subscription_plan_id=plan.subscription_plan_id,
@@ -1014,12 +1052,31 @@ def import_membership_spreadsheet():
                     start_date=academic_year.start_date,
                     end_date=academic_year.end_date,
                     status='ACTIVE',
-                    amount_paid=plan.price,
+                    amount_paid=tot_amt,
+                    subscription_fee_paid=sub_fee,
+                    deposit_paid=dep_amt,
+                    total_paid=tot_amt,
                     payment_date=datetime.now().date(),
                     payment_method=raw_payment[:50] if raw_payment else None,
                     payment_proof_url=payment_proof,
                     notes='Created from student Excel import',
                 ))
+                dep_acc = DepositAccount.query.filter_by(student_id=student.student_id).first()
+                if not dep_acc:
+                    dep_acc = DepositAccount(student_id=student.student_id)
+                    db.session.add(dep_acc)
+                    db.session.flush()
+                if dep_amt > 0:
+                    dep_acc.current_balance = round(float(dep_acc.current_balance or 0.0) + dep_amt, 2)
+                    dep_acc.last_transaction_date = datetime.now()
+                    init_tx = DepositTransaction(
+                        deposit_account_id=dep_acc.deposit_account_id,
+                        transaction_type='INITIAL_DEPOSIT',
+                        amount=dep_amt,
+                        balance_after=dep_acc.current_balance,
+                        description=f'Initial deposit from {plan.plan_name} subscription (Excel import)'
+                    )
+                    db.session.add(init_tx)
                 result['subscriptions_created'] += 1
             elif wants_subscription and not plan:
                 result['warnings'].append({'row': row_number, 'student': name, 'message': "Selected library package was not found in Subscription Plans; library access enabled with deposit account."})

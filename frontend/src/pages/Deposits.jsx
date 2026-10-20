@@ -213,7 +213,7 @@ function Deposits() {
     }
   }
 
-  const lowDepositAccounts = deposits.filter((d) => d.is_low_balance)
+  const lowDepositAccounts = deposits.filter((d) => (d.subscription_status === 'ACTIVE' || d.active_subscription) && d.is_low_balance)
   const configuredWarningThreshold = Number(deposits[0]?.warning_threshold || 0)
   const { sortedItems: sortedDeposits, requestSort, directionFor } = useSortableData(deposits, null, (row, key) => {
     if (key === 'member_id') return row.student_uid
@@ -395,7 +395,13 @@ function Deposits() {
                   <Badge tone="success" icon={CheckCircle2}>Library Access Enabled</Badge>
                 </div>
                 <div className="text-gray-500 dark:text-gray-400 flex justify-between items-center pt-1">
-                  <span>Current Balance: ₹{Number(selectedStudent.deposit_balance || 0).toFixed(2)}</span>
+                  <span>
+                    {selectedStudent.active_subscription ? (
+                      `Current Balance: ₹${Number(selectedStudent.deposit_balance || 0).toFixed(2)}`
+                    ) : (
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">No Active Subscription</span>
+                    )}
+                  </span>
                   {selectedStudent.outstanding_balance > 0 ? (
                     <Badge tone="danger">Unpaid Fine: ₹{Number(selectedStudent.outstanding_balance).toFixed(2)}</Badge>
                   ) : (
@@ -500,13 +506,23 @@ function Deposits() {
                       </Badge>
                     </td>
                     <td className={`px-4 py-3 font-bold text-emerald-600 dark:text-emerald-400 ${isVisible('deposit_amount') ? '' : 'hidden'}`}>
-                      ₹{Number(d.current_balance || 0).toFixed(2)}
-                      {d.deposit_forwarded && <div className="mt-1 text-[10px] font-bold uppercase text-blue-600 dark:text-blue-300">Forwarded from previous year</div>}
+                      {d.subscription_status === 'ACTIVE' || d.active_subscription || Number(d.current_balance || 0) > 0 ? (
+                        <>
+                          ₹{Number(d.current_balance || 0).toFixed(2)}
+                          {d.deposit_forwarded && <div className="mt-1 text-[10px] font-bold uppercase text-blue-600 dark:text-blue-300">Forwarded from previous year</div>}
+                        </>
+                      ) : (
+                        <span className="text-gray-400 font-normal">—</span>
+                      )}
                     </td>
                     <td className={`px-4 py-3 text-xs ${isVisible('deposit_status') ? '' : 'hidden'}`}>
-                      <Badge tone={d.is_low_balance ? 'warning' : 'success'} icon={d.is_low_balance ? AlertTriangle : CheckCircle2}>
-                        {d.is_low_balance ? 'Low Deposit Warning' : 'Healthy'}
-                      </Badge>
+                      {d.subscription_status === 'ACTIVE' || d.active_subscription ? (
+                        <Badge tone={d.is_low_balance ? 'warning' : 'success'} icon={d.is_low_balance ? AlertTriangle : CheckCircle2}>
+                          {d.is_low_balance ? 'Low Deposit Warning' : 'Healthy'}
+                        </Badge>
+                      ) : (
+                        <span className="text-gray-400 font-normal">—</span>
+                      )}
                     </td>
                     <td className={`px-4 py-3 text-right ${isVisible('actions') ? '' : 'hidden'}`}>
                       <div className="flex justify-end items-center gap-1.5 flex-wrap">

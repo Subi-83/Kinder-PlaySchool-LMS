@@ -129,7 +129,7 @@ export default function StudentSearchInput({ onSelectStudent, selectedStudent, l
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span>School: {stu.school_name || 'N/A'}</span>
                       <span>Grade: {stu.current_enrollment?.grade || 'N/A'}</span>
-                      <span>Deposit: ₹{Number(stu.deposit_balance || 0).toFixed(2)}</span>
+                      <span>Deposit: {stu.active_subscription ? `₹${Number(stu.deposit_balance || 0).toFixed(2)}` : '—'}</span>
                       {stu.outstanding_balance > 0 && (
                         <span className="text-red-500 font-bold">Unpaid: ₹{Number(stu.outstanding_balance).toFixed(2)}</span>
                       )}

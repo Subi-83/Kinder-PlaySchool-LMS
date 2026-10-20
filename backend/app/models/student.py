@@ -66,8 +66,35 @@ class Student(db.Model):
     def __repr__(self):
         return f'<Student {self.student_uid} - {self.student_name}>'
     
-    def to_dict(self):
+    def to_dict(self, include_relations=True):
         """Convert to dictionary with full details"""
+        if not include_relations:
+            return {
+                'student_id': self.student_id,
+                'student_uid': self.student_uid,
+                'member_group_code': self.member_group_code,
+                'student_name': self.student_name,
+                'date_of_birth': self.date_of_birth.strftime('%Y-%m-%d') if self.date_of_birth else None,
+                'age': self.get_age(),
+                'gender': self.gender,
+                'school_name': self.school_name,
+                'student_email': self.student_email,
+                'mother_name': self.mother_name,
+                'mother_phone': self.mother_phone,
+                'mother_email': self.mother_email,
+                'father_name': self.father_name,
+                'father_phone': self.father_phone,
+                'father_email': self.father_email,
+                'address': self.address,
+                'emergency_contact_name': self.emergency_contact_name,
+                'emergency_contact_phone': self.emergency_contact_phone,
+                'medical_notes': self.medical_notes,
+                'library_access': self.library_access if self.library_access is not None else True,
+                'is_active': self.is_active,
+                'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,
+                'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M') if self.updated_at else None
+            }
+
         deposit_account = None
         if hasattr(self, 'deposit_account_ref') and self.deposit_account_ref:
             ref = self.deposit_account_ref

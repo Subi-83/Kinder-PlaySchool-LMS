@@ -13,6 +13,8 @@ import json
 import logging
 import subprocess
 import smtplib
+import shutil
+import zipfile
 from datetime import datetime, date
 from decimal import Decimal
 from email.message import EmailMessage
@@ -62,8 +64,9 @@ def get_admin_recipients():
 
 def generate_json_backup(output_path, initiated_by="system"):
     """
-    Export all application data into structured JSON.
+    Export all application data into structured JSON with raw-v2 tables.
     Omits sensitive credentials, passwords, and secrets.
+    Compatible with Master Data restore.
     """
     from app.models.student import Student
     from app.models.academic import AcademicYear, Programme, StudentEnrollment, GradeLevel
@@ -73,6 +76,24 @@ def generate_json_backup(output_path, initiated_by="system"):
     from app.models.library import BookIssue, BookReturn, DamageLossRecord
     from app.models.settings import Holiday
 
+    def _json_val(value):
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return str(value)
+        return value
+
+    # Extract all application tables in raw-v2 format for flawless restore compatibility
+    raw_tables = {}
+    protected_auth_tables = {'users', 'permissions', 'role_permissions', 'user_permissions'}
+    for table in db.metadata.sorted_tables:
+        if table.name == 'alembic_version' or table.name in protected_auth_tables:
+            continue
+        rows = db.session.execute(table.select()).mappings().all()
+        raw_tables[table.name] = [{key: _json_val(val) for key, val in row.items()} for row in rows]
+
     data = {
         'backup_metadata': {
             'system': 'PlaySchool / Library Management System',
@@ -81,7 +102,9 @@ def generate_json_backup(output_path, initiated_by="system"):
             'generated_by': initiated_by,
             'version': '2.0.0'
         },
-        'students': [s.to_dict() for s in Student.query.all()],
+        'backup_format': 'raw-v2',
+        'raw_tables': raw_tables,
+        'students': [s.to_dict(include_relations=False) for s in Student.query.all()],
         'academic_years': [ay.to_dict() for ay in AcademicYear.query.all()],
         'programmes': [p.to_dict() for p in Programme.query.all()],
         'grade_levels': [g.to_dict() for g in GradeLevel.query.all()],
@@ -94,8 +117,8 @@ def generate_json_backup(output_path, initiated_by="system"):
         'book_levels': [l.to_dict() for l in BookLevel.query.all()],
         'library_cupboards': [cb.to_dict() for cb in LibraryCupboard.query.all()],
         'library_shelves': [sh.to_dict() for sh in LibraryShelf.query.all()],
-        'book_titles': [bt.to_dict() for bt in BookTitle.query.all()],
-        'book_copies': [bc.to_dict() for bc in BookCopy.query.all()],
+        'book_titles': [bt.to_dict(include_summary=False) for bt in BookTitle.query.all()],
+        'book_copies': [bc.to_dict(include_relations=False) for bc in BookCopy.query.all()],
         'book_issues': [bi.to_dict() for bi in BookIssue.query.all()],
         'book_returns': [br.to_dict() for br in BookReturn.query.all()],
         'damage_loss_records': [dlr.to_dict() for dlr in DamageLossRecord.query.all()],
@@ -138,50 +161,81 @@ def generate_json_backup(output_path, initiated_by="system"):
 
     return output_path
 
+import shutil
+
+def _find_mysqldump():
+    """Locate mysqldump: config/env override -> PATH -> common Windows/Linux locations."""
+    configured = os.getenv('MYSQLDUMP_PATH') or current_app.config.get('MYSQLDUMP_PATH')
+    if configured and os.path.isfile(configured):
+        return configured
+
+    found = shutil.which("mysqldump")
+    if found:
+        return found
+
+    candidates = [
+        r"C:\xampp\mysql\bin\mysqldump.exe",
+        r"C:\wamp64\bin\mysql\mysql8.0.31\bin\mysqldump.exe",
+        r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe",
+        r"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqldump.exe",
+        r"C:\Program Files\MariaDB 10.11\bin\mysqldump.exe",
+        "/usr/bin/mysqldump",
+        "/usr/local/bin/mysqldump",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
 def generate_sql_backup(output_path):
-    """
-    Generate native SQL backup using mysqldump without shell injection.
-    """
+    """Generate native SQL backup using mysqldump without shell injection."""
+    mysqldump = _find_mysqldump()
+    if not mysqldump:
+        raise FileNotFoundError(
+            "mysqldump not found. Set MYSQLDUMP_PATH in .env "
+            r"(e.g. C:\xampp\mysql\bin\mysqldump.exe) or add MySQL's bin folder to PATH."
+        )
+
     host = current_app.config.get('DB_HOST', '127.0.0.1')
     port = str(current_app.config.get('DB_PORT', '3306'))
     user = current_app.config.get('DB_USER', 'root')
     password = current_app.config.get('DB_PASSWORD', '')
     db_name = current_app.config.get('DB_NAME', 'kinder_park_library')
 
-    # Build safe command list
     cmd = [
-        "mysqldump",
+        mysqldump,
         "-h", host,
         "-P", port,
         "-u", user,
         "--single-transaction",
         "--quick",
         "--add-drop-table",
-        "--default-character-set=utf8mb4"
+        "--default-character-set=utf8mb4",
+        db_name,
     ]
 
     env = os.environ.copy()
     if password:
         env["MYSQL_PWD"] = password
 
-    cmd.append(db_name)
-
-    with open(output_path, 'w', encoding='utf-8') as out_file:
-        proc = subprocess.run(
-            cmd,
-            stdout=out_file,
-            stderr=subprocess.PIPE,
-            env=env,
-            text=True,
-            check=True
-        )
+    try:
+        with open(output_path, 'w', encoding='utf-8') as out_file:
+            subprocess.run(
+                cmd, stdout=out_file, stderr=subprocess.PIPE,
+                env=env, text=True, check=True, timeout=300
+            )
+    except subprocess.CalledProcessError as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)  # don't leave a broken/partial dump
+        raise RuntimeError(f"mysqldump failed: {(e.stderr or '').strip()}") from e
 
     return output_path
 
 def send_backup_email(json_path, sql_path, backup_dt, recipients=None):
     """
     Send the generated backups to admin email(s) via SMTP.
-    Follows exact requested body and subject format.
+    JSON + SQL are zipped into a single attachment to keep the upload small.
     """
     if not recipients:
         recipients = get_admin_recipients()
@@ -213,37 +267,38 @@ Backup Time:
 {time_str}
 
 Attached:
-* JSON Backup
-* SQL Backup
+* Backup (ZIP containing JSON and SQL)
 
-Please store these files securely.
+Please store this file securely.
 
 Regards,
 PlaySchool LMS"""
 
     msg.set_content(body_text)
 
-    # Attach JSON backup
-    with open(json_path, 'rb') as f:
-        msg.add_attachment(
-            f.read(),
-            maintype='application',
-            subtype='json',
-            filename=os.path.basename(json_path)
+    # Zip both files into one smaller attachment
+    zip_path = os.path.splitext(json_path)[0] + '.zip'
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        z.write(json_path, arcname=os.path.basename(json_path))
+        z.write(sql_path, arcname=os.path.basename(sql_path))
+
+    size_mb = os.path.getsize(zip_path) / 1024 / 1024
+    if size_mb > 20:  # Gmail's limit is 25 MB including encoding overhead
+        raise ValueError(
+            f"Backup zip is {size_mb:.1f} MB, too large to email. Files are saved on the server."
         )
 
-    # Attach SQL backup
-    with open(sql_path, 'rb') as f:
+    with open(zip_path, 'rb') as f:
         msg.add_attachment(
             f.read(),
             maintype='application',
-            subtype='sql',
-            filename=os.path.basename(sql_path)
+            subtype='zip',
+            filename=os.path.basename(zip_path)
         )
 
     # Connect to SMTP server and send
     if mail_use_tls:
-        with smtplib.SMTP(mail_server, mail_port, timeout=20) as server:
+        with smtplib.SMTP(mail_server, mail_port, timeout=120) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
@@ -251,7 +306,7 @@ PlaySchool LMS"""
                 server.login(mail_user, mail_pass)
             server.send_message(msg)
     else:
-        with smtplib.SMTP(mail_server, mail_port, timeout=20) as server:
+        with smtplib.SMTP(mail_server, mail_port, timeout=120) as server:
             server.ehlo()
             if mail_user and mail_pass:
                 server.login(mail_user, mail_pass)

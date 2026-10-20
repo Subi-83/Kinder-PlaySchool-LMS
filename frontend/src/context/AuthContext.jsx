@@ -11,6 +11,14 @@ export function useAuth() {
   return context
 }
 
+// Statuses that mean "this token is unusable" -> drop it and show login
+const INVALID_TOKEN_STATUSES = [401, 403, 422, 500]
+
+const clearStoredAuth = () => {
+  localStorage.removeItem('access_token')
+  delete api.defaults.headers.common['Authorization']
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -18,111 +26,90 @@ export function AuthProvider({ children }) {
   const [permissions, setPermissions] = useState([])
   const [loginPromptKey, setLoginPromptKey] = useState(0)
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token')
-    console.log('[Auth] 🔍 Initial token check:', token ? '✅ Present' : '❌ Missing')
-    
-    if (token) {
-      console.log('[Auth] 📦 Token found:', token.substring(0, 20) + '...')
-      // Set token in axios headers immediately
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      console.log('[Auth] ✅ Token set in axios headers')
-      fetchUser()
-    } else {
-      console.log('[Auth] ❌ No token found, user not authenticated')
-      setLoading(false)
-    }
-  }, [])
-
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       setLoading(true)
-      console.log('[Auth] 👤 Fetching user data...')
       const response = await api.get('/auth/me')
       const userData = response.data
-      console.log('[Auth] ✅ User loaded:', userData.username)
       setUser(userData)
       setPermissions(userData.permissions || [])
       setError(null)
       return userData
     } catch (err) {
       console.error('[Auth] ❌ Error fetching user:', err)
-      // If token is invalid, clear it
-      if (err.response?.status === 401) {
-        console.log('[Auth] 🔒 Token invalid, clearing...')
-        localStorage.removeItem('access_token')
-        delete api.defaults.headers.common['Authorization']
+
+      // Any server-side rejection of the stored token: discard it so the
+      // next reload goes straight to login instead of failing again.
+      // Network errors (no status) keep the token, the server may just be down.
+      if (INVALID_TOKEN_STATUSES.includes(err?.status)) {
+        console.log('[Auth] 🔒 Stored token unusable, clearing...')
+        clearStoredAuth()
+        setError(null) // not an error the user needs to see, just show login
+      } else {
+        setError('Unable to reach the server. Please try again.')
       }
+
       setUser(null)
       setPermissions([])
-      setError('Session expired. Please login again.')
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token')
+
+    if (token) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      fetchUser()
+    } else {
+      setLoading(false)
+    }
+  }, [fetchUser])
+
+  const login = async (username, password) => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const response = await api.post('/auth/login', { username, password })
+      const { access_token, user: userData } = response.data
+
+      if (!access_token) {
+        throw new Error('No token received from server')
+      }
+
+      localStorage.setItem('access_token', access_token)
+      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+
+      setUser(userData)
+      setPermissions(userData.permissions || [])
+      // Layout consumes this one-time marker to show the admin login prompts.
+      sessionStorage.setItem('show_admin_login_prompts', 'true')
+      setLoginPromptKey((current) => current + 1)
+
+      return userData
+    } catch (err) {
+      console.error('[Auth] ❌ Login error:', err)
+      setError(err.response?.data?.error || err.message || 'Login failed')
+      throw err
     } finally {
       setLoading(false)
     }
   }
 
-  const login = async (username, password) => {
-    try {
-        setLoading(true)
-        setError(null)
-        
-        console.log('[Auth] 🔐 Login attempt:', username)
-        
-        const response = await api.post('/auth/login', { username, password })
-        console.log('[Auth] 📦 Response status:', response.status)
-        
-        const { access_token, user: userData } = response.data
-        
-        if (!access_token) {
-        throw new Error('No token received from server')
-        }
-        
-        console.log('[Auth] 📦 Token received:', access_token.substring(0, 20) + '...')
-        
-        // ✅ Store token
-        localStorage.setItem('access_token', access_token)
-        console.log('[Auth] 💾 Token stored in localStorage')
-        
-        // ✅ Set in axios defaults
-        api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-        console.log('[Auth] 🔑 Token set in axios defaults')
-        
-        // ✅ Also set in the interceptor
-        // (The interceptor reads from localStorage, so this is redundant but safe)
-        
-        setUser(userData)
-        setPermissions(userData.permissions || [])
-        // Layout consumes this one-time marker to show the admin login prompts.
-        sessionStorage.setItem('show_admin_login_prompts', 'true')
-        setLoginPromptKey((current) => current + 1)
-        
-        console.log('[Auth] ✅ Login successful!')
-        console.log('[Auth] 👤 User:', userData.username)
-        console.log('[Auth] 🔑 Role:', userData.role)
-        
-        return userData
-    } catch (err) {
-        console.error('[Auth] ❌ Login error:', err)
-        setError(err.response?.data?.error || 'Login failed')
-        throw err
-    } finally {
-        setLoading(false)
-    }
-    }
   const logout = useCallback(async () => {
-    console.log('[Auth] 🚪 Logging out...')
     try {
       await api.post('/auth/logout')
     } catch (err) {
       console.error('[Auth] Logout error:', err)
     } finally {
-      localStorage.removeItem('access_token')
+      clearStoredAuth()
       sessionStorage.removeItem('show_admin_login_prompts')
-      delete api.defaults.headers.common['Authorization']
       setUser(null)
       setPermissions([])
       setError(null)
-      console.log('[Auth] ✅ Logged out')
     }
   }, [])
 
@@ -146,22 +133,19 @@ export function AuthProvider({ children }) {
     return permissionCodes.every(code => permissions.includes(code))
   }, [user, permissions])
 
-  const refreshUser = useCallback(async () => {
-    return await fetchUser()
-  }, [])
+  const refreshUser = useCallback(() => fetchUser(), [fetchUser])
 
   const isAuthenticated = useCallback(() => {
     const token = localStorage.getItem('access_token')
     return !!user && !!token
   }, [user])
 
-  const getUserRole = useCallback(() => {
-    return user?.role || null
-  }, [user])
+  const getUserRole = useCallback(() => user?.role || null, [user])
 
-  const getUserName = useCallback(() => {
-    return user?.full_name || user?.username || 'User'
-  }, [user])
+  const getUserName = useCallback(
+    () => user?.full_name || user?.username || 'User',
+    [user]
+  )
 
   const value = {
     user,

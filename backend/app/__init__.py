@@ -2,6 +2,8 @@
 Application Factory - Creates and configures the Flask application
 """
 import os
+import sys
+import tempfile
 import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask, abort, jsonify, request, send_from_directory
@@ -10,7 +12,14 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate  # type: ignore
 from flask_jwt_extended import JWTManager
 from datetime import datetime
-import sys
+
+# Configure temporary files to use backend/temp on D: drive, avoiding C: drive disk full errors
+_BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+_TEMP_DIR = os.path.join(_BACKEND_DIR, 'temp')
+os.makedirs(_TEMP_DIR, exist_ok=True)
+tempfile.tempdir = _TEMP_DIR
+os.environ['TEMP'] = _TEMP_DIR
+os.environ['TMP'] = _TEMP_DIR
 
 # ============================================================
 # EXTENSIONS INITIALIZATION

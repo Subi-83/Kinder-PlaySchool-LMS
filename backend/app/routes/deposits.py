@@ -9,6 +9,7 @@ from app.models.library import BookIssue
 from app.models.audit import AuditLog
 from app.middleware.auth_middleware import permission_required, get_current_user
 from app.services.settings_service import SettingsService
+from datetime import datetime, timezone
 import json
 
 deposits_bp = Blueprint('deposits', __name__, url_prefix='/api/deposits')
@@ -50,19 +51,45 @@ def get_deposits():
         StudentSubscription.status.in_(['ACTIVE', 'PENDING'])
     ).distinct().all()
     for s in library_students:
-        if not DepositAccount.query.filter_by(student_id=s.student_id).first():
-            db.session.add(DepositAccount(student_id=s.student_id))
+        acc = DepositAccount.query.filter_by(student_id=s.student_id).first()
+        if not acc:
+            acc = DepositAccount(student_id=s.student_id)
+            db.session.add(acc)
+            db.session.flush()
+        # Auto-heal: If student has an active subscription with deposit, but balance is 0 and 0 transactions, credit initial deposit
+        if float(acc.current_balance or 0.0) == 0.0 and acc.transactions.count() == 0:
+            active_sub = StudentSubscription.query.filter_by(
+                student_id=s.student_id,
+                academic_year_id=academic_year.academic_year_id,
+                status='ACTIVE'
+            ).first()
+            if active_sub and active_sub.plan_ref:
+                dep_amt = float(active_sub.deposit_paid or active_sub.plan_ref.fixed_deposit or 0.0)
+                if dep_amt > 0:
+                    acc.current_balance = dep_amt
+                    acc.last_transaction_date = datetime.now(timezone.utc)
+                    tx = DepositTransaction(
+                        deposit_account_id=acc.deposit_account_id,
+                        transaction_type='INITIAL_DEPOSIT',
+                        amount=dep_amt,
+                        balance_after=acc.current_balance,
+                        description=f'Initial deposit from {active_sub.plan_ref.plan_name} subscription'
+                    )
+                    db.session.add(tx)
     db.session.commit()
 
     subscribed_student_ids = db.session.query(StudentSubscription.student_id).filter(
         StudentSubscription.academic_year_id == academic_year.academic_year_id,
         StudentSubscription.status.in_(['ACTIVE', 'PENDING'])
     )
+
     accounts = DepositAccount.query.join(Student).join(StudentEnrollment).filter(
         StudentEnrollment.academic_year_id == academic_year.academic_year_id,
-        StudentEnrollment.library_access == True,
-        db.or_(DepositAccount.current_balance > 0, DepositAccount.student_id.in_(subscribed_student_ids)),
-        Student.is_active == True
+        Student.is_active == True,
+        db.or_(
+            DepositAccount.student_id.in_(subscribed_student_ids),
+            db.and_(StudentEnrollment.library_access == True, DepositAccount.current_balance > 0)
+        )
     ).distinct().order_by(Student.student_name).all()
 
     result = []

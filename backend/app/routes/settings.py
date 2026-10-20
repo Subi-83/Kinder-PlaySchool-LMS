@@ -36,6 +36,7 @@ def ensure_backup_reminder_settings():
 @jwt_required()
 @admin_required
 def backup_reminder_status():
+    from app.services.backup_service import get_admin_recipients
     interval_setting, last_export_setting = ensure_backup_reminder_settings()
     enabled = SettingsService.get_bool('backup_enabled', True)
     interval_days = max(1, int(interval_setting.get_value() or 7))
@@ -52,7 +53,8 @@ def backup_reminder_status():
         'last_backup_date': last_date.isoformat() if last_date else None,
         'days_since_backup': days_since,
         'backup_enabled': enabled,
-        'backup_due': enabled and (last_date is None or days_since >= interval_days)
+        'backup_due': enabled and (last_date is None or days_since >= interval_days),
+        'recipients': get_admin_recipients()
     }), 200
 
 @settings_bp.route('/public', methods=['GET'])
@@ -321,9 +323,9 @@ def export_full_backup():
         'system_version': '2.0.0',
         'backup_format': 'raw-v2',
         'raw_tables': raw_tables,
-        'students': [s.to_dict() for s in Student.query.all()],
-        'book_titles': [b.to_dict() for b in BookTitle.query.all()],
-        'book_copies': [c.to_dict() for c in BookCopy.query.all()],
+        'students': [s.to_dict(include_relations=False) for s in Student.query.all()],
+        'book_titles': [b.to_dict(include_summary=False) for b in BookTitle.query.all()],
+        'book_copies': [c.to_dict(include_relations=False) for c in BookCopy.query.all()],
         'book_levels': [l.to_dict() for l in BookLevel.query.all()],
         'book_categories': [cat.to_dict() for cat in BookCategory.query.all()],
         'subscription_plans': [p.to_dict() for p in SubscriptionPlan.query.all()],

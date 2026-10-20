@@ -74,7 +74,7 @@ function Library() {
   const canIssue = user?.role === 'ADMIN' || hasPermission('book.issue')
   const canReturn = user?.role === 'ADMIN' || hasPermission('book.return')
   const lowDepositThreshold = 300
-  const selectedStudentHasLowDeposit = selectedIssueStudent && Number(selectedIssueStudent.deposit_balance || 0) <= lowDepositThreshold
+  const selectedStudentHasLowDeposit = selectedIssueStudent?.active_subscription && Number(selectedIssueStudent.deposit_balance || 0) <= lowDepositThreshold
   const selectedBookMrp = Number(selectedIssueBook?.mrp || 0)
   const selectedStudentBelowMrp = selectedIssueStudent && selectedBookMrp > 0 && Number(selectedIssueStudent.deposit_balance || 0) < selectedBookMrp
   const canApproveLowDeposit = user?.role === 'ADMIN'
@@ -545,7 +545,7 @@ function Library() {
                 <span>
                   Books Issued: <strong>{selectedIssueStudent.current_books_issued} / {selectedIssueStudent.max_books_allowed || 0}</strong>
                 </span>
-                <span>Deposit: <strong>₹{Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)}</strong></span>
+                <span>Deposit: <strong>{selectedIssueStudent.active_subscription ? `₹${Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)}` : '—'}</strong></span>
               </div>
               {selectedStudentHasLowDeposit && (
                 <div className="text-amber-700 dark:text-amber-300 font-semibold text-[11px] bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900 flex items-start gap-1.5">

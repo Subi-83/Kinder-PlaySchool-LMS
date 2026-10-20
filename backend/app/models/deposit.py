@@ -49,7 +49,7 @@ class DepositAccount(db.Model):
             'outstanding_balance': float(self.outstanding_balance or 0.00),
             'minimum_balance': float(self.minimum_balance),
             'warning_threshold': warning_threshold,
-            'is_low_balance': float(self.current_balance) <= warning_threshold,
+            'is_low_balance': bool(active_sub and float(self.current_balance) <= warning_threshold),
             'last_transaction_date': self.last_transaction_date.strftime('%Y-%m-%d %H:%M') if self.last_transaction_date else None,
             'transaction_count': self.transactions.count(),
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else None,

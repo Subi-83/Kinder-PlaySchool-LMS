@@ -38,18 +38,22 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
     setMessage('Creating backup...')
     setStatusMsg({ type: 'info', text: 'Creating backup (JSON + SQL) and sending to admin email...' })
     try {
-      const response = await api.post('/settings/backup/run')
+      const response = await api.post('/settings/backup/run', {}, { timeout: 120000 })
       const data = response.data || {}
       setBackupResult(data)
       if (data.email_sent) {
         setStatusMsg({ type: 'success', text: 'Backup completed successfully and sent to admin email.' })
+        window.dispatchEvent(new Event('app-settings-updated'))
       } else {
         setStatusMsg({ type: 'warning', text: 'Backup generated successfully, but email delivery failed.' })
       }
     } catch (error) {
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout')
       setStatusMsg({
         type: 'error',
-        text: error.response?.data?.message || error.response?.data?.error || 'Failed to create backup.'
+        text: isTimeout
+          ? 'Backup took longer than expected. Please check your email or server backups directory.'
+          : error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to create backup.'
       })
     } finally {
       setBusy(false)
@@ -59,7 +63,7 @@ function AdminLoginPrompts({ user, loginPromptKey }) {
   const downloadBackup = async () => {
     setBusy(true)
     try {
-      const response = await api.get('/settings/export-backup')
+      const response = await api.get('/settings/export-backup', { timeout: 120000 })
       const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')

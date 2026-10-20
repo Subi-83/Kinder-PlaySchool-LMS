@@ -536,9 +536,9 @@ def students_detailed_report():
             'subscription_start_date': start_dt,
             'subscription_end_date': end_dt,
             'subscription_amount': float(active_sub_model.amount_paid or 0) if active_sub_model else (float(last_sub.amount_paid or 0) if not active_sub and last_sub else 0),
-            'deposit_amount': dep_amount,
+            'deposit_amount': dep_amount if has_active_subscription else '-',
             'outstanding_amount': float(getattr(dep_acc, 'outstanding_balance', 0) or 0) if dep_acc else 0,
-            'deposit_status': deposit_status
+            'deposit_status': deposit_status if has_active_subscription else '-'
         })
 
     def roll_number_key(row):

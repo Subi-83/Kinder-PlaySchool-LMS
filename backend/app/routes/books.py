@@ -53,45 +53,134 @@ def _normalize_initial_condition(raw):
         return 'Small Damage', None
     return None, f"Invalid initial book condition '{raw}'. Allowed options: Good, Small Damage, Large Damage."
 
-def generate_book_id_for_level(level_id):
-    """Generate unique Book ID in format: <LEVEL><5-DIGIT-SEQUENCE> (e.g. 100001, 200001)"""
-    level_num = 1
+def resolve_book_level(level_id):
+    """Resolve level record by level_id or sort_order/level_code, defaulting to first active level"""
+    lvl = None
     if level_id:
         lvl = BookLevel.query.get(level_id)
-        if lvl:
-            digits = re.findall(r'\d+', lvl.level_code or lvl.level_name or '')
-            if digits:
-                level_num = int(digits[0])
-            elif lvl.sort_order and lvl.sort_order > 0:
-                level_num = lvl.sort_order
-            else:
-                level_num = lvl.level_id
+        if not lvl:
+            lvl = BookLevel.query.filter(
+                (BookLevel.sort_order == level_id) |
+                (BookLevel.level_code == f"L{level_id}") |
+                (BookLevel.level_code == str(level_id))
+            ).first()
+    if not lvl:
+        lvl = BookLevel.query.order_by(BookLevel.sort_order.asc(), BookLevel.level_id.asc()).first()
+    return lvl
 
-    target_level_id = level_id or 1
-    seq_rec = BookLevelSequence.query.filter_by(level_id=target_level_id).with_for_update().first()
+def get_level_number(lvl):
+    """Get the 1-digit level number used as barcode prefix (1..5)"""
+    if not lvl:
+        return 1
+    digits = re.findall(r'\d+', lvl.level_code or lvl.level_name or '')
+    if digits:
+        return int(digits[0])
+    if lvl.sort_order and lvl.sort_order > 0:
+        return lvl.sort_order
+    return lvl.level_id
+
+# Specific level sequences to avoid/skip (e.g. skipped barcode stickers in physical catalog)
+AVOIDED_LEVEL_SEQUENCES = {
+    1: {173, 175},       # Level 1: 100173 and 100175 avoided
+    4: {172, 173, 346},  # Level 4: 400172, 400173, and 400346 avoided
+}
+
+def resequence_level_copies(level_id):
+    """
+    Resequences all copies in a given book level to ensure consecutive barcodes
+    (respecting any explicitly avoided sequences), and updates BookLevelSequence.last_sequence.
+    """
+    lvl = resolve_book_level(level_id)
+    if not lvl:
+        return 0
+
+    lnum = get_level_number(lvl)
+    avoid = AVOIDED_LEVEL_SEQUENCES.get(lnum, set())
+
+    copies = (
+        BookCopy.query
+        .join(BookTitle, BookCopy.book_title_id == BookTitle.book_title_id)
+        .filter(
+            (BookCopy.barcode.like(f"{lnum}%")) | (BookTitle.level_id == lvl.level_id)
+        )
+        .all()
+    )
+
+    def sort_key(c):
+        bc = c.barcode or ''
+        if len(bc) == 6 and bc.startswith(str(lnum)) and bc[1:].isdigit():
+            return (int(bc[1:]), c.book_copy_id)
+        return (999999, c.book_copy_id)
+
+    copies.sort(key=sort_key)
+
+    # Phase 1: Set temporary barcodes to prevent duplicate key constraint errors
+    for idx, copy in enumerate(copies, start=1):
+        copy.barcode = f"T{lnum}_{idx:05d}_{copy.book_copy_id}"
+    db.session.flush()
+
+    # Phase 2: Set final barcodes, skipping avoided sequences
+    seq = 1
+    for copy in copies:
+        while seq in avoid:
+            seq += 1
+        copy.barcode = f"{lnum}{seq:05d}"
+        seq += 1
+    db.session.flush()
+
+    final_max_seq = seq - 1
+
+    # Phase 3: Update BookLevelSequence
+    seq_rec = BookLevelSequence.query.filter_by(level_id=lvl.level_id).with_for_update().first()
     if not seq_rec:
-        # Check existing copies for highest sequence if any
-        prefix_pattern = f"{level_num}%"
-        existing_copies = BookCopy.query.filter(BookCopy.barcode.like(prefix_pattern)).all()
-        max_seq = 0
-        for c in existing_copies:
-            if c.barcode and c.barcode.startswith(str(level_num)) and len(c.barcode) == 6 and c.barcode[1:].isdigit():
-                max_seq = max(max_seq, int(c.barcode[1:]))
+        seq_rec = BookLevelSequence(level_id=lvl.level_id, last_sequence=final_max_seq)
+        db.session.add(seq_rec)
+    else:
+        seq_rec.last_sequence = final_max_seq
+    db.session.flush()
+
+    return final_max_seq
+
+def generate_book_id_for_level(level_id):
+    """Generate unique Book ID in format: <LEVEL><5-DIGIT-SEQUENCE> (e.g. 100001, 200001)"""
+    lvl = resolve_book_level(level_id)
+    level_num = get_level_number(lvl)
+    target_level_id = lvl.level_id if lvl else 11
+    avoid = AVOIDED_LEVEL_SEQUENCES.get(level_num, set())
+
+    seq_rec = BookLevelSequence.query.filter_by(level_id=target_level_id).with_for_update().first()
+
+    # Check max existing barcode sequence for this level
+    prefix_pattern = f"{level_num}%"
+    existing_copies = BookCopy.query.filter(BookCopy.barcode.like(prefix_pattern)).all()
+    max_seq = 0
+    for c in existing_copies:
+        if c.barcode and c.barcode.startswith(str(level_num)) and len(c.barcode) == 6 and c.barcode[1:].isdigit():
+            max_seq = max(max_seq, int(c.barcode[1:]))
+
+    if not seq_rec:
         seq_rec = BookLevelSequence(level_id=target_level_id, last_sequence=max_seq)
         db.session.add(seq_rec)
         db.session.flush()
+    elif seq_rec.last_sequence < max_seq:
+        seq_rec.last_sequence = max_seq
 
     seq_rec.last_sequence += 1
+    while seq_rec.last_sequence in avoid:
+        seq_rec.last_sequence += 1
     candidate_id = f"{level_num}{seq_rec.last_sequence:05d}"
 
     while BookCopy.query.filter_by(barcode=candidate_id).first():
         seq_rec.last_sequence += 1
+        while seq_rec.last_sequence in avoid:
+            seq_rec.last_sequence += 1
         candidate_id = f"{level_num}{seq_rec.last_sequence:05d}"
 
     return candidate_id
 
 def _generate_default_barcode(level_id, book_id, copy_num=1):
     return generate_book_id_for_level(level_id)
+
 
 def extract_level_code(level_id):
     """Extract numeric level code/number from BookLevel (e.g. '1' from Level 1, '10' from Level 10)"""
@@ -746,6 +835,7 @@ def delete_book(book_id):
     current_user = get_current_user()
     if current_user and current_user.role == 'ADMIN':
         title = book.title
+        level_id = book.level_id
         try:
             pending = AuditLog.query.filter_by(action='DELETE_BOOK_REQUEST', module='Book', record_id=str(book_id)).first()
             if pending:
@@ -753,6 +843,9 @@ def delete_book(book_id):
                 pending.details = f'{pending.details} | Completed directly by administrator {current_user.username}'
             BookCopy.query.filter_by(book_title_id=book_id).delete()
             db.session.delete(book)
+            db.session.flush()
+            if level_id:
+                resequence_level_copies(level_id)
             db.session.commit()
             AuditLog.log_action(
                 user_id=current_user.user_id, username=current_user.username,
@@ -885,12 +978,16 @@ def delete_book_copy(copy_id):
     if current_user and current_user.role == 'ADMIN':
         barcode = copy.barcode or str(copy_id)
         title = copy.title_ref.title if copy.title_ref else 'book'
+        level_id = copy.title_ref.level_id if copy.title_ref else None
         try:
             pending = AuditLog.query.filter_by(action='DELETE_COPY_REQUEST', module='BookCopy', record_id=str(copy_id)).first()
             if pending:
                 pending.action = 'DELETE_COPY_APPROVED'
                 pending.details = f'{pending.details} | Completed directly by administrator {current_user.username}'
             db.session.delete(copy)
+            db.session.flush()
+            if level_id:
+                resequence_level_copies(level_id)
             db.session.commit()
             AuditLog.log_action(
                 user_id=current_user.user_id, username=current_user.username,

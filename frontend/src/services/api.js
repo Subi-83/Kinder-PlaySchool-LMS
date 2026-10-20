@@ -43,6 +43,11 @@ api.interceptors.request.use(
       console.log(`[API] ⚠️ No token`)
     }
     
+    // For heavy operations like backup generation, export, or restore, extend timeout to 2 minutes
+    if (config.url && (config.url.includes('/backup') || config.url.includes('/export-backup') || config.url.includes('/import-backup') || config.url.includes('/complete-reset'))) {
+      config.timeout = Math.max(config.timeout || 30000, 120000)
+    }
+
     return config
   },
   (error) => {

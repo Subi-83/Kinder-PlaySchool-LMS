@@ -126,6 +126,10 @@ function Students() {
   const toggleLibraryAccess = async (student) => {
     try {
       const newAccess = !student.library_access
+      if (!newAccess && (student.active_subscription || Number(student.deposit_balance || 0) > 0)) {
+        const confirmMsg = `Remove library access for ${student.student_name}?\n\nThis will clear their active subscription plan and refund/clear their deposit balance (₹${Number(student.deposit_balance || 0).toFixed(2)}).`
+        if (!window.confirm(confirmMsg)) return
+      }
       await api.put(`/students/${student.student_id}`, {
         library_access: newAccess
       })
@@ -133,7 +137,7 @@ function Students() {
       await load()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
-      setError(err.data?.error || 'Failed to update library access.')
+      setError(err.data?.error || err.response?.data?.error || err.message || 'Failed to update library access.')
     }
   }
 
@@ -143,6 +147,11 @@ function Students() {
       setError('')
       setSuccess('')
       if (editing) {
+        const currentStudent = students.find((s) => s.student_id === editing)
+        if (currentStudent && currentStudent.library_access && !form.library_access && (currentStudent.active_subscription || Number(currentStudent.deposit_balance || 0) > 0)) {
+          const confirmMsg = `Remove library access for ${currentStudent.student_name}?\n\nThis will clear their active subscription plan and refund/clear their deposit balance (₹${Number(currentStudent.deposit_balance || 0).toFixed(2)}).`
+          if (!window.confirm(confirmMsg)) return
+        }
         await api.put(`/students/${editing}`, form)
         setSuccess('JK member updated successfully.')
       } else {
@@ -737,11 +746,22 @@ function Students() {
 
                   {/* Deposit & Outstanding Unpaid Balance */}
                   <td className={`px-4 py-3 text-xs ${isVisible('deposit') ? '' : 'hidden'}`}>
-                    <div>Deposit: <strong>₹{Number(s.deposit_balance || 0).toFixed(2)}</strong></div>
-                    {s.outstanding_balance > 0 ? (
+                    {activeSub ? (
+                      <>
+                        <div>Deposit: <strong>₹{Number(s.deposit_balance || 0).toFixed(2)}</strong></div>
+                        {Number(s.deposit_balance || 0) <= 300 && (
+                          <div className="text-amber-600 dark:text-amber-400 font-semibold text-[10px]">Low Balance Warning</div>
+                        )}
+                        {s.outstanding_balance > 0 ? (
+                          <div className="text-rose-500 font-bold">Unpaid: ₹{Number(s.outstanding_balance).toFixed(2)}</div>
+                        ) : (
+                          <div className="text-gray-400">No Fines</div>
+                        )}
+                      </>
+                    ) : s.outstanding_balance > 0 ? (
                       <div className="text-rose-500 font-bold">Unpaid: ₹{Number(s.outstanding_balance).toFixed(2)}</div>
                     ) : (
-                      <div className="text-gray-400">No Fines</div>
+                      <span className="text-gray-400 font-medium">—</span>
                     )}
                   </td>
 

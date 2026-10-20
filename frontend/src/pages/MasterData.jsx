@@ -5,7 +5,7 @@ import Pagination from '../components/common/Pagination'
 import {
   Plus, Pencil, Trash2, CheckCircle2, XCircle, Download, Upload,
   Palmtree as TreePalm, DatabaseBackup, Layers, Ticket, AlertCircle,
-  RefreshCw, Info,
+  RefreshCw, Info, Mail, Clock, ShieldCheck, Send,
 } from 'lucide-react'
 import { Button, Badge, EmptyState, LoadingState, PageHeader, Checkbox, ColumnVisibilityMenu, useColumnVisibility, SortableTh, useSortableData, Modal } from '../components/ui'
 
@@ -343,16 +343,73 @@ function SystemSettingsPanel({ canEdit }) {
 
 function DataBackupPanel() {
   const [downloading, setDownloading] = useState(false)
+  const [runningFull, setRunningFull] = useState(false)
   const [importing, setImporting] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [backupFile, setBackupFile] = useState(null)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useState(null)
+  const [backupStatus, setBackupStatus] = useState(null)
+  const [fullBackupResult, setFullBackupResult] = useState(null)
+  const [loadingStatus, setLoadingStatus] = useState(true)
+
+  const loadStatus = async () => {
+    try {
+      setLoadingStatus(true)
+      const res = await api.get('/settings/backup-reminder-status')
+      setBackupStatus(res.data || {})
+    } catch {
+      // Ignore
+    } finally {
+      setLoadingStatus(false)
+    }
+  }
+
+  useEffect(() => {
+    loadStatus()
+    const handleUpdate = () => loadStatus()
+    window.addEventListener('app-settings-updated', handleUpdate)
+    return () => window.removeEventListener('app-settings-updated', handleUpdate)
+  }, [])
+
+  const handleRunFullBackup = async () => {
+    try {
+      setRunningFull(true)
+      setMsg(null)
+      setFullBackupResult(null)
+      const response = await api.post('/settings/backup/run', {}, { timeout: 120000 })
+      const data = response.data || {}
+      setFullBackupResult(data)
+      if (data.email_sent) {
+        setMsg({
+          type: 'success',
+          text: `Full backup created and emailed successfully to: ${data.recipients?.join(', ') || 'administrators'}`
+        })
+      } else {
+        setMsg({
+          type: 'warning',
+          text: 'Backup files generated successfully on server, but email delivery could not be completed.'
+        })
+      }
+      loadStatus()
+      window.dispatchEvent(new Event('app-settings-updated'))
+    } catch (err) {
+      const isTimeout = err.code === 'ECONNABORTED' || err.message?.includes('timeout')
+      setMsg({
+        type: 'error',
+        text: isTimeout
+          ? 'Backup took longer than expected. Please check your email inbox or server backups directory.'
+          : err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to execute full backup.'
+      })
+    } finally {
+      setRunningFull(false)
+    }
+  }
 
   const handleExportBackup = async () => {
     try {
       setDownloading(true)
       setMsg(null)
-      const res = await api.get('/settings/export-backup')
+      const res = await api.get('/settings/export-backup', { timeout: 120000 })
       const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -361,6 +418,8 @@ function DataBackupPanel() {
       a.click()
       URL.revokeObjectURL(url)
       setMsg({ type: 'success', text: 'Full database backup exported and downloaded successfully!' })
+      loadStatus()
+      window.dispatchEvent(new Event('app-settings-updated'))
     } catch (err) {
       setMsg({ type: 'error', text: 'Failed to export database backup.' })
     } finally {
@@ -376,9 +435,13 @@ function DataBackupPanel() {
     try {
       setImporting(true)
       setMsg(null)
-      const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const response = await api.post('/settings/import-backup', body, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000
+      })
       setMsg({ type: 'success', text: response.data?.message || 'Backup restored successfully.' })
       setBackupFile(null)
+      loadStatus()
       window.dispatchEvent(new Event('app-settings-updated'))
     } catch (err) {
       setMsg({ type: 'error', text: err.response?.data?.error || 'Failed to restore backup.' })
@@ -393,8 +456,10 @@ function DataBackupPanel() {
     try {
       setResetting(true)
       setMsg(null)
-      const response = await api.post('/settings/complete-reset', { confirmation })
+      const response = await api.post('/settings/complete-reset', { confirmation }, { timeout: 120000 })
       setMsg({ type: 'success', text: response.data?.message || 'Complete reset finished.' })
+      loadStatus()
+      window.dispatchEvent(new Event('app-settings-updated'))
     } catch (err) {
       setMsg({ type: 'error', text: err.response?.data?.error || 'Complete reset failed.' })
     } finally {
@@ -402,49 +467,237 @@ function DataBackupPanel() {
     }
   }
 
-  return (
-    <div className="p-8 rounded-2xl bg-white dark:bg-[#17172a] border border-gray-200 dark:border-[#292944] shadow-sm space-y-6 max-w-2xl">
-      <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-        <DatabaseBackup className="h-5 w-5" aria-hidden="true" /> Data Backup & System Migration
-      </h3>
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        Export all system data including students, books, subscription plans, issue records, deposit transactions, and settings into a standardized JSON file. This backup can be migrated to another software or restored at any time.
-      </p>
+  const formatDate = (isoStr) => {
+    if (!isoStr) return 'Never'
+    try {
+      const d = new Date(isoStr)
+      if (isNaN(d.getTime())) return isoStr
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    } catch {
+      return isoStr
+    }
+  }
 
+  return (
+    <div className="space-y-6 max-w-4xl">
+      {/* Overview & Status Header */}
+      <div className="p-6 rounded-2xl bg-white dark:bg-[#17172a] border border-gray-200 dark:border-[#292944] shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-gray-100 dark:border-[#292944]">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <DatabaseBackup className="h-6 w-6 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+              Database Backup & System Recovery
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Manage automatic and on-demand database backups, export archives, or restore system state.
+            </p>
+          </div>
+          <button
+            onClick={loadStatus}
+            disabled={loadingStatus}
+            title="Refresh status"
+            className="self-start sm:self-auto p-2 rounded-xl border border-gray-200 hover:bg-gray-50 dark:border-[#292944] dark:hover:bg-[#202035] text-gray-600 dark:text-gray-300"
+          >
+            <RefreshCw className={`h-4 w-4 ${loadingStatus ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+
+        {/* Live Status Indicators */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-[#10101d] border border-gray-200/70 dark:border-[#292944]">
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
+              <Clock className="h-4 w-4 text-blue-500" /> Last Backup Date
+            </div>
+            <div className="mt-1.5 text-sm font-bold text-gray-900 dark:text-white">
+              {formatDate(backupStatus?.last_backup_date)}
+            </div>
+            <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+              {backupStatus?.days_since_backup !== null && backupStatus?.days_since_backup !== undefined
+                ? `${backupStatus.days_since_backup} day(s) ago`
+                : 'Initial backup pending'}
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-[#10101d] border border-gray-200/70 dark:border-[#292944]">
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
+              <ShieldCheck className="h-4 w-4 text-purple-500" /> Reminder Interval
+            </div>
+            <div className="mt-1.5 text-sm font-bold text-gray-900 dark:text-white">
+              Every {backupStatus?.reminder_days || 7} Days
+            </div>
+            <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+              Popup reminder after login
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-[#10101d] border border-gray-200/70 dark:border-[#292944]">
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
+              <DatabaseBackup className="h-4 w-4 text-emerald-500" /> Health Status
+            </div>
+            <div className="mt-1.5">
+              {backupStatus?.backup_due ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                  Backup Due
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  Up to Date
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+              {backupStatus?.backup_due ? 'Backup recommended now' : 'Scheduled routine normal'}
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-[#10101d] border border-gray-200/70 dark:border-[#292944]">
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
+              <Mail className="h-4 w-4 text-indigo-500" /> Delivery Target
+            </div>
+            <div className="mt-1.5 text-xs font-semibold text-gray-900 dark:text-white truncate" title={backupStatus?.recipients?.join(', ') || 'Admin Email'}>
+              {backupStatus?.recipients?.length
+                ? `${backupStatus.recipients.length} Admin Email(s)`
+                : 'Admin Email'}
+            </div>
+            <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate" title={backupStatus?.recipients?.join(', ')}>
+              {backupStatus?.recipients?.[0] || 'Configured in backend'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Status Feedback Notification */}
       {msg && (
-        <div className={`p-3.5 rounded-xl font-bold text-xs flex items-center gap-2 ${
+        <div className={`p-4 rounded-xl font-medium text-xs flex items-start gap-2.5 shadow-sm border ${
           msg.type === 'error'
-            ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
+            ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-900'
+            : msg.type === 'warning'
+            ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900'
+            : 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900'
         }`}>
-          {msg.type === 'error'
-            ? <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-            : <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
-          {msg.text}
+          {msg.type === 'error' ? (
+            <XCircle className="h-4 w-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+          )}
+          <div className="flex-1 space-y-1">
+            <p className="font-semibold">{msg.text}</p>
+            {fullBackupResult && (
+              <div className="mt-2 text-[11px] space-y-0.5 text-gray-600 dark:text-gray-300">
+                <p><strong>JSON Archive:</strong> {fullBackupResult.json_file}</p>
+                <p><strong>SQL Dump:</strong> {fullBackupResult.sql_file}</p>
+                {fullBackupResult.recipients && (
+                  <p><strong>Recipients:</strong> {fullBackupResult.recipients.join(', ')}</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
-        <h4 className="font-bold">1. Export Backup</h4><p className="mb-3 text-xs text-gray-500">Download a complete raw-v2 JSON backup before resetting or moving data.</p>
-        <Button variant="success" icon={Download} loading={downloading} onClick={handleExportBackup}>
-          {downloading ? 'Generating JSON Export...' : 'Download Full Database Backup (JSON)'}
-        </Button>
-      </section>
-      <section className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
-        <h4 className="font-bold">2. Import / Restore Backup</h4><p className="mb-3 text-xs text-gray-500">Select a raw-v2 JSON backup. Existing application data will be replaced after confirmation.</p>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <input type="file" accept=".json,application/json" onChange={(e) => setBackupFile(e.target.files?.[0] || null)} className="min-w-0 flex-1 rounded-xl border bg-white p-2 text-xs dark:border-gray-700 dark:bg-[#10101d]"/>
-          <Button icon={Upload} loading={importing} disabled={!backupFile} onClick={handleImportBackup}>
-            {importing ? 'Restoring...' : 'Import Backup'}
-          </Button>
-        </div>
-      </section>
-      <section className="rounded-xl border border-rose-300 bg-rose-50 p-4 dark:border-rose-900 dark:bg-rose-950/20">
-        <h4 className="font-bold text-rose-700 dark:text-rose-300">3. Complete Reset</h4><p className="mb-3 text-xs text-rose-600 dark:text-rose-400">Permanently clears all library data and master records. Administrators, permissions, and system settings are preserved.</p>
-        <Button variant="danger" icon={Trash2} loading={resetting} onClick={handleCompleteReset}>
-          {resetting ? 'Resetting...' : 'Complete Reset'}
-        </Button>
-      </section>
+      {/* Grid of Backup Operations */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Option 1: Full Backup & Email Notification */}
+        <section className="p-6 rounded-2xl bg-white dark:bg-[#17172a] border border-blue-200 dark:border-blue-900/50 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400 font-bold">
+              <Mail className="h-5 w-5" />
+              <h4 className="text-base text-gray-900 dark:text-white">1. Full Backup & Email Delivery</h4>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+              Generates a full <strong>JSON database archive</strong> and a <strong>native MySQL SQL dump</strong>, bundles them into a secure ZIP archive, and emails them directly to registered administrator inboxes.
+            </p>
+          </div>
+          <div>
+            <Button
+              variant="primary"
+              icon={Send}
+              loading={runningFull}
+              onClick={handleRunFullBackup}
+              className="w-full sm:w-auto"
+            >
+              {runningFull ? 'Generating & Sending...' : 'Run Full Backup & Send Email'}
+            </Button>
+          </div>
+        </section>
+
+        {/* Option 2: Export Database Backup (Download) */}
+        <section className="p-6 rounded-2xl bg-white dark:bg-[#17172a] border border-emerald-200 dark:border-emerald-900/50 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
+              <Download className="h-5 w-5" />
+              <h4 className="text-base text-gray-900 dark:text-white">2. Export Backup (JSON Download)</h4>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+              Export all system records (students, books, issues, subscriptions, deposits, settings) into a single <strong>raw-v2 JSON file</strong> downloaded immediately to your local device for offline backup or migration.
+            </p>
+          </div>
+          <div>
+            <Button
+              variant="success"
+              icon={Download}
+              loading={downloading}
+              onClick={handleExportBackup}
+              className="w-full sm:w-auto"
+            >
+              {downloading ? 'Exporting JSON...' : 'Download Full Backup (JSON)'}
+            </Button>
+          </div>
+        </section>
+
+        {/* Option 3: Import / Restore Backup */}
+        <section className="p-6 rounded-2xl bg-white dark:bg-[#17172a] border border-indigo-200 dark:border-indigo-900/50 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-indigo-600 dark:text-indigo-400 font-bold">
+              <Upload className="h-5 w-5" />
+              <h4 className="text-base text-gray-900 dark:text-white">3. Import & Restore Backup</h4>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+              Restore a standardized <strong>raw-v2 JSON backup</strong> (downloaded from here or extracted from your email ZIP attachment). Existing application data will be replaced. Administrator logins and permissions are safely preserved.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <input
+              type="file"
+              accept=".json,application/json"
+              onChange={(e) => setBackupFile(e.target.files?.[0] || null)}
+              className="min-w-0 flex-1 rounded-xl border bg-white p-2 text-xs dark:border-gray-700 dark:bg-[#10101d]"
+            />
+            <Button
+              icon={Upload}
+              loading={importing}
+              disabled={!backupFile}
+              onClick={handleImportBackup}
+            >
+              {importing ? 'Restoring...' : 'Import Backup'}
+            </Button>
+          </div>
+        </section>
+
+        {/* Option 4: Complete System Reset */}
+        <section className="p-6 rounded-2xl bg-white dark:bg-[#17172a] border border-rose-200 dark:border-rose-900/50 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-rose-600 dark:text-rose-400 font-bold">
+              <Trash2 className="h-5 w-5" />
+              <h4 className="text-base text-gray-900 dark:text-white">4. Complete System Reset</h4>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+              Permanently clears all library data, circulation records, and student records. Administrator accounts, system permissions, and core configurations are strictly preserved.
+            </p>
+          </div>
+          <div>
+            <Button
+              variant="danger"
+              icon={Trash2}
+              loading={resetting}
+              onClick={handleCompleteReset}
+              className="w-full sm:w-auto"
+            >
+              {resetting ? 'Resetting...' : 'Complete Reset'}
+            </Button>
+          </div>
+        </section>
+      </div>
     </div>
   )
 }
@@ -509,74 +762,6 @@ function MasterDataPanel({ tabKey, config, canEdit }) {
     setForm(emptyForm(config.fields))
     setEditingId(null)
     setShowModal(false)
-  }
-
-  // const handleImportBackup = async () => {
-  //   if (!backupFile) return setMsg('Select a JSON backup file first.')
-  //   if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
-  //   const body = new FormData()
-  //   body.append('file', backupFile)
-  //   try {
-  //     setImporting(true)
-  //     setMsg('')
-  //     const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
-  //     setMsg(`${response.data?.message || 'Backup restored successfully.'}`)
-  //     setBackupFile(null)
-  //     window.dispatchEvent(new Event('app-settings-updated'))
-  //   } catch (err) {
-  //     setMsg(err.response?.data?.error || 'Failed to restore backup.')
-  //   } finally {
-  //     setImporting(false)
-  //   }
-  // }
-
-  // const handleCompleteReset = async () => {
-  //   const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
-  //   if (confirmation !== 'RESET ALL DATA') {
-  //     if (confirmation !== null) setMsg('Reset cancelled: confirmation text did not match.')
-  //     return
-  //   }
-  //   try {
-  //     setResetting(true)
-  //     setMsg('')
-  //     const response = await api.post('/settings/complete-reset', { confirmation })
-  //     setMsg(`${response.data?.message || 'Complete reset finished.'}`)
-  //   } catch (err) {
-  //     setMsg(err.response?.data?.error || 'Complete reset failed.')
-  //   } finally {
-  //     setResetting(false)
-  //   }
-  // }
-
-  const handleImportBackup = async () => {
-    if (!backupFile) return setMsg('Select a JSON backup file first.')
-    if (!window.confirm('Restore this backup? Current application data will be replaced. Administrators and permissions are preserved.')) return
-    const body = new FormData()
-    body.append('file', backupFile)
-    try {
-      setImporting(true); setMsg('')
-      const response = await api.post('/settings/import-backup', body, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setMsg(`${response.data?.message || 'Backup restored successfully.'}`)
-      setBackupFile(null)
-      window.dispatchEvent(new Event('app-settings-updated'))
-    } catch (err) {
-      setMsg(err.response?.data?.error || 'Failed to restore backup.')
-    } finally { setImporting(false) }
-  }
-
-  const handleCompleteReset = async () => {
-    const confirmation = window.prompt('This permanently clears all library data and master records.\n\nAdministrators, permissions, and settings are preserved.\n\nType RESET ALL DATA to continue:')
-    if (confirmation !== 'RESET ALL DATA') {
-      if (confirmation !== null) setMsg('Reset cancelled: confirmation text did not match.')
-      return
-    }
-    try {
-      setResetting(true); setMsg('')
-      const response = await api.post('/settings/complete-reset', { confirmation })
-      setMsg(`${response.data?.message || 'Complete reset finished.'}`)
-    } catch (err) {
-      setMsg(err.response?.data?.error || 'Complete reset failed.')
-    } finally { setResetting(false) }
   }
 
   const handleSubmit = async (e) => {
