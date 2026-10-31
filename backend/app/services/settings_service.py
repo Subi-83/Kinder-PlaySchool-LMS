@@ -64,6 +64,16 @@ class SettingsService:
             except:
                 return default
         return default
+
+    @staticmethod
+    def get_weekly_holiday_days():
+        """Return configured weekly holidays as Python weekday numbers (Mon=0)."""
+        value = SettingsService.get_json('weekly_holiday_days', [5, 6])
+        try:
+            days = sorted({int(day) for day in value})
+        except (TypeError, ValueError):
+            return [5, 6]
+        return days if all(0 <= day <= 6 for day in days) else [5, 6]
     
     @staticmethod
     def set_value(key, value, updated_by=None):
@@ -170,6 +180,7 @@ class SettingsService:
             ('issue_period_days', '14', 'INTEGER', 'Library', 'Default book issue period in days', True),
             ('barcode_lookup_enabled', 'true', 'BOOLEAN', 'Library', 'Enable barcode/ISBN lookup via API', True),
             ('holiday_adjustment', 'true', 'BOOLEAN', 'Library', 'Adjust due dates for holidays', True),
+            ('weekly_holiday_days', '[5, 6]', 'JSON', 'Library', 'Weekly holidays (Monday=0 through Sunday=6)', True),
             
             # Charges Settings
             ('late_fine_per_day', '5', 'DECIMAL', 'Charges', 'Late fine per day in currency', True),

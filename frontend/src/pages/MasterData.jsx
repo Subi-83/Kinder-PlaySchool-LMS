@@ -1996,7 +1996,7 @@ function MasterData() {
   const { hasPermission, user } = useAuth()
   const [activeTab, setActiveTab] = useState('levels')
 
-  const canEdit = user?.role === 'ADMIN' || hasPermission('book.edit') || hasPermission('programme.edit') || hasPermission('subscription.edit') || hasPermission('subscription.create')
+  const canEdit = user?.role === 'ADMIN' || hasPermission('master_data.create') || hasPermission('master_data.edit') || hasPermission('master_data.delete')
 
   return (
     <div className="space-y-4">

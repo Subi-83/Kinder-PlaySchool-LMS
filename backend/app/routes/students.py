@@ -8,7 +8,7 @@ from app.models.deposit import DepositAccount, DepositTransaction
 from app.models.library import BookIssue
 from app.models.subscription import StudentSubscription
 from app.models.audit import AuditLog
-from app.middleware.auth_middleware import permission_required, get_current_user
+from app.middleware.auth_middleware import permission_required, permission_required_any, get_current_user
 from datetime import datetime, timedelta
 from datetime import datetime, date, timedelta
 from io import BytesIO, StringIO
@@ -1300,7 +1300,7 @@ def promote_students():
 # Academic Years endpoints
 @students_bp.route('/academic-years', methods=['GET'])
 @jwt_required()
-@permission_required('student.view')
+@permission_required_any(['student.view', 'master_data.view'])
 def get_academic_years():
     """Get all academic years"""
     years = (AcademicYear.query.order_by(AcademicYear.year_code.desc()).all()
@@ -1310,7 +1310,7 @@ def get_academic_years():
 
 @students_bp.route('/academic-years', methods=['POST'])
 @jwt_required()
-@permission_required('programme.create')
+@permission_required('master_data.create')
 def create_academic_year():
     """Create a new academic year"""
     data = request.get_json() or {}
@@ -1352,7 +1352,7 @@ def create_academic_year():
 
 @students_bp.route('/academic-years/<int:academic_year_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('programme.edit')
+@permission_required('master_data.edit')
 def update_academic_year(academic_year_id):
     """Update an academic year"""
     year = AcademicYear.query.get(academic_year_id)
@@ -1379,7 +1379,7 @@ def update_academic_year(academic_year_id):
 
 @students_bp.route('/academic-years/<int:academic_year_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('programme.delete')
+@permission_required('master_data.delete')
 def delete_academic_year(academic_year_id):
     """Deactivate an academic year (soft delete — student enrollments may reference it)"""
     year = AcademicYear.query.get(academic_year_id)
@@ -1393,7 +1393,7 @@ def delete_academic_year(academic_year_id):
 # Programmes endpoints
 @students_bp.route('/programmes', methods=['GET'])
 @jwt_required()
-@permission_required('programme.view')
+@permission_required_any(['programme.view', 'master_data.view'])
 def get_programmes():
     """Get all programmes"""
     programmes = (Programme.query.order_by(Programme.sort_order, Programme.programme_name).all()
@@ -1403,7 +1403,7 @@ def get_programmes():
 
 @students_bp.route('/programmes', methods=['POST'])
 @jwt_required()
-@permission_required('programme.create')
+@permission_required('master_data.create')
 def create_programme():
     """Create a new programme"""
     data = request.get_json() or {}
@@ -1441,7 +1441,7 @@ def create_programme():
 
 @students_bp.route('/programmes/<int:programme_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('programme.edit')
+@permission_required('master_data.edit')
 def update_programme(programme_id):
     """Update a programme"""
     programme = Programme.query.get(programme_id)
@@ -1473,7 +1473,7 @@ def update_programme(programme_id):
 
 @students_bp.route('/programmes/<int:programme_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('programme.delete')
+@permission_required('master_data.delete')
 def delete_programme(programme_id):
     """Deactivate a programme, or permanently delete an unused one."""
     programme = Programme.query.get(programme_id)

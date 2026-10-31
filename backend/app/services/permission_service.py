@@ -55,10 +55,6 @@ class PermissionService:
             return [p.permission_code for p in Permission.query.all()]
         
         permission_codes = set()
-        
-        for rp in RolePermission.query.filter_by(role=user.role).all():
-            permission_codes.add(rp.permission.permission_code)
-        
         for up in UserPermission.query.filter_by(
             user_id=user.user_id,
             is_allowed=True
@@ -81,10 +77,6 @@ class PermissionService:
             is_allowed=True
         ).all():
             if up.permission.permission_code == permission_code:
-                return True
-        
-        for rp in RolePermission.query.filter_by(role=user.role).all():
-            if rp.permission.permission_code == permission_code:
                 return True
         
         return False

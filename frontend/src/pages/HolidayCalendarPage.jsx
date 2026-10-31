@@ -7,6 +7,7 @@ import { HolidayCalendar } from './Settings'
 function HolidayCalendarPage() {
   const { user, hasAnyPermission } = useAuth()
   const [holidays, setHolidays] = useState([])
+  const [weeklyHolidayDays, setWeeklyHolidayDays] = useState([5, 6])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const canEdit = user?.role === 'ADMIN' || hasAnyPermission(['holiday.create', 'holiday.edit', 'holiday.delete'])
@@ -14,8 +15,12 @@ function HolidayCalendarPage() {
   const loadHolidays = async () => {
     try {
       setError('')
-      const response = await api.get('/settings/holidays')
+      const [response, rulesResponse] = await Promise.all([
+        api.get('/settings/holidays'),
+        api.get('/settings/holiday-rules')
+      ])
       setHolidays(response.data || [])
+      setWeeklyHolidayDays(rulesResponse.data?.weekly_holiday_days || [5, 6])
     } catch (err) {
       setError(err.response?.data?.error || 'Could not load the holiday calendar.')
     } finally {
@@ -34,7 +39,7 @@ function HolidayCalendarPage() {
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
       {loading
         ? <div className="flex items-center justify-center gap-3 py-20 text-gray-500"><Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />Loading holiday calendar...</div>
-        : <HolidayCalendar holidays={holidays} canEdit={canEdit} onHolidayChange={loadHolidays} />}
+        : <HolidayCalendar holidays={holidays} canEdit={canEdit} weeklyHolidayDays={weeklyHolidayDays} onHolidayChange={loadHolidays} />}
     </div>
   )
 }

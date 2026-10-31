@@ -10,11 +10,20 @@ const tabs = [
   { id: 'students-detailed', label: 'JK Members Report', perm: 'report.member' },
   // { id: 'subscription-payments', label: 'Subscription Payments', perm: 'report.financial' },
   { id: 'books-detailed', label: 'Books Report', perm: 'report.stock' },
+  { id: 'books-unavailable', label: 'No Available Copies', perm: 'report.stock' },
   { id: 'ebooks-detailed', label: 'E-books Report', perm: 'report.stock' },
   { id: 'fines', label: 'Fines Report', perm: 'report.fine' },
   { id: 'financial', label: 'Financial Report', perm: 'report.financial' },
   { id: 'issue-return', label: 'Issue / Return Report', perm: 'report.issue_return' }
 ]
+
+const REPORT_PERMISSION_LABELS = {
+  'report.member': 'JK Members',
+  'report.stock': 'Books & E-books',
+  'report.fine': 'Fines',
+  'report.financial': 'Financial',
+  'report.issue_return': 'Issue / Return',
+}
 
 const FIELD_LABELS = {
   book_id: 'Book ID', student_id: 'Student ID', subscription_id: 'Subscription ID',
@@ -37,6 +46,7 @@ const REPORT_FIELD_ORDER = {
   financial_deposit_transactions: ['transaction_id', 'student_id', 'student_name', 'transaction_type', 'amount', 'balance_after', 'created_at', 'reference_id'],
   issue_return_records: ['student_id', 'student_name', 'book_title', 'issue_date', 'due_date', 'fine_amount', 'damage_charge'],
   current_overdue_books: ['student_id', 'student_name', 'book_title', 'days_overdue', 'due_date'],
+  unavailable_books: ['book_title', 'author', 'isbn', 'total_copies', 'issued_copies', 'damaged_copies', 'lost_copies', 'reason'],
   ebooks_list: ['record_id', 'book_title', 'author', 'publisher', 'publication_year']
 }
 
@@ -203,6 +213,12 @@ function Reports() {
   const visible = tabs.filter((t) => user?.role === 'ADMIN' || hasPermission(t.perm))
   const tab = visible.find((t) => t.id === active) || visible[0]
 
+  // A user can have one report permission only. Always select an allowed tab
+  // rather than leaving the screen on a previously selected, restricted tab.
+  useEffect(() => {
+    if (tab && active !== tab.id) setActive(tab.id)
+  }, [active, tab])
+
   const load = async () => {
     if (!tab) return
     setLoading(true)
@@ -293,6 +309,12 @@ function Reports() {
     if (active === 'books-detailed') {
       return rawLists.map(([title, rows]) => {
         const fields = BOOK_FIELD_ORDER[title] || (rows[0] ? Object.keys(rows[0]) : [])
+        return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
+      })
+    }
+    if (active === 'books-unavailable') {
+      return rawLists.map(([title, rows]) => {
+        const fields = REPORT_FIELD_ORDER[title] || (rows[0] ? Object.keys(rows[0]) : [])
         return [title, rows.map((row) => Object.fromEntries(fields.map((field) => [field, row[field]])))]
       })
     }
@@ -549,7 +571,7 @@ function Reports() {
     <div className="space-y-6 text-gray-900 dark:text-gray-100">
       <PageHeader
         title={tab?.label || 'Report Generation'}
-        description="Official calculated records, inventory metrics, JK member eligibility, and financial breakdowns."
+        description={`Available reports: ${[...new Set(visible.map((item) => REPORT_PERMISSION_LABELS[item.perm]))].join(', ')}`}
         actions={
           <>
             <Button variant="success" icon={FileSpreadsheet} onClick={() => exportCurrent('excel')}>Export Excel / CSV</Button>

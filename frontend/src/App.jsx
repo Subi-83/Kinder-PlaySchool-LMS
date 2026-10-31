@@ -54,8 +54,8 @@ function App() {
               <Route path="deposits" element={<Deposits />} />
               <Route path="subscriptions" element={<Subscriptions />} />
               <Route path="subscription-payments" element={<ProtectedRoute requiredPermissions={['subscription.payment.view']}><SubscriptionPayments /></ProtectedRoute>} />
-              <Route path="master-data" element={<MasterData />} />
-              <Route path="reports" element={<Reports />} />
+              <Route path="master-data" element={<ProtectedRoute requiredPermissions={['master_data.view']}><MasterData /></ProtectedRoute>} />
+              <Route path="reports" element={<ProtectedRoute requiredPermissions={['report.member', 'report.stock', 'report.fine', 'report.financial', 'report.issue_return']}><Reports /></ProtectedRoute>} />
               <Route path="users" element={<Users />} />
               <Route path="settings" element={<Settings />} />
               <Route path="holiday-calendar" element={<ProtectedRoute requiredPermissions={['holiday.view']}><HolidayCalendarPage /></ProtectedRoute>} />

@@ -22,7 +22,7 @@ def count_holidays_during_overdue_period(due_date, return_date):
     excluded_days = 0
     current_date = due_date + timedelta(days=1)
     while current_date <= return_date:
-        if any(
+        if current_date.weekday() in SettingsService.get_weekly_holiday_days() or any(
             holiday.holiday_date == current_date or
             (holiday.is_recurring and holiday.holiday_date.month == current_date.month
              and holiday.holiday_date.day == current_date.day)
@@ -33,7 +33,7 @@ def count_holidays_during_overdue_period(due_date, return_date):
     return excluded_days
 
 def is_configured_holiday(date_value, holidays):
-    return any(
+    return date_value.weekday() in SettingsService.get_weekly_holiday_days() or any(
         holiday.holiday_date == date_value or
         (holiday.is_recurring and holiday.holiday_date.month == date_value.month
          and holiday.holiday_date.day == date_value.day)
@@ -58,6 +58,8 @@ def get_library_calendar_info():
     return jsonify({
         'holidays': [holiday.to_dict() for holiday in Holiday.query.order_by(Holiday.holiday_date).all()],
         'holiday_adjustment': SettingsService.get_bool('holiday_adjustment', True),
+        'weekly_holiday_days': SettingsService.get_weekly_holiday_days(),
+        'low_deposit_threshold': SettingsService.get_float('low_deposit_threshold', 300),
         'issue_period_days': SettingsService.get_int('issue_period_days', 14),
         'late_fine_per_day': SettingsService.get_float('late_fine_per_day', 5),
         'damage_small': SettingsService.get_float('damage_small', 100),
@@ -154,22 +156,14 @@ def issue_book():
     if current_issues >= plan.max_books:
         return jsonify({'error': f'This student has reached the maximum borrowing limit ({plan.max_books}) for the current subscription plan.'}), 400
     
-    # Students at or below the low-deposit threshold must top up unless an
-    # administrator gives an explicit, auditable, one-time approval.
+    # A low deposit must be topped up before a book can be issued. This is
+    # enforced on the server so it cannot be bypassed from the browser.
     deposit_account = DepositAccount.query.filter_by(student_id=student_id).first()
     low_deposit_threshold = SettingsService.get_float('low_deposit_threshold', 300)
     deposit_balance = float(deposit_account.current_balance or 0) if deposit_account else 0.0
-    book_mrp = float(copy.title_ref.mrp or 0) if copy.title_ref else 0.0
-    admin_override = bool(data.get('admin_approved_low_deposit', False))
     current_user = get_current_user()
     if deposit_balance <= low_deposit_threshold:
-        if not admin_override:
-            return jsonify({'error': f'Deposit is ₹{deposit_balance:.2f}, which is at or below the ₹{low_deposit_threshold:.2f} borrowing limit. Ask an administrator for approval or top up the deposit.'}), 400
-        if not current_user or current_user.role != 'ADMIN':
-            return jsonify({'error': 'Only an administrator can approve borrowing with a low deposit.'}), 403
-    if book_mrp > 0 and deposit_balance < book_mrp:
-        return jsonify({'error': f'Book MRP is ₹{book_mrp:.2f}. The student deposit must be at least the MRP; current balance is ₹{deposit_balance:.2f}.'}), 400
-    
+        return jsonify({'error': f'Deposit is ₹{deposit_balance:.2f}, which is at or below the ₹{low_deposit_threshold:.2f} borrowing limit. Top up the deposit before issuing a book.'}), 400
     # Get issue period from settings
     issue_days = SettingsService.get_int('issue_period_days', 14)
     
@@ -218,7 +212,7 @@ def issue_book():
         action='ISSUE_BOOK',
         module='Library',
         record_id=str(issue.issue_id),
-        details=f'Issued book copy {book_copy_id} to student {student_id}' + (' with administrator approval for low deposit' if admin_override else '')
+        details=f'Issued book copy {book_copy_id} to student {student_id}'
     )
     
     return jsonify(issue.to_dict()), 201

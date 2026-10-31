@@ -47,14 +47,10 @@ class User(db.Model):
             if up.permission.permission_code == permission_code and up.is_allowed:
                 return True
         
-        # Check role-based permissions
-        rp = RolePermission.query.filter(
-            RolePermission.role == self.role,
-            RolePermission.permission_id == Permission.permission_id,
-            Permission.permission_code == permission_code
-        ).first()
-        
-        return rp is not None
+        # Staff access is assigned per user. Do not inherit legacy STAFF role
+        # grants, otherwise a newly created staff user can receive permissions
+        # that were never selected in the Users page.
+        return False
     
     def has_any_permission(self, permission_codes):
         """Check if user has any of the given permissions"""
@@ -70,10 +66,7 @@ class User(db.Model):
 
         permissions = set()
 
-        for rp in RolePermission.query.filter_by(role=self.role).all():
-            permissions.add(rp.permission.permission_code)
-
-        # Apply user-specific overrides — grants AND denials
+        # Staff permissions are explicit user grants only.
         for up in self.user_permissions.all():          # ← no is_allowed filter here anymore
             if up.is_allowed:
                 permissions.add(up.permission.permission_code)

@@ -11,6 +11,7 @@ from app.services.permission_service import PermissionService
 from app.services.settings_service import SettingsService
 import requests
 import json
+from sqlalchemy.orm import joinedload
 
 import re
 
@@ -486,9 +487,67 @@ def update_ebook_endpoint(book_id):
 @jwt_required()
 @permission_required('book.view')
 def get_books():
-    """Get physical book titles only; e-books have their own register."""
-    books = BookTitle.query.join(BookCopy).order_by(BookCopy.barcode.asc(), BookCopy.copy_number.asc()).all()
-    return jsonify([b.to_dict() for b in books]), 200
+    """Get physical book titles with all display data in bulk.
+
+    Avoid calling ``BookTitle.to_dict`` here: it performs several inventory
+    queries per title, which becomes very slow for a sizeable catalog.
+    """
+    books = (BookTitle.query
+             .options(joinedload(BookTitle.level_ref), joinedload(BookTitle.category_ref))
+             .filter(BookTitle.copies.any())
+             .order_by(BookTitle.book_title_id)
+             .all())
+    book_ids = [book.book_title_id for book in books]
+    copies_by_title = {book_id: [] for book_id in book_ids}
+
+    if book_ids:
+        copies = (BookCopy.query
+                  .options(joinedload(BookCopy.cupboard_ref), joinedload(BookCopy.shelf_ref))
+                  .filter(BookCopy.book_title_id.in_(book_ids))
+                  .order_by(BookCopy.book_title_id, BookCopy.copy_number, BookCopy.barcode)
+                  .all())
+        for copy in copies:
+            copies_by_title[copy.book_title_id].append(copy)
+
+    result = []
+    for book in books:
+        book_copies = copies_by_title[book.book_title_id]
+        copy_data = [copy.to_dict() for copy in book_copies]
+        statuses = [(copy.status or '').upper() for copy in book_copies]
+        result.append({
+            'book_title_id': book.book_title_id,
+            'e_book_id': book.e_book_id,
+            'title': book.title,
+            'author': book.author,
+            'isbn': book.isbn,
+            'level_id': book.level_id,
+            'category_id': book.category_id,
+            'level': book.level_ref.to_dict() if book.level_ref else None,
+            'reading_level': book.level_ref.level_name if book.level_ref else None,
+            'level_name': book.level_ref.level_name if book.level_ref else None,
+            'level_code': book.level_ref.level_code if book.level_ref else None,
+            'mrp': float(book.mrp) if book.mrp is not None else None,
+            'ebook_count': int(book.ebook_count or 0),
+            'category': book.category_ref.to_dict() if book.category_ref else None,
+            'category_name': book.category_ref.category_name if book.category_ref else None,
+            'publication_year': book.publication_year,
+            'publish_year': book.publication_year,
+            'publisher': book.publisher,
+            'purchase_year': book.purchase_year,
+            'description': book.description,
+            'cover_image': book.cover_image,
+            'created_at': book.created_at.strftime('%Y-%m-%d %H:%M') if book.created_at else None,
+            'updated_at': book.updated_at.strftime('%Y-%m-%d %H:%M') if book.updated_at else None,
+            'copies': copy_data,
+            'inventory': {
+                'total_copies': len(book_copies),
+                'available': statuses.count('AVAILABLE'),
+                'issued': statuses.count('ISSUED'),
+                'damaged': statuses.count('DAMAGED'),
+                'lost': statuses.count('LOST'),
+            },
+        })
+    return jsonify(result), 200
 
 @books_bp.route('/ebooks', methods=['GET'])
 @jwt_required()
@@ -737,12 +796,9 @@ def update_book(book_id):
             BookTitle.book_title_id != book_id,
             db.func.lower(db.func.trim(BookTitle.isbn)) == isbn.lower()
         ).first()
-    if not duplicate and title and author:
-        duplicate = BookTitle.query.filter(
-            BookTitle.book_title_id != book_id,
-            db.func.lower(db.func.trim(BookTitle.title)) == title.lower(),
-            db.func.lower(db.func.trim(BookTitle.author)) == author.lower()
-        ).first()
+    # A title/author is catalog metadata, not a unique identifier. Different
+    # editions and copies can legitimately share both values. ISBN remains the
+    # only duplicate guard when editing a title record.
     if duplicate:
         return jsonify({
             'error': 'Duplicate book: another record already has this ISBN or title and author.',
@@ -1158,6 +1214,7 @@ def isbn_lookup():
 # Book Levels
 @books_bp.route('/levels', methods=['GET'])
 @jwt_required()
+@permission_required_any(['book.view', 'book.edit', 'master_data.view'])
 def get_book_levels():
     """Get all book levels"""
     levels = (BookLevel.query.order_by(BookLevel.sort_order, BookLevel.level_name).all()
@@ -1167,7 +1224,7 @@ def get_book_levels():
 
 @books_bp.route('/levels', methods=['POST'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.create')
 def create_book_level():
     """Create a new book level"""
     data = request.get_json() or {}
@@ -1186,7 +1243,7 @@ def create_book_level():
 
 @books_bp.route('/levels/<int:level_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.edit')
 def update_book_level(level_id):
     """Update a book level"""
     level = BookLevel.query.get(level_id)
@@ -1205,7 +1262,7 @@ def update_book_level(level_id):
 
 @books_bp.route('/levels/<int:level_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('book.delete')
+@permission_required('master_data.delete')
 def delete_book_level(level_id):
     """Deactivate a book level (soft delete — books may reference it)"""
     level = BookLevel.query.get(level_id)
@@ -1219,6 +1276,7 @@ def delete_book_level(level_id):
 # Book Categories
 @books_bp.route('/categories', methods=['GET'])
 @jwt_required()
+@permission_required_any(['book.view', 'book.edit', 'master_data.view'])
 def get_book_categories():
     """Get all book categories"""
     categories = (BookCategory.query.order_by(BookCategory.category_name).all()
@@ -1228,7 +1286,7 @@ def get_book_categories():
 
 @books_bp.route('/categories', methods=['POST'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.create')
 def create_book_category():
     """Create a new book category"""
     data = request.get_json()
@@ -1246,7 +1304,7 @@ def create_book_category():
 
 @books_bp.route('/categories/<int:category_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.edit')
 def update_book_category(category_id):
     """Update a book category"""
     category = BookCategory.query.get(category_id)
@@ -1263,7 +1321,7 @@ def update_book_category(category_id):
 
 @books_bp.route('/categories/<int:category_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('book.delete')
+@permission_required('master_data.delete')
 def delete_book_category(category_id):
     """Deactivate a book category (soft delete — books may reference it)"""
     category = BookCategory.query.get(category_id)
@@ -1281,6 +1339,7 @@ def delete_book_category(category_id):
 
 @books_bp.route('/locations/hierarchy', methods=['GET'])
 @jwt_required()
+@permission_required_any(['book.view', 'book.edit', 'master_data.view'])
 def get_location_hierarchy():
     """Get dynamic Cupboard -> Shelf hierarchy for dependent dropdowns and master data"""
     include_inactive = request.args.get('include_inactive', '').lower() == 'true'
@@ -1304,6 +1363,7 @@ def get_location_hierarchy():
 
 @books_bp.route('/locations/cupboards', methods=['GET'])
 @jwt_required()
+@permission_required_any(['book.view', 'book.edit', 'master_data.view'])
 def get_cupboards():
     """List all cupboards with their shelves"""
     include_inactive = request.args.get('include_inactive', '').lower() == 'true'
@@ -1316,7 +1376,7 @@ def get_cupboards():
 
 @books_bp.route('/locations/cupboards', methods=['POST'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.create')
 def create_cupboard():
     """Create a new cupboard"""
     data = request.get_json() or {}
@@ -1351,7 +1411,7 @@ def create_cupboard():
 
 @books_bp.route('/locations/cupboards/<int:cupboard_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.edit')
 def update_cupboard(cupboard_id):
     """Update a cupboard"""
     cupboard = LibraryCupboard.query.get(cupboard_id)
@@ -1392,7 +1452,7 @@ def update_cupboard(cupboard_id):
 
 @books_bp.route('/locations/cupboards/<int:cupboard_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('book.delete')
+@permission_required('master_data.delete')
 def delete_cupboard(cupboard_id):
     """Deactivate or delete cupboard if no books are stored"""
     cupboard = LibraryCupboard.query.get(cupboard_id)
@@ -1423,7 +1483,7 @@ def delete_cupboard(cupboard_id):
 
 @books_bp.route('/locations/cupboards/<int:cupboard_id>/activate', methods=['POST'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.edit')
 def activate_cupboard(cupboard_id):
     """Activate a deactivated cupboard"""
     cupboard = LibraryCupboard.query.get(cupboard_id)
@@ -1436,6 +1496,7 @@ def activate_cupboard(cupboard_id):
 
 @books_bp.route('/locations/shelves', methods=['GET'])
 @jwt_required()
+@permission_required_any(['book.view', 'book.edit', 'master_data.view'])
 def get_shelves():
     """List shelves, optionally filtered by cupboard_id"""
     include_inactive = request.args.get('include_inactive', '').lower() == 'true'
@@ -1451,7 +1512,7 @@ def get_shelves():
 
 @books_bp.route('/locations/shelves', methods=['POST'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.create')
 def create_shelf():
     """Create a new shelf under a specific cupboard"""
     data = request.get_json() or {}
@@ -1490,7 +1551,7 @@ def create_shelf():
 
 @books_bp.route('/locations/shelves/<int:shelf_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.edit')
 def update_shelf(shelf_id):
     """Update an existing shelf"""
     shelf = LibraryShelf.query.get(shelf_id)
@@ -1534,7 +1595,7 @@ def update_shelf(shelf_id):
 
 @books_bp.route('/locations/shelves/<int:shelf_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('book.delete')
+@permission_required('master_data.delete')
 def delete_shelf(shelf_id):
     """Deactivate or delete shelf if no books are assigned"""
     shelf = LibraryShelf.query.get(shelf_id)
@@ -1555,7 +1616,7 @@ def delete_shelf(shelf_id):
 
 @books_bp.route('/locations/shelves/<int:shelf_id>/activate', methods=['POST'])
 @jwt_required()
-@permission_required('book.edit')
+@permission_required('master_data.edit')
 def activate_shelf(shelf_id):
     """Activate a deactivated shelf"""
     shelf = LibraryShelf.query.get(shelf_id)

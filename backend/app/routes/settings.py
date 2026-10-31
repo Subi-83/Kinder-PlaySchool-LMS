@@ -9,6 +9,7 @@ from app.middleware.auth_middleware import permission_required, admin_required, 
 from app.services.settings_service import SettingsService
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import json
 from sqlalchemy import text, Date, DateTime, Boolean, Integer, Float, Numeric
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
@@ -193,6 +194,47 @@ def get_holidays():
     
     holidays = query.order_by(Holiday.holiday_date).all()
     return jsonify([h.to_dict() for h in holidays]), 200
+
+
+def ensure_weekly_holiday_setting():
+    setting = SystemSetting.query.filter_by(setting_key='weekly_holiday_days').first()
+    if not setting:
+        setting = SystemSetting(
+            setting_key='weekly_holiday_days', setting_value='[5, 6]', data_type='JSON',
+            category='Library', description='Weekly holidays (Monday=0 through Sunday=6)', is_editable=True
+        )
+        db.session.add(setting)
+        db.session.commit()
+    return setting
+
+
+@settings_bp.route('/holiday-rules', methods=['GET'])
+@jwt_required()
+@permission_required('holiday.view')
+def get_holiday_rules():
+    """Return weekly holidays that apply in every year."""
+    ensure_weekly_holiday_setting()
+    return jsonify({'weekly_holiday_days': SettingsService.get_weekly_holiday_days()}), 200
+
+
+@settings_bp.route('/holiday-rules', methods=['PUT'])
+@jwt_required()
+@permission_required('holiday.edit')
+def update_holiday_rules():
+    """Update weekly holidays; weekday values are Monday=0 through Sunday=6."""
+    values = (request.get_json() or {}).get('weekly_holiday_days')
+    if not isinstance(values, list):
+        return jsonify({'error': 'Weekly holiday days must be a list'}), 400
+    try:
+        days = sorted({int(day) for day in values})
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Weekly holiday days must be numbers from 0 to 6'}), 400
+    if not days or not all(0 <= day <= 6 for day in days):
+        return jsonify({'error': 'Select at least one day from Monday to Sunday'}), 400
+    setting = ensure_weekly_holiday_setting()
+    setting.setting_value = json.dumps(days)
+    db.session.commit()
+    return jsonify({'weekly_holiday_days': days}), 200
 
 @settings_bp.route('/holidays', methods=['POST'])
 @jwt_required()

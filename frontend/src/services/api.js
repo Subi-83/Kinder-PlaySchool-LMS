@@ -225,7 +225,7 @@ export const authAPI = {
 export const usersAPI = {
   /**
    * Get all users
-   */
+   */ 
   getAll: () => {
     console.log('[API] 👥 Getting all users')
     return api.get('/users')

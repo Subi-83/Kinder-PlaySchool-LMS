@@ -123,7 +123,10 @@ def get_admin_notifications():
 
     return jsonify({
         'notifications': all_notifications,
-        'pending_count': len(deposit_refund_notifications) + len(low_deposit_notifications) + sum(1 for log in logs if log.action in pending)
+        # The bell badge represents approval work only. Low-deposit and
+        # refund-due entries remain visible in Notifications, but they are
+        # informational alerts and must not leave a permanent "pending" badge.
+        'pending_count': sum(1 for log in logs if log.action in pending)
     }), 200
 
 @audit_bp.route('/deposit-corrections/<int:audit_id>/<string:decision>', methods=['POST'])

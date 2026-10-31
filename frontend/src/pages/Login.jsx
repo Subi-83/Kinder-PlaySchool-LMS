@@ -142,24 +142,7 @@ function Login() {
                   {loading ? 'Logging in...' : 'Login'}
                 </button>
               </form>
-
-              {/* Demo Credentials */}
-              <div className="mt-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                <span className="h-px flex-1 bg-gray-200 dark:bg-[#2a2a4a]" />
-                Or try demo
-                <span className="h-px flex-1 bg-gray-200 dark:bg-[#2a2a4a]" />
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 dark:bg-[#10101d] border border-gray-100 dark:border-[#2a2a4a] p-3.5 text-xs">
-                <div>
-                  <p className="font-semibold text-gray-600 dark:text-gray-300">Admin:</p>
-                  <p className="mt-0.5 font-mono text-gray-500 dark:text-gray-400">admin / admin123</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-600 dark:text-gray-300">Staff:</p>
-                  <p className="mt-0.5 font-mono text-gray-500 dark:text-gray-400">staff / staff123</p>
-                </div>
-              </div>
-
+              
               {/* Quote */}
               <div className="mt-6 flex items-start justify-center gap-2 text-center">
                 <BookOpen className="h-4 w-4 mt-0.5 shrink-0 text-primary-main dark:text-blue-400" aria-hidden="true" />

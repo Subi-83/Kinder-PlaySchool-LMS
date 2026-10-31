@@ -84,6 +84,10 @@ class BookCategory(db.Model):  # type: ignore
 class BookTitle(db.Model):  # type: ignore
     """Book Title Model - Stores book information (master record)"""
     __tablename__ = 'book_titles'
+    __table_args__ = (
+        db.Index('ix_book_titles_level_category_created', 'level_id', 'category_id', 'created_at'),
+        db.Index('ix_book_titles_publication_year', 'publication_year'),
+    )
     
     book_title_id = db.Column(db.Integer, primary_key=True)
     e_book_id = db.Column(db.String(50), unique=True, nullable=True, index=True)
@@ -252,6 +256,12 @@ class LibraryShelf(db.Model):  # type: ignore
 class BookCopy(db.Model):  # type: ignore
     """Book Copy Model - Stores individual physical copies of books"""
     __tablename__ = 'book_copies'
+    __table_args__ = (
+        db.Index('ix_book_copies_title_status', 'book_title_id', 'status'),
+        db.Index('ix_book_copies_status_barcode', 'status', 'barcode'),
+        db.Index('ix_book_copies_title_copy_number', 'book_title_id', 'copy_number'),
+        db.Index('ix_book_copies_location', 'cupboard_id', 'shelf_id'),
+    )
     
     book_copy_id = db.Column(db.Integer, primary_key=True)
     book_title_id = db.Column(db.Integer, db.ForeignKey('book_titles.book_title_id'), nullable=False)

@@ -47,8 +47,7 @@ function Library() {
   // Issue Form state
   const todayStr = new Date().toISOString().split('T')[0]
   const [issueForm, setIssueForm] = useState({
-    issue_date: todayStr,
-    admin_approved_low_deposit: false
+    issue_date: todayStr
   })
 
   // Return Form state
@@ -73,11 +72,8 @@ function Library() {
 
   const canIssue = user?.role === 'ADMIN' || hasPermission('book.issue')
   const canReturn = user?.role === 'ADMIN' || hasPermission('book.return')
-  const lowDepositThreshold = 300
+  const lowDepositThreshold = Number(librarySettings.low_deposit_threshold ?? 300)
   const selectedStudentHasLowDeposit = selectedIssueStudent?.active_subscription && Number(selectedIssueStudent.deposit_balance || 0) <= lowDepositThreshold
-  const selectedBookMrp = Number(selectedIssueBook?.mrp || 0)
-  const selectedStudentBelowMrp = selectedIssueStudent && selectedBookMrp > 0 && Number(selectedIssueStudent.deposit_balance || 0) < selectedBookMrp
-  const canApproveLowDeposit = user?.role === 'ADMIN'
 
   const issuePeriodDays = Number(librarySettings.issue_period_days) || 14
 
@@ -87,14 +83,16 @@ function Library() {
     if (isNaN(baseDate.getTime())) return ''
     baseDate.setDate(baseDate.getDate() + issuePeriodDays)
 
-    if (librarySettings.holiday_adjustment !== false && holidays?.length > 0) {
+    if (librarySettings.holiday_adjustment !== false) {
       const holidayDates = new Set(holidays.map(h => h.holiday_date))
-      while (holidayDates.has(baseDate.toISOString().split('T')[0])) {
+      const weeklyHolidayDays = new Set(librarySettings.weekly_holiday_days || [5, 6])
+      const isWeeklyHoliday = (date) => weeklyHolidayDays.has((date.getDay() + 6) % 7)
+      while (holidayDates.has(baseDate.toISOString().split('T')[0]) || isWeeklyHoliday(baseDate)) {
         baseDate.setDate(baseDate.getDate() + 1)
       }
     }
     return baseDate.toISOString().split('T')[0]
-  }, [issueForm.issue_date, issuePeriodDays, holidays, librarySettings.holiday_adjustment])
+  }, [issueForm.issue_date, issuePeriodDays, holidays, librarySettings.holiday_adjustment, librarySettings.weekly_holiday_days])
 
   // Presentation helper: sets the banner text alongside whether it renders
   // as a success or error style (keeps notification call sites concise).
@@ -259,12 +257,8 @@ function Library() {
       notify('This book copy is marked as Lost and cannot be issued.', true)
       return
     }
-    if (selectedStudentBelowMrp) {
-      notify(`Deposit must cover the book MRP of ₹${selectedBookMrp.toFixed(2)}.`, true)
-      return
-    }
-    if (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit) {
-      notify(`${selectedIssueStudent.student_name}'s deposit is ₹${Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)}. Top up above ₹300 or request administrator approval.`, true)
+    if (selectedStudentHasLowDeposit) {
+      notify(`${selectedIssueStudent.student_name}'s deposit is ₹${Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)}. Top up above ₹${lowDepositThreshold.toFixed(2)} before issuing a book.`, true)
       return
     }
 
@@ -273,8 +267,7 @@ function Library() {
         student_id: selectedIssueStudent.student_id,
         book_copy_id: selectedIssueBook.book_copy_id,
         issue_date: issueForm.issue_date,
-        issue_condition: selectedIssueBook.current_condition || 'Good',
-        admin_approved_low_deposit: issueForm.admin_approved_low_deposit
+        issue_condition: selectedIssueBook.current_condition || 'Good'
       })
       notify(`Book "${selectedIssueBook.title}" issued to ${selectedIssueStudent.student_name} successfully!`)
       setSelectedIssueBook(null)
@@ -294,13 +287,15 @@ function Library() {
     let count = 0
     const cursor = new Date(dueDate)
     cursor.setDate(cursor.getDate() + 1)
+    const weeklyHolidayDays = new Set(librarySettings.weekly_holiday_days || [5, 6])
     while (cursor <= returnDate) {
       const cursorKey = toDateKey(cursor)
-      if (holidays.some((holiday) => holiday.holiday_date === cursorKey || (holiday.is_recurring && holiday.holiday_date.slice(5) === cursorKey.slice(5)))) count += 1
+      const isWeeklyHoliday = weeklyHolidayDays.has((cursor.getDay() + 6) % 7)
+      if (isWeeklyHoliday || holidays.some((holiday) => holiday.holiday_date === cursorKey || (holiday.is_recurring && holiday.holiday_date.slice(5) === cursorKey.slice(5)))) count += 1
       cursor.setDate(cursor.getDate() + 1)
     }
     return count
-  }, [selectedReturnIssue, returnForm.return_date, holidays, librarySettings.holiday_adjustment])
+  }, [selectedReturnIssue, returnForm.return_date, holidays, librarySettings.holiday_adjustment, librarySettings.weekly_holiday_days])
 
   useEffect(() => {
     setReturnForm((current) => ({ ...current, holiday_days: dynamicHolidayDays }))
@@ -550,13 +545,7 @@ function Library() {
               {selectedStudentHasLowDeposit && (
                 <div className="text-amber-700 dark:text-amber-300 font-semibold text-[11px] bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900 flex items-start gap-1.5">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-                  <span>Deposit is ₹{Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)} (≤₹300). Borrowing is blocked until the deposit is topped up or an administrator approves this issue.</span>
-                </div>
-              )}
-              {selectedStudentBelowMrp && (
-                <div className="text-rose-700 dark:text-rose-300 font-semibold text-[11px] bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-lg border border-rose-200 dark:border-rose-900 flex items-start gap-1.5">
-                  <XCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-                  <span>Book MRP is ₹{selectedBookMrp.toFixed(2)}. Deposit must be at least the MRP before this physical copy can be issued.</span>
+                  <span>Deposit is ₹{Number(selectedIssueStudent.deposit_balance || 0).toFixed(2)} (≤₹{lowDepositThreshold.toFixed(2)}). Borrowing is blocked until the deposit is topped up.</span>
                 </div>
               )}
             </div>
@@ -618,21 +607,11 @@ function Library() {
             />
           </div>
 
-          {selectedStudentHasLowDeposit && canApproveLowDeposit && (
-            <label className="flex items-start gap-2 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-900 dark:text-amber-200">
-              <Checkbox
-                checked={issueForm.admin_approved_low_deposit}
-                onChange={(e) => setIssueForm({ ...issueForm, admin_approved_low_deposit: e.target.checked })}
-              />
-              <span><strong>Administrator approval</strong><br />Approve this one book issue despite the low deposit. This approval is recorded in Audit Logs.</span>
-            </label>
-          )}
-
           <Button
             type="submit"
             fullWidth
             size="lg"
-            disabled={!canIssue || !selectedIssueStudent || !selectedIssueStudent.library_access || !selectedIssueStudent.active_subscription || !selectedIssueBook || selectedIssueBook.current_condition === 'Lost' || selectedStudentBelowMrp || (selectedStudentHasLowDeposit && !issueForm.admin_approved_low_deposit)}
+            disabled={!canIssue || !selectedIssueStudent || !selectedIssueStudent.library_access || !selectedIssueStudent.active_subscription || !selectedIssueBook || selectedIssueBook.current_condition === 'Lost' || selectedStudentHasLowDeposit}
           >
             Confirm & Issue Book
           </Button>

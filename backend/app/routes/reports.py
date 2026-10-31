@@ -649,6 +649,7 @@ def books_detailed_report():
 
     book_titles = query.order_by(BookTitle.book_title_id).all()
     results = []
+    all_books_list = []
     lost_book_results = []
     issued_book_results = []
 
@@ -783,6 +784,41 @@ def books_detailed_report():
         'books_list': all_books_list,
         'lost_books_list': lost_book_results,
         'issued_books_list': issued_book_results
+    }), 200
+
+
+@reports_bp.route('/books-unavailable', methods=['GET'])
+@jwt_required()
+@permission_required('report.stock')
+def books_unavailable_report():
+    """List physical book titles that currently have no available copies."""
+    unavailable_books = []
+    titles = BookTitle.query.filter(BookTitle.copies.any()).order_by(BookTitle.title).all()
+
+    for title in titles:
+        copies = title.copies.all()
+        available_count = sum(1 for copy in copies if (copy.status or '').upper() == 'AVAILABLE')
+        if available_count:
+            continue
+
+        issued_count = sum(1 for copy in copies if (copy.status or '').upper() == 'ISSUED')
+        damaged_count = sum(1 for copy in copies if (copy.status or '').upper() == 'DAMAGED')
+        lost_count = sum(1 for copy in copies if (copy.status or '').upper() == 'LOST')
+        unavailable_books.append({
+            'book_title': title.title,
+            'author': title.author or '-',
+            'isbn': title.isbn or '-',
+            'total_copies': len(copies),
+            'issued_copies': issued_count,
+            'damaged_copies': damaged_count,
+            'lost_copies': lost_count,
+            'reason': 'All copies are issued' if issued_count == len(copies) else 'No copy is currently available'
+        })
+
+    return jsonify({
+        'total_unavailable_titles': len(unavailable_books),
+        'total_unavailable_copies': sum(row['total_copies'] for row in unavailable_books),
+        'unavailable_books': unavailable_books,
     }), 200
 
 

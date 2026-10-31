@@ -57,7 +57,7 @@ const SETTING_LABELS = {
 // HOLIDAY CALENDAR COMPONENT
 // ============================================================
 
-export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
+export function HolidayCalendar({ holidays, canEdit, weeklyHolidayDays = [5, 6], onHolidayChange }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -305,7 +305,12 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
           {/* Days Grid */}
           <div className="grid grid-cols-7 gap-1.5">
             {calendarCells.map((cell, idx) => {
-              const dayHolidays = holidayMap[cell.dateStr] || []
+              const jsDay = new Date(`${cell.dateStr}T00:00:00`).getDay()
+              const pythonDay = jsDay === 0 ? 6 : jsDay - 1
+              const weekendHoliday = weeklyHolidayDays.includes(pythonDay)
+                ? [{ holiday_id: `weekly-${cell.dateStr}`, holiday_name: 'Weekly Holiday', is_weekly: true }]
+                : []
+              const dayHolidays = [...(holidayMap[cell.dateStr] || []), ...weekendHoliday]
               const isToday = cell.dateStr === todayStr
               const isSelected = selectedDate === cell.dateStr
               const isCurrentMonth = cell.monthOffset === 0
@@ -352,10 +357,10 @@ export function HolidayCalendar({ holidays, canEdit, onHolidayChange }) {
                         key={hIdx}
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (canEdit) openEditModal(h)
+                          if (canEdit && !h.is_weekly) openEditModal(h)
                         }}
                         className="px-1.5 py-0.5 rounded text-[11px] font-medium bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 truncate shadow-xs hover:scale-102 transition-transform"
-                        title={`${h.holiday_name}${h.is_recurring ? ' (Annual Recurring)' : ''}`}
+                        title={`${h.holiday_name}${h.is_weekly ? ' (weekly, all years)' : h.is_recurring ? ' (annual recurring)' : ''}`}
                       >
                         {h.holiday_name}
                       </div>
@@ -646,6 +651,7 @@ function SystemSettingsTable({ canEdit }) {
 
   // Filter list
   const filtered = settingsList.filter(s => {
+    if (s.setting_key === 'weekly_holiday_days') return false
     const matchesCat = selectedCategory === 'ALL' || s.category === selectedCategory
     const label = SETTING_LABELS[s.setting_key] || ''
     const matchesSearch = s.setting_key.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -862,6 +868,55 @@ function SystemSettingsTable({ canEdit }) {
   )
 }
 
+function WeeklyHolidaysSettings({ canEdit }) {
+  const [days, setDays] = useState([5, 6])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    api.get('/settings/holiday-rules')
+      .then((response) => setDays(response.data?.weekly_holiday_days || [5, 6]))
+      .catch(() => setMessage({ type: 'error', text: 'Could not load weekly holidays.' }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const toggleDay = async (day) => {
+    const next = days.includes(day) ? days.filter((item) => item !== day) : [...days, day].sort((a, b) => a - b)
+    if (!next.length) {
+      setMessage({ type: 'error', text: 'Select at least one weekly holiday.' })
+      return
+    }
+    setSaving(true)
+    try {
+      const response = await api.put('/settings/holiday-rules', { weekly_holiday_days: next })
+      setDays(response.data.weekly_holiday_days)
+      setMessage({ type: 'success', text: 'Weekly holidays updated.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Could not update weekly holidays.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 dark:border-indigo-900/60 dark:bg-indigo-950/20">
+      <h3 className="text-base font-bold text-indigo-950 dark:text-indigo-100">Weekly Holidays</h3>
+      <p className="mt-1 text-sm text-indigo-800 dark:text-indigo-300">These days are holidays every year and are excluded from library due dates and fines. Saturday and Sunday are enabled by default.</p>
+      {message && <p className={`mt-3 text-xs font-semibold ${message.type === 'error' ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'}`}>{message.text}</p>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {[['Monday', 0], ['Tuesday', 1], ['Wednesday', 2], ['Thursday', 3], ['Friday', 4], ['Saturday', 5], ['Sunday', 6]].map(([label, day]) => (
+          <label key={day} className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-950 dark:border-indigo-800 dark:bg-[#17172a] dark:text-indigo-100">
+            <Checkbox checked={days.includes(day)} disabled={!canEdit || loading || saving} onChange={() => toggleDay(day)} />
+            {label}
+          </label>
+        ))}
+      </div>
+      {!canEdit && <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">You need Holiday Edit permission to change this rule.</p>}
+    </section>
+  )
+}
+
 // ============================================================
 // MAIN SETTINGS PAGE CONTAINER
 // ============================================================
@@ -975,6 +1030,7 @@ function MemberGroupsSettings({ canEdit }) {
 function Settings() {
   const { user, hasPermission } = useAuth()
   const canEdit = user?.role === 'ADMIN' || hasPermission('settings.view')
+  const canEditWeeklyHolidays = user?.role === 'ADMIN' || hasPermission('holiday.edit')
 
   return (
     <div className="space-y-6">
@@ -984,6 +1040,7 @@ function Settings() {
       />
 
       <MemberGroupsSettings canEdit={canEdit} />
+      <WeeklyHolidaysSettings canEdit={canEditWeeklyHolidays} />
       <SystemSettingsTable canEdit={canEdit} />
     </div>
   )

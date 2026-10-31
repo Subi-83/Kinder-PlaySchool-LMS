@@ -56,7 +56,7 @@ def _academic_year_from_request(data=None, date_hint=None):
 
 @subscriptions_bp.route('/plans', methods=['GET'])
 @jwt_required()
-@permission_required('subscription.view')
+@permission_required_any(['subscription.view', 'master_data.view'])
 def get_plans():
     """Get all subscription plans"""
     plans = SubscriptionPlan.get_active_plans()
@@ -70,7 +70,7 @@ def get_plans():
 
 @subscriptions_bp.route('/plans', methods=['POST'])
 @jwt_required()
-@permission_required('subscription.create')
+@permission_required('master_data.create')
 def create_plan():
     """Create a new subscription plan"""
     """Create a new subscription plan with separate subscription_fee, fixed_deposit, and total_amount."""
@@ -136,7 +136,7 @@ def create_plan():
 
 @subscriptions_bp.route('/plans/<int:plan_id>', methods=['PUT'])
 @jwt_required()
-@permission_required('subscription.edit')
+@permission_required('master_data.edit')
 def update_plan(plan_id):
     """Update a subscription plan"""
     plan = SubscriptionPlan.query.get(plan_id)
@@ -207,7 +207,7 @@ def update_plan(plan_id):
 
 @subscriptions_bp.route('/plans/<int:plan_id>', methods=['DELETE'])
 @jwt_required()
-@permission_required('subscription.delete')
+@permission_required('master_data.delete')
 def delete_plan(plan_id):
     """Delete a subscription plan"""
     plan = SubscriptionPlan.query.get(plan_id)
