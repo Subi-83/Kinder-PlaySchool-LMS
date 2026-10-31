@@ -62,7 +62,8 @@ def run_resequence():
 
             avoid = {
                 1: {173, 175},
-                4: {172, 173, 346}
+                4: {172, 173, 346},
+                5: {9, 10, 163}
             }.get(lnum, set())
 
             # Phase 2: Set final barcodes skipping avoided sequences

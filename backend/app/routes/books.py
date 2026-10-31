@@ -83,6 +83,7 @@ def get_level_number(lvl):
 AVOIDED_LEVEL_SEQUENCES = {
     1: {173, 175},       # Level 1: 100173 and 100175 avoided
     4: {172, 173, 346},  # Level 4: 400172, 400173, and 400346 avoided
+    5: {9, 10, 163},     # Level 5: 500009, 500010, and 500163 avoided
 }
 
 def resequence_level_copies(level_id):
@@ -585,9 +586,12 @@ def create_book():
     level_id = _to_int(data.get('level_id'))
     ebook_count = max(0, _to_int(data.get('ebook_count')) or 0)
     
-    # 1. Check if book title already exists by ISBN or exact Title+Author
+    # 1. Check if book title already exists by ID, ISBN or exact Title+Author
     existing = None
-    if isbn:
+    existing_id = _to_int(data.get('book_title_id') or data.get('existing_book_id'))
+    if existing_id:
+        existing = BookTitle.query.get(existing_id)
+    if not existing and isbn:
         existing = BookTitle.query.filter_by(isbn=isbn).first()
     if not existing and title and author:
         existing = BookTitle.query.filter(
@@ -844,8 +848,6 @@ def delete_book(book_id):
             BookCopy.query.filter_by(book_title_id=book_id).delete()
             db.session.delete(book)
             db.session.flush()
-            if level_id:
-                resequence_level_copies(level_id)
             db.session.commit()
             AuditLog.log_action(
                 user_id=current_user.user_id, username=current_user.username,
@@ -986,8 +988,6 @@ def delete_book_copy(copy_id):
                 pending.details = f'{pending.details} | Completed directly by administrator {current_user.username}'
             db.session.delete(copy)
             db.session.flush()
-            if level_id:
-                resequence_level_copies(level_id)
             db.session.commit()
             AuditLog.log_action(
                 user_id=current_user.user_id, username=current_user.username,

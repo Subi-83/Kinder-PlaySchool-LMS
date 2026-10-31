@@ -35,6 +35,21 @@ function Books() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
+  // State for Book Title Dropdown
+  const [titleDropdownOpen, setTitleDropdownOpen] = useState(false)
+  const [selectedExistingBook, setSelectedExistingBook] = useState(null)
+  const titleDropdownRef = useRef(null)
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (titleDropdownRef.current && !titleDropdownRef.current.contains(event.target)) {
+        setTitleDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // Advanced Filter Controls State
   const [filters, setFilters] = useState({
     search: '',
@@ -63,6 +78,48 @@ function Books() {
     location: 'Main Shelf',
     condition: 'Good'
   })
+
+  const matchingBooks = React.useMemo(() => {
+    const q = (formData.title || '').trim().toLowerCase()
+    if (!q) {
+      return books.slice(0, 25)
+    }
+    return books
+      .filter(b =>
+        b.title?.toLowerCase().includes(q) ||
+        b.author?.toLowerCase().includes(q) ||
+        (b.isbn && b.isbn.toLowerCase().includes(q))
+      )
+      .slice(0, 25)
+  }, [books, formData.title])
+
+  const handleSelectExistingBook = (b) => {
+    setSelectedExistingBook(b)
+    setFormData(prev => ({
+      ...prev,
+      title: b.title || '',
+      author: b.author || '',
+      isbn: b.isbn || prev.isbn || '',
+      level_id: b.level_id ? String(b.level_id) : prev.level_id,
+      category_id: b.category_id ? String(b.category_id) : prev.category_id,
+      mrp: b.mrp != null ? b.mrp : prev.mrp,
+      publisher: b.publisher || prev.publisher,
+      publication_year: b.publication_year ? String(b.publication_year) : prev.publication_year,
+      description: b.description || prev.description,
+      cupboard_id: b.copies?.[0]?.cupboard_id ? String(b.copies[0].cupboard_id) : prev.cupboard_id,
+      shelf_id: b.copies?.[0]?.shelf_id ? String(b.copies[0].shelf_id) : prev.shelf_id,
+      location: b.copies?.[0]?.location || prev.location
+    }))
+    setTitleDropdownOpen(false)
+  }
+
+  const handleTitleChange = (val) => {
+    setFormData(prev => ({ ...prev, title: val }))
+    setTitleDropdownOpen(true)
+    if (selectedExistingBook && val.trim().toLowerCase() !== selectedExistingBook.title?.trim().toLowerCase()) {
+      setSelectedExistingBook(null)
+    }
+  }
   const [levels, setLevels] = useState([])
   const [categories, setCategories] = useState([])
   const [locationHierarchy, setLocationHierarchy] = useState([])
@@ -157,11 +214,23 @@ function Books() {
     try {
       if (editing) {
         await api.put(`/books/${editing}`, formData)
+      } else if (selectedExistingBook) {
+        await api.post(`/books/${selectedExistingBook.book_title_id}/copies`, {
+          purchase_year: formData.purchase_year,
+          purchase_price: formData.purchase_price,
+          cupboard_id: formData.cupboard_id,
+          shelf_id: formData.shelf_id,
+          location: formData.location,
+          condition: formData.condition,
+          notes: formData.description || ''
+        })
       } else {
         await api.post('/books/', formData)
       }
       setShowForm(false)
       setEditing(null)
+      setSelectedExistingBook(null)
+      setTitleDropdownOpen(false)
       setFormData({
         title: '',
         author: '',
@@ -364,6 +433,8 @@ function Books() {
   const resetFormAndOpen = () => {
     setShowForm(!showForm)
     setEditing(null)
+    setSelectedExistingBook(null)
+    setTitleDropdownOpen(false)
     setFormData({
       title: '',
       author: '',
@@ -558,8 +629,8 @@ function Books() {
 
       <Modal
         isOpen={showForm}
-        onClose={() => { setShowForm(false); setEditing(null) }}
-        title={editing ? 'Edit Book Master Record' : 'Add New Book'}
+        onClose={() => { setShowForm(false); setEditing(null); setSelectedExistingBook(null); setTitleDropdownOpen(false) }}
+        title={editing ? 'Edit Book Master Record' : (selectedExistingBook ? 'Add Copy to Existing Book' : 'Add New Book')}
         size="3xl"
       >
         <div className="space-y-4">
@@ -595,19 +666,113 @@ function Books() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {!editing && selectedExistingBook && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <PackagePlus className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="text-emerald-800 dark:text-emerald-200">
+                    Existing book selected: <strong>{selectedExistingBook.title}</strong> by {selectedExistingBook.author}. Submitting will create copy #{ (selectedExistingBook.copies?.length || 0) + 1 }.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedExistingBook(null)}
+                  className="text-emerald-700 dark:text-emerald-300 font-semibold hover:underline ml-2 whitespace-nowrap"
+                >
+                  Create as New Title
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Title *
-                </label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="e.g. The Very Hungry Caterpillar"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  required
-                />
+              <div className="relative" ref={titleDropdownRef}>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Title / Book Name *
+                  </label>
+                  <span className="text-xs text-blue-600 dark:text-blue-400">
+                    {!editing ? 'Select existing book to add copy' : 'Catalog books dropdown'}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => handleTitleChange(e.target.value)}
+                    onFocus={() => setTitleDropdownOpen(true)}
+                    placeholder="Type or select existing book..."
+                    className="w-full px-3 py-2 pr-9 rounded-lg border border-gray-300 dark:border-[#2a2a4a] bg-white dark:bg-[#0f0f1a] text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTitleDropdownOpen(!titleDropdownOpen)}
+                    tabIndex={-1}
+                    className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    title="Toggle existing books list"
+                  >
+                    <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${titleDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
+                {titleDropdownOpen && (
+                  <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white dark:bg-[#1a1a2e] border border-gray-200 dark:border-[#2a2a4a] rounded-xl shadow-2xl divide-y divide-gray-100 dark:divide-[#2a2a4a]">
+                    <div className="p-2.5 bg-gray-50 dark:bg-[#151525] text-xs font-semibold text-gray-600 dark:text-gray-300 flex justify-between items-center sticky top-0 border-b border-gray-200 dark:border-[#2a2a4a]">
+                      <span className="flex items-center gap-1.5">
+                        <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+                        Existing Books ({matchingBooks.length})
+                      </span>
+                      <span className="text-[11px] font-normal text-gray-400">Click to fill & create copy</span>
+                    </div>
+
+                    {matchingBooks.length > 0 ? (
+                      matchingBooks.map((b) => {
+                        const copiesCount = b.copies?.length || b.inventory?.total_copies || 0
+                        const isSelected = selectedExistingBook?.book_title_id === b.book_title_id || (editing === b.book_title_id)
+                        return (
+                          <button
+                            key={b.book_title_id}
+                            type="button"
+                            onClick={() => handleSelectExistingBook(b)}
+                            className={`w-full text-left p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-start justify-between gap-3 ${
+                              isSelected ? 'bg-blue-50/80 dark:bg-blue-900/40 font-medium' : ''
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                                {b.title}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 mt-0.5">
+                                <span>By {b.author || 'Unknown'}</span>
+                                {b.level && (
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold border border-purple-200 dark:border-purple-800">
+                                    {b.level.level_code || b.level.level_name}
+                                  </span>
+                                )}
+                                {b.category?.category_name && (
+                                  <span className="text-[11px] text-gray-400">· {b.category.category_name}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                <Package className="h-3 w-3" />
+                                {copiesCount} {copiesCount === 1 ? 'copy' : 'copies'}
+                              </span>
+                              {b.mrp != null && (
+                                <div className="text-[11px] font-semibold text-gray-700 dark:text-gray-300 mt-0.5">₹{Number(b.mrp).toFixed(2)}</div>
+                              )}
+                            </div>
+                          </button>
+                        )
+                      })
+                    ) : (
+                      <div className="p-3 text-xs text-gray-500 dark:text-gray-400 text-center">
+                        No existing book matches "{formData.title}". This will be created as a new book title.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -786,7 +951,7 @@ function Books() {
                 Cancel
               </Button>
               <Button type="submit">
-                {editing ? 'Update Book' : 'Save Book'}
+                {editing ? 'Update Book' : (selectedExistingBook ? `Create Copy #${(selectedExistingBook.copies?.length || 0) + 1}` : 'Save Book')}
               </Button>
             </div>
           </form>
@@ -1020,6 +1185,8 @@ function Books() {
                             <button
                               onClick={() => {
                                 setEditing(b.book_title_id)
+                                setSelectedExistingBook(b)
+                                setTitleDropdownOpen(false)
                                 setFormData({
                                   title: b.title || '',
                                   author: b.author || '',

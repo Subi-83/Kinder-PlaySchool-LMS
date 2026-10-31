@@ -709,6 +709,36 @@ def books_detailed_report():
             'book_status': status_str
         })
         for copy in copies:
+            c_status = (copy.status or 'AVAILABLE').upper()
+            if availability_filter and availability_filter != 'ALL':
+                if availability_filter == 'AVAILABLE' and c_status != 'AVAILABLE':
+                    continue
+                if availability_filter == 'ISSUED' and c_status != 'ISSUED':
+                    continue
+            if book_status_filter and book_status_filter != 'ALL':
+                if book_status_filter == 'Available' and c_status != 'AVAILABLE':
+                    continue
+                if book_status_filter in ('All Issued', 'ISSUED') and c_status != 'ISSUED':
+                    continue
+                if book_status_filter.upper() == 'DAMAGED' and c_status != 'DAMAGED':
+                    continue
+                if book_status_filter.upper() == 'LOST' and c_status != 'LOST':
+                    continue
+
+            all_books_list.append({
+                'book_id': copy.barcode or f"CP-{copy.book_copy_id}",
+                'name': b.title,
+                'author': b.author,
+                'copy_number': f"Copy #{copy.copy_number or 1}",
+                'level': level_name,
+                'category': cat_name,
+                'location': copy.location or 'Main Shelf',
+                'condition': copy.current_condition or copy.condition or 'Good',
+                'status': copy.status.capitalize() if copy.status else 'Available',
+                'price': float(b.mrp) if b.mrp is not None else (float(copy.purchase_price) if copy.purchase_price is not None else None),
+                'publisher': b.publisher or '-'
+            })
+
             if copy.status == 'LOST':
                 lost_book_results.append({
                     'book_id': copy.barcode or '-',
@@ -739,7 +769,7 @@ def books_detailed_report():
         book_id = str(row.get('book_id') or '')
         return (not book_id.isdigit(), int(book_id) if book_id.isdigit() else book_id)
 
-    results.sort(key=book_id_key)
+    all_books_list.sort(key=book_id_key)
     lost_book_results.sort(key=book_id_key)
     issued_book_results.sort(key=book_id_key)
 
@@ -750,14 +780,7 @@ def books_detailed_report():
         'issued_copies': sum(int(r['issued_quantity']) for r in results),
         'damaged_copies': sum(int(r['damaged_quantity']) for r in results),
         'lost_copies': sum(int(r['lost_quantity']) for r in results),
-        'books_list': [{
-            'book_id': row['book_id'],
-            'name': row['book_title'],
-            'author': row['author'],
-            'publisher': row['publisher'],
-            'price': row['mrp'],
-            'available_books': row['available_quantity']
-        } for row in results],
+        'books_list': all_books_list,
         'lost_books_list': lost_book_results,
         'issued_books_list': issued_book_results
     }), 200

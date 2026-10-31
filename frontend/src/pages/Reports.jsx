@@ -19,12 +19,14 @@ const tabs = [
 const FIELD_LABELS = {
   book_id: 'Book ID', student_id: 'Student ID', subscription_id: 'Subscription ID',
   roll_number: 'Roll Number', paid_amount: 'Paid Amount', balance_after: 'Balance Amount',
-  available_books: 'No. of Available Books', price: 'MRP'
+  price: 'MRP', copy_number: 'Copy No.', condition: 'Condition',
+  status: 'Status', level: 'Level', category: 'Category', location: 'Location',
+  purchase_year: 'Purchase Year', publisher: 'Publisher', name: 'Book Title', author: 'Author'
 }
 const pretty = (key) => FIELD_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 const BOOK_FIELD_ORDER = {
-  books_list: ['book_id', 'name', 'author', 'publisher', 'price', 'available_books'],
+  books_list: ['book_id', 'name', 'author', 'copy_number', 'level', 'category', 'location', 'condition', 'status', 'price'],
   lost_books_list: ['book_id', 'name', 'author', 'publisher', 'price', 'condition', 'location', 'notes'],
   issued_books_list: ['book_id', 'name', 'author', 'member_id', 'member_name', 'issue_date', 'due_date', 'status']
 }
@@ -730,9 +732,6 @@ function Reports() {
                       {l.level_name} ({l.level_code})
                     </option>
                   ))}
-                  <option value="Level 1">Level 1</option>
-                  <option value="Level 2">Level 2</option>
-                  <option value="Level 3">Level 3</option>
                 </select>
               </div>
 

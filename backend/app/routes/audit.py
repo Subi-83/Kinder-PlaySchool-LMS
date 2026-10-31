@@ -256,21 +256,14 @@ def approve_delete_request(audit_id):
             BookCopy.query.filter_by(book_title_id=book.book_title_id).delete()
             db.session.delete(book)
             db.session.flush()
-            if level_id:
-                from app.routes.books import resequence_level_copies
-                resequence_level_copies(level_id)
         elif approval.action == 'DELETE_COPY_REQUEST':
             copy = BookCopy.query.get(int(approval.record_id))
             if not copy:
                 return jsonify({'error': 'Book copy no longer exists.'}), 404
             if copy.status == 'ISSUED':
                 return jsonify({'error': 'Cannot delete an issued copy.'}), 400
-            level_id = copy.title_ref.level_id if copy.title_ref else None
             db.session.delete(copy)
             db.session.flush()
-            if level_id:
-                from app.routes.books import resequence_level_copies
-                resequence_level_copies(level_id)
         else:
             student = Student.query.get(int(approval.record_id))
             if not student:
